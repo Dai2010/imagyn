@@ -281,8 +281,14 @@ String redact(String text, List<String> secrets) {
     final trimmed = secret.trim();
     if (trimmed.length >= 4) result = result.replaceAll(trimmed, '[REDACTED]');
   }
+  // Dart's RegExp is ECMAScript syntax, which has no inline `(?i)` flag — an
+  // invalid pattern throws at construction, so the case-insensitivity has to be
+  // passed as an argument. (The analyzer's valid_regexps lint is what caught
+  // this: a Python port of the same pattern proves nothing, because Python does
+  // accept `(?i)`.)
   result = result.replaceAllMapped(
-    RegExp(r'(?i)(authorization|api[_-]?key|x-api-key)("?\s*[:=]\s*"?)[^\s",}]+'),
+    RegExp(r'(authorization|api[_-]?key|x-api-key)("?\s*[:=]\s*"?)[^\s",}]+', caseSensitive: false),
     (match) => '${match[1]}${match[2]}[REDACTED]');
-  return result.replaceAll(RegExp(r'(?i)bearer\s+[A-Za-z0-9._\-]{8,}'), 'Bearer [REDACTED]');
+  return result.replaceAll(
+    RegExp(r'bearer\s+[A-Za-z0-9._\-]{8,}', caseSensitive: false), 'Bearer [REDACTED]');
 }
