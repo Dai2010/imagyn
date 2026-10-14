@@ -71,31 +71,31 @@ jobs:
             exit 1
           fi
 
-      - name: Generate the platform folder and wire up release signing
-        run: python3 scripts/scaffold_platforms.py android --release-signing
+      - run: python3 scripts/scaffold_platforms.py android
 
-      - name: Install the keystore
+      - run: flutter pub get
+      - run: flutter build apk --release
+
+      # Signed after the build rather than through a signing config injected into
+      # the generated build.gradle.kts: the injection failed in CI and would have
+      # to track Flutter's template shape. These are the same commands that were
+      # verified against the real key on the phone.
+      - name: Re-sign with the release key
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          printf '%s' "$KEYSTORE" | base64 -d > android/release.jks
-          # Paths are relative to android/, which is what the signing config in
-          # the generated build.gradle resolves against. Written straight from
-          # the environment: a sed pass would corrupt any password containing
-          # the delimiter, and the runner already masks secret values in logs.
-          cat > android/key.properties <<PROPERTIES
-          storeFile=release.jks
-          storePassword=$STORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD
-          PROPERTIES
-          chmod 600 android/key.properties
-
-      - run: flutter pub get
-      - run: flutter build apk --release
+          printf '%s' "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          "$tools/zipalign" -f -p 4 "$apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$RUNNER_TEMP/release.jks" \
+            --ks-key-alias "$KEY_ALIAS" --ks-pass "pass:$STORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --out "$RUNNER_TEMP/signed.apk" "$RUNNER_TEMP/aligned.apk"
+          mv "$RUNNER_TEMP/signed.apk" "$apk"
 
       - name: Verify the signature
         run: |
