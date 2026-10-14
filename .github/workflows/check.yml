@@ -1,0 +1,41 @@
+# Analyse and unit-test the Dart code on every pull request and on main.
+# This job never touches signing keys, and it needs no platform folder: the
+# tests exercise the protocol adapters, the config model and the translations.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to the stable channel rather than a version number: the SDK
+      # constraint in pubspec.yaml (>= 3.9.0) is what actually gates the tool
+      # chain, and a guessed version string fails harder than a moving channel.
+      # Pin the exact version once one has been verified green.
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter --version
+      - run: flutter pub get
+
+      # `dart format` is not enforced yet: the tree has never been through a
+      # real formatter, so a --set-exit-if-changed gate would fail on
+      # formatting alone. Run `dart format .` once a local SDK exists, commit
+      # that, and only then add the gate.
+      - run: flutter analyze
+      - run: flutter test --reporter expanded

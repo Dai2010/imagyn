@@ -1,0 +1,52 @@
+# Build the Android APK from main and upload it as a test artifact.
+#
+# Only Android is built. The app also targets Linux, Windows and macOS, and
+# `scripts/scaffold_platforms.py` can produce those folders, but the APK is the
+# artifact that actually gets installed and tried.
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: python3 scripts/scaffold_platforms.py android
+      - run: flutter pub get
+
+      # A release build rather than a debug one: this artifact exists to be
+      # installed and judged on a real phone, and a debug APK is noticeably
+      # slower and twice the size. It is signed with the runner's throwaway
+      # Android debug key, which is deterministic, so successive runs overwrite
+      # each other cleanly. Installing a properly signed release over it later
+      # needs an uninstall first, which is why release.yml refuses to run
+      # without the real keystore.
+      - run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imagyn-android-release-debugkey
+          path: build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
