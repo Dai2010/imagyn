@@ -37,5 +37,8 @@ jobs:
       # real formatter, so a --set-exit-if-changed gate would fail on
       # formatting alone. Run `dart format .` once a local SDK exists, commit
       # that, and only then add the gate.
+      # Measured on stable 3.47.7: `flutter analyze` exits non-zero on info-level
+      # lints as well, not just errors and warnings. The tree therefore has to
+      # stay lint-clean for this gate to pass.
       - run: flutter analyze
       - run: flutter test --reporter expanded

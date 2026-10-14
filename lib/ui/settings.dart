@@ -104,21 +104,21 @@ class _SettingsPageState extends State<SettingsPage> {
       child: ListView(padding: const EdgeInsets.all(24), children: [
         IgnorePointer(ignoring: _checking || _saving, child: Column(children: [
           _section('appearance', [
-            DropdownButtonFormField<String>(value: _language, decoration: InputDecoration(labelText: s.t('language')),
+            DropdownButtonFormField<String>(initialValue: _language, decoration: InputDecoration(labelText: s.t('language')),
               items: [
                 DropdownMenuItem(value: 'system', child: Text(s.t('system'))),
                 ...Strings.names.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))),
               ],
               onChanged: (v) => setState(() => _language = v!)),
             const SizedBox(height: 14),
-            DropdownButtonFormField<String>(value: _theme, decoration: InputDecoration(labelText: s.t('theme')),
+            DropdownButtonFormField<String>(initialValue: _theme, decoration: InputDecoration(labelText: s.t('theme')),
               items: ['system','light','dark'].map((v) => DropdownMenuItem(value: v, child: Text(s.t(v)))).toList(),
               onChanged: (v) => setState(() => _theme = v!)),
             SwitchListTile(contentPadding: EdgeInsets.zero, title: Text(s.t('reduceMotion')), value: _motion,
               onChanged: (v) => setState(() => _motion = v)),
           ]),
           _section('connection', [
-            DropdownButtonFormField<ApiProtocol>(value: _protocol,
+            DropdownButtonFormField<ApiProtocol>(initialValue: _protocol,
               decoration: InputDecoration(labelText: s.t('protocol')),
               items: ApiProtocol.values.map((v) => DropdownMenuItem(value: v,
                 child: Text(v == ApiProtocol.openai ? 'OpenAI' : 'Anthropic / Claude'))).toList(),
@@ -136,7 +136,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _section('imageConnection', [
             _field(_imageBase, 'imageEndpoint', hint: 'https://…/v1'),
             _field(_imageKey, 'imageKey', secret: true), _field(_imageModel, 'imageModel'),
-            DropdownButtonFormField<int>(value: _limit, decoration: InputDecoration(labelText: s.t('limit')),
+            DropdownButtonFormField<int>(initialValue: _limit, decoration: InputDecoration(labelText: s.t('limit')),
               items: List.generate(16, (i) => DropdownMenuItem(value: i + 1, child: Text('${i + 1}'))),
               onChanged: (v) => setState(() => _limit = v!)),
             const SizedBox(height: 12),

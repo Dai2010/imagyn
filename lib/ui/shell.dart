@@ -127,8 +127,10 @@ class _StudioShellState extends State<StudioShell> {
       ]))))));
 
   Widget _gallery() {
-    if (studio.gallery.isEmpty) return Center(key: const ValueKey('gallery'),
-      child: _empty(Icons.blur_on_rounded, 'emptyGallery'));
+    if (studio.gallery.isEmpty) {
+      return Center(key: const ValueKey('gallery'),
+        child: _empty(Icons.blur_on_rounded, 'emptyGallery'));
+    }
     return GridView.builder(key: const ValueKey('gallery'), padding: const EdgeInsets.all(20),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 320,
         mainAxisSpacing: 14, crossAxisSpacing: 14, childAspectRatio: .9),
