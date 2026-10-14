@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Imagyn
+Name[zh_CN]=映想
+GenericName=AI image studio
+GenericName[zh_CN]=AI 图像创作
+Comment=Generate and edit images through any OpenAI- or Anthropic-compatible service
+Comment[zh_CN]=用自备的 OpenAI / Anthropic 兼容接口生成与修改图片
+Exec=imagyn
+Icon=imagyn
+Terminal=false
+Categories=Graphics;2DGraphics;
+Keywords=image;ai;generate;edit;
+StartupNotify=true
+StartupWMClass=imagyn

@@ -1,0 +1,251 @@
+# Publish a release: the signed Android APK plus the Linux, Windows and macOS
+# packages. Triggered by a v* tag; a manual dispatch from a branch fails in the
+# guard job, because the publish step needs a tag.
+#
+# Only the Android APK is signed. The desktop packages are unsigned — there is
+# no Authenticode certificate and no Apple Developer ID — so Windows
+# SmartScreen and macOS Gatekeeper warn on first run. The release notes say so
+# instead of hiding it.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require a v* tag that agrees with pubspec.yaml
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::This workflow publishes a release, so it has to run on a tag."
+            echo "Create one with: git tag v0.1.0 && git push origin v0.1.0"
+            exit 1
+          fi
+          declared="$(grep -m1 '^version:' pubspec.yaml | cut -d' ' -f2 | cut -d'+' -f1)"
+          tagged="${GITHUB_REF_NAME#v}"
+          if [ "$declared" != "$tagged" ]; then
+            echo "::error::the tag is $tagged but pubspec.yaml declares $declared"
+            exit 1
+          fi
+
+  android:
+    needs: guard
+    runs-on: ubuntu-24.04
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Require the signing secrets
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=0
+          for name in KEYSTORE STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not set for this environment"
+              missing=1
+            fi
+          done
+          if [ "$missing" != 0 ]; then
+            echo "Refusing to publish: a release must be signed with the release keystore."
+            exit 1
+          fi
+
+      - name: Generate the platform folder and wire up release signing
+        run: python3 scripts/scaffold_platforms.py android --release-signing
+
+      - name: Install the keystore
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          printf '%s' "$KEYSTORE" | base64 -d > android/release.jks
+          # Paths are relative to android/, which is what the signing config in
+          # the generated build.gradle resolves against. Written straight from
+          # the environment: a sed pass would corrupt any password containing
+          # the delimiter, and the runner already masks secret values in logs.
+          cat > android/key.properties <<PROPERTIES
+          storeFile=release.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          PROPERTIES
+          chmod 600 android/key.properties
+
+      - run: flutter pub get
+      - run: flutter build apk --release
+
+      - name: Verify the signature
+        run: |
+          build_tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          "$build_tools/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | tee certs.txt
+          if grep -qi 'android debug' certs.txt; then
+            echo "::error::the APK is signed with the debug key; refusing to publish"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+  linux:
+    needs: guard
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # libsecret-1-dev and libjsoncpp-dev are what flutter_secure_storage's
+      # Linux plugin finds through pkg-config; without them the CMake configure
+      # step of `flutter build linux` fails outright on a clean runner.
+      # rpm and libarchive-tools carry rpmbuild and bsdtar for packaging.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgtk-3-dev \
+            libsecret-1-dev libjsoncpp-dev rpm libarchive-tools
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: python3 scripts/scaffold_platforms.py linux
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - run: scripts/package_linux.sh build/linux/x64/release/bundle "${GITHUB_REF_NAME#v}" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    needs: guard
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install the packaging tools
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          dotnet tool install --global wix
+
+      - shell: bash
+        run: python scripts/scaffold_platforms.py windows
+      - shell: bash
+        run: flutter pub get
+      - shell: bash
+        run: flutter build windows --release
+      - shell: pwsh
+        run: |
+          $version = "$env:GITHUB_REF_NAME" -replace '^v', ''
+          ./scripts/package_windows.ps1 -Bundle build/windows/x64/runner/Release `
+            -Version $version -Out dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    needs: guard
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: python3 scripts/scaffold_platforms.py macos
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - run: scripts/package_macos.sh build/macos/Build/Products/Release/imagyn.app "${GITHUB_REF_NAME#v}" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [android, linux, windows, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Source archive
+        # GPL-3.0 requires offering the corresponding source alongside the
+        # binaries, and this is that offer.
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git archive --format=tar.gz --prefix="imagyn-$version/" \
+            -o "dist/imagyn-$version-source.tar.gz" HEAD
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          # A draft, so the signature status and the asset list can be read
+          # through before anyone downloads them.
+          draft: true
+          name: Imagyn ${{ github.ref_name }}
+          body: |
+            映想 Imagyn ${{ github.ref_name }}
+
+            **签名状态 / Signing**
+            - Android APK — signed with the release keystore.
+            - Windows MSI + EXE, macOS DMG + PKG, Linux deb + rpm + Arch — **unsigned**.
+              Windows SmartScreen warns about an unknown publisher and macOS Gatekeeper
+              needs a right-click to open. Removing that needs an Authenticode
+              certificate and an Apple Developer ID, neither of which exists yet.
+            - Windows is 64-bit only: Flutter ships no 32-bit Windows embedder.
+
+            **许可证 / License**: GPL-3.0-or-later. The corresponding source is attached
+            as `imagyn-${{ github.ref_name }}-source.tar.gz`, as the GPL requires.
+
+            **校验 / Checksums**: see `SHA256SUMS`.
+          files: dist/*
