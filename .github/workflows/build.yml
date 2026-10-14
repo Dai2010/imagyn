@@ -166,6 +166,54 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  publish-apk:
+    # Publishes the APK the moment it exists. On the phone's network the Actions
+    # artifact API cannot be used to fetch it, so the release asset is how it
+    # travels — and waiting for the three desktop builds would delay it by ten
+    # minutes for nothing. The full `publish` job below rewrites this release's
+    # notes and adds the desktop packages once they are ready.
+    if: github.event_name == 'workflow_dispatch'
+    needs: android
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: android
+          path: dist
+
+      - name: Checksum and release notes
+        run: |
+          cd dist
+          sha256sum -- *.apk > SHA256SUMS
+          cat SHA256SUMS
+          digest="$(awk '{print $1}' SHA256SUMS)"
+          {
+            echo "**这是预览版，不是正式发布。**"
+            echo
+            echo "签名：**Android debug 密钥**，不是 release keystore。要装正式签名版需先卸载。"
+            echo
+            echo "来源：\`build\` 流水线 #${{ github.run_id }}，提交 \`${{ github.sha }}\`。"
+            echo
+            echo "- minSdk 29（Android 10+），fat APK（arm64-v8a / armeabi-v7a / x86_64）"
+            echo "- sha256: $digest"
+            echo
+            echo "国内下载：在附件地址前加 https://ghfast.top/ 前缀即可。"
+            echo
+            echo "桌面三平台（deb / rpm / Arch、MSI / EXE、DMG / PKG）构建完成后会补进本页。"
+          } > ../NOTES.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.title }}
+          prerelease: true
+          body_path: NOTES.md
+          files: dist/*
+
   publish:
     # Manual runs only: an ordinary push to main should not keep minting releases.
     if: github.event_name == 'workflow_dispatch'

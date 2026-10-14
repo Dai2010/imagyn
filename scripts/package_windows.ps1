@@ -54,12 +54,25 @@ if (-not $iscc) {
     throw "ISCC.exe not found; install Inno Setup 6"
 }
 
-# ArchitecturesAllowed=x64compatible needs Inno Setup 6.3 or newer. An older
-# compiler fails on that line with a parse error, so say so up front instead.
+# ArchitecturesAllowed=x64compatible needs Inno Setup 6.3 or newer; 6.0-6.2
+# cannot parse that line. ISCC.exe carries no version resource of its own — it
+# reads back as 0.0.0.0, which is exactly how this check killed the job the
+# first time — so ask the uninstall entry instead, and only warn when the
+# version cannot be determined rather than refusing to package.
 $innoVersion = $null
-try { $innoVersion = [version](Get-Item $iscc).VersionInfo.ProductVersion } catch { }
+foreach ($key in @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1')) {
+    try {
+        $innoVersion = [version](Get-ItemProperty -Path $key -ErrorAction Stop).DisplayVersion
+        break
+    } catch { }
+}
 if ($innoVersion -and $innoVersion -lt [version]'6.3') {
     throw "Inno Setup 6.3 or newer is required for the x64compatible architecture identifier, found $innoVersion"
+}
+if (-not $innoVersion) {
+    Write-Warning "could not determine the Inno Setup version; x64compatible needs 6.3 or newer"
 }
 
 & $iscc `
