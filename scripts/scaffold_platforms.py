@@ -150,6 +150,21 @@ def patch_android(target: Path, release_signing: bool) -> None:
     if labelled != 1:
         fail("could not find android:label in AndroidManifest.xml; "
              "the Flutter template changed, update this script")
+
+    # The Flutter template declares INTERNET only in the debug and profile
+    # manifests, where the tooling needs it for hot reload; a release build reads
+    # the main manifest alone. Without this line the shipped APK has no network
+    # access at all — every request fails with "Failed host lookup" while the
+    # phone's own resolver reaches the same host without trouble.
+    if "android.permission.INTERNET" not in manifest_text:
+        anchor = "<application"
+        if anchor not in manifest_text:
+            fail("could not find <application in AndroidManifest.xml; "
+                 "the Flutter template changed, update this script")
+        manifest_text = manifest_text.replace(
+            anchor,
+            '    <uses-permission android:name="android.permission.INTERNET" />\n' + anchor,
+            count=1)
     manifest.write_text(manifest_text)
 
     # Only one MainActivity may exist: ours replaces the generated one, and any
