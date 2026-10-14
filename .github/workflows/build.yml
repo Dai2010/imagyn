@@ -8,7 +8,20 @@ name: build
 on:
   push:
     branches: [main]
+  # A manual run can also attach the APK to a GitHub prerelease. That keeps the
+  # artifact inside GitHub instead of carrying it back to a machine on a slow or
+  # blocked link: the published asset can be fetched through a download mirror,
+  # which the Actions artifact API cannot.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag for the prerelease. Do not start it with "v": a v* tag runs release.yml, which refuses to publish without the signing keystore.'
+        required: true
+        default: 'preview'
+      title:
+        description: 'Release title'
+        required: false
+        default: 'Imagyn 预览 APK（debug 签名，仅供试装）'
 
 permissions:
   contents: read
@@ -50,3 +63,48 @@ jobs:
           name: imagyn-android-release-debugkey
           path: build/app/outputs/flutter-apk/*.apk
           if-no-files-found: error
+
+  publish:
+    # Manual runs only: an ordinary push to main should not keep minting releases.
+    if: github.event_name == 'workflow_dispatch'
+    needs: android
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      # The artifact is fetched from GitHub's own storage, so nothing here
+      # depends on the machine that will end up downloading the release.
+      - uses: actions/download-artifact@v4
+        with:
+          name: imagyn-android-release-debugkey
+          path: dist
+
+      - name: Checksums and release notes
+        run: |
+          cd dist
+          sha256sum -- *.apk > SHA256SUMS
+          cat SHA256SUMS
+          digest="$(awk '{print $1}' SHA256SUMS)"
+          {
+            echo "**这是预览包，不是正式发布。**"
+            echo
+            echo "签名：**Android debug 密钥**，不是 release keystore。可以安装试用；以后装正式签名版需要先卸载（应用内私有历史会丢，已导出到相册的图片不受影响）。"
+            echo
+            echo "来源：\`build\` 流水线 #${{ github.run_id }}，提交 \`${{ github.sha }}\`。"
+            echo
+            echo "- minSdk 29（Android 10+），fat APK（arm64-v8a / armeabi-v7a / x86_64）"
+            echo "- 应用名：映想（中文环境）/ Imagyn"
+            echo "- sha256: $digest"
+            echo
+            echo "国内下载：在附件地址前加 https://ghfast.top/ 前缀即可。"
+            echo
+            echo "已知限制：桌面三平台（deb / rpm / Arch / MSI / EXE / DMG / PKG）要等带签名的正式流程，目前只出 APK；未与真实接口联调，能否出图取决于你自己配置的兼容服务。"
+          } > ../NOTES.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.title }}
+          prerelease: true
+          body_path: NOTES.md
+          files: dist/*
