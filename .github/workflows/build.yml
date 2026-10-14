@@ -53,16 +53,42 @@ jobs:
           channel: stable
           cache: true
 
-      - run: python3 scripts/scaffold_platforms.py android
+      - name: Generate the platform folder, with preview signing when configured
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_PREVIEW_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_PREVIEW_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_PREVIEW_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_PREVIEW_KEY_PASSWORD }}
+        run: |
+          # A stable preview key, so one preview installs over the previous one.
+          # Without it the APK carries the runner's throwaway debug key, which is
+          # regenerated for every job — and then every preview needs an uninstall
+          # first, because the signature differs.
+          if [ -z "$KEYSTORE" ]; then
+            echo "::warning::preview signing secrets are not set; the APK will carry this runner's debug key and will not install over an earlier preview"
+            python3 scripts/scaffold_platforms.py android
+            exit 0
+          fi
+          python3 scripts/scaffold_platforms.py android --release-signing
+          printf '%s' "$KEYSTORE" | base64 -d > android/preview.jks
+          # Written straight from the environment: the runner masks secret values
+          # in logs, and a sed pass would corrupt a password containing the
+          # delimiter.
+          cat > android/key.properties <<PROPERTIES
+          storeFile=preview.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          PROPERTIES
+          chmod 600 android/key.properties
+
       - run: flutter pub get
 
       # A release build rather than a debug one: this artifact exists to be
       # installed and judged on a real phone, and a debug APK is noticeably
-      # slower and twice the size. It is signed with the throwaway Android debug
-      # key, which is deterministic, so successive runs overwrite each other
-      # cleanly. Installing a properly signed release over it later needs an
-      # uninstall first, which is why release.yml refuses to run without the
-      # real keystore.
+      # slower and twice the size. Signing is handled by the step above — the
+      # stable preview key when the secrets are configured, otherwise the
+      # runner's throwaway debug key, which changes on every job.
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
@@ -199,7 +225,7 @@ jobs:
           {
             echo "**这是预览版，不是正式发布。**"
             echo
-            echo "签名：**Android debug 密钥**，不是 release keystore。要装正式签名版需先卸载。"
+            echo "签名：**预览通道密钥**，因此可以覆盖安装后续预览；装正式签名版时仍需先卸载。（若 CI 未配置预览密钥，则退回 runner 每轮都变的临时 debug 密钥，那种情况下也得先卸载。）"
             echo
             echo "来源：\`build\` 流水线 #${{ github.run_id }}，提交 \`${{ github.sha }}\`。"
             echo
@@ -252,7 +278,7 @@ jobs:
             echo
             echo "## 签名状态"
             echo
-            echo "- **Android APK** —— 用 **Android debug 密钥**签名，不是 release keystore。可以安装试用；以后装正式签名版需要先卸载（应用内私有历史会丢，已导出到相册的图片不受影响）。"
+            echo "- **Android APK** —— 用**预览通道密钥**签名，所以能覆盖安装后续预览；装正式签名版时仍需先卸载。"
             echo "- **Windows MSI / EXE、macOS DMG / PKG、Linux deb / rpm / Arch** —— **未签名**。Windows SmartScreen 会提示未知发布者，macOS 需要右键打开。消除这一点需要 Authenticode 证书与 Apple Developer ID，两个都还没有。"
             echo "- **Windows 只有 64 位**：Flutter 不提供 32 位 Windows 目标。"
             echo
