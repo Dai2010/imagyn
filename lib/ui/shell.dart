@@ -1,0 +1,286 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+
+import '../core/models.dart';
+import '../core/studio.dart';
+import '../l10n/strings.dart';
+import 'settings.dart';
+
+class StudioShell extends StatefulWidget {
+  const StudioShell({super.key, required this.studio});
+  final Studio studio;
+  @override
+  State<StudioShell> createState() => _StudioShellState();
+}
+
+class _StudioShellState extends State<StudioShell> {
+  int _page = 0;
+  /// Which way the last page change went, so the two pages slide apart in the
+  /// direction the user moved instead of cross-fading in place.
+  bool _forward = true;
+  final _galleryPrompt = TextEditingController();
+  final _agentPrompt = TextEditingController();
+  String _size = '1024x1024';
+  Studio get studio => widget.studio;
+  Strings get s => Strings.of(context);
+
+  /// Every animation in this screen collapses to nothing when the user asked
+  /// for less motion in Settings.
+  Duration get _motion => MediaQuery.of(context).disableAnimations
+      ? Duration.zero : const Duration(milliseconds: 220);
+
+  @override
+  void dispose() { _galleryPrompt.dispose(); _agentPrompt.dispose(); super.dispose(); }
+
+  Future<void> _guard(Future<void> Function() action) async {
+    try { await action(); } catch (e) { if (mounted) _notice(s.t(errorCode(e))); }
+  }
+  void _notice(String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  void _settings() => Navigator.of(context).push(MaterialPageRoute<void>(
+    builder: (_) => SettingsPage(studio: studio)));
+  void _switch(int page) => setState(() { _forward = page > _page; _page = page; });
+
+  Widget _pageTransition(Widget child, Animation<double> animation) {
+    final incoming = child.key == ValueKey(_page);
+    final slide = (_forward ? 1.0 : -1.0) * (incoming ? 1 : -1) * .04;
+    return FadeTransition(opacity: animation, child: SlideTransition(
+      position: Tween(begin: Offset(slide, 0), end: Offset.zero).animate(animation), child: child));
+  }
+
+  /// Fades and lifts a child into place the first time it is built.
+  Widget _appear(String id, Widget child) => TweenAnimationBuilder<double>(
+    key: ValueKey(id), tween: Tween(begin: 0, end: 1), duration: _motion, curve: Curves.easeOutCubic,
+    builder: (context, value, child) => Opacity(opacity: value,
+      child: Transform.translate(offset: Offset(0, (1 - value) * 10), child: child)),
+    child: child);
+
+  /// Gallery items fly into the full-size preview from their own grid cell.
+  String _heroTag(Asset asset) => 'gallery-${asset.id}';
+
+  @override
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 760;
+    if (studio.onboarding) return _welcome();
+    final title = _page == 0 ? s.t('gallery') : s.t('agent');
+    final content = Column(children: [
+      Expanded(child: AnimatedSwitcher(duration: _motion, transitionBuilder: _pageTransition,
+        child: KeyedSubtree(key: ValueKey(_page), child: _page == 0 ? _gallery() : _conversation()))),
+      AnimatedSize(duration: _motion, alignment: AlignmentDirectional.topStart,
+        child: studio.error == null ? const SizedBox.shrink() : Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          child: Text(s.t(studio.error!), style: TextStyle(color: Theme.of(context).colorScheme.error)))),
+      AnimatedSize(duration: _motion, alignment: AlignmentDirectional.topStart,
+        child: studio.busy ? Padding(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          child: Row(children: [const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+            const SizedBox(width: 10), Expanded(child: Text(s.t(studio.stage))),
+            TextButton(onPressed: studio.cancel, child: Text(s.t('cancel')))])) : const SizedBox.shrink()),
+      _composer(),
+    ]);
+    return Scaffold(
+      appBar: AppBar(title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)), actions: [
+        if (_page == 1) ...[
+          IconButton(tooltip: s.t('history'), onPressed: studio.busy ? null : _history,
+            icon: const Icon(Icons.history_rounded)),
+          IconButton(tooltip: s.t('newChat'), onPressed: studio.busy ? null : () => _guard(studio.newConversation),
+            icon: const Icon(Icons.add_comment_outlined)),
+        ],
+        if (!wide) IconButton(tooltip: s.t('settings'), onPressed: studio.busy ? null : _settings,
+          icon: const Icon(Icons.settings_outlined)),
+        const SizedBox(width: 8),
+      ]),
+      body: SafeArea(top: false, bottom: wide, child: wide ? Row(children: [
+        NavigationRail(selectedIndex: _page, onDestinationSelected: _switch,
+          labelType: NavigationRailLabelType.all,
+          leading: const Padding(padding: EdgeInsets.all(12), child: Icon(Icons.auto_awesome_rounded, size: 28)),
+          trailing: Expanded(child: Align(alignment: Alignment.bottomCenter, child: Padding(
+            padding: const EdgeInsets.only(bottom: 16), child: IconButton(
+              tooltip: s.t('settings'), onPressed: studio.busy ? null : _settings,
+              icon: const Icon(Icons.settings_outlined))))),
+          destinations: [
+            NavigationRailDestination(icon: const Icon(Icons.grid_view_outlined),
+              selectedIcon: const Icon(Icons.grid_view_rounded), label: Text(s.t('gallery'))),
+            NavigationRailDestination(icon: const Icon(Icons.forum_outlined),
+              selectedIcon: const Icon(Icons.forum_rounded), label: Text(s.t('agent'))),
+          ]),
+        Expanded(child: content),
+      ]) : content),
+      bottomNavigationBar: wide ? null : NavigationBar(selectedIndex: _page,
+        onDestinationSelected: _switch, destinations: [
+          NavigationDestination(icon: const Icon(Icons.grid_view_outlined),
+            selectedIcon: const Icon(Icons.grid_view_rounded), label: s.t('gallery')),
+          NavigationDestination(icon: const Icon(Icons.forum_outlined),
+            selectedIcon: const Icon(Icons.forum_rounded), label: s.t('agent')),
+        ]),
+    );
+  }
+
+  Widget _welcome() => Scaffold(body: SafeArea(child: Center(child: ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 440), child: Padding(
+      padding: const EdgeInsets.all(32), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.auto_awesome_rounded, size: 58, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(height: 28), Text(s.t('welcome'), textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 12), Text(s.t('welcomeText'), textAlign: TextAlign.center),
+        const SizedBox(height: 28), FilledButton(onPressed: _settings, child: Text(s.t('configure'))),
+        TextButton(onPressed: () => _guard(studio.skipOnboarding), child: Text(s.t('browse'))),
+      ]))))));
+
+  Widget _gallery() {
+    if (studio.gallery.isEmpty) return Center(key: const ValueKey('gallery'),
+      child: _empty(Icons.blur_on_rounded, 'emptyGallery'));
+    return GridView.builder(key: const ValueKey('gallery'), padding: const EdgeInsets.all(20),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 320,
+        mainAxisSpacing: 14, crossAxisSpacing: 14, childAspectRatio: .9),
+      itemCount: studio.gallery.length, itemBuilder: (context, index) {
+        final asset = studio.gallery[index];
+        return _appear('gallery-${asset.id}', Card(clipBehavior: Clip.antiAlias, elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          child: InkWell(onTap: () => _preview(asset), child: Column(children: [
+            Expanded(child: SizedBox(width: double.infinity,
+              child: Hero(tag: _heroTag(asset), child: _image(asset, fit: BoxFit.cover)))),
+            Padding(padding: const EdgeInsetsDirectional.fromSTEB(14, 4, 4, 4), child: Row(children: [
+              Expanded(child: Text(asset.prompt, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall)),
+              PopupMenuButton<String>(tooltip: s.t('more'), onSelected: (action) => _assetAction(action, asset),
+                itemBuilder: (_) => [
+                  PopupMenuItem(value: 'save', child: Text(s.t('saveImage'))),
+                  PopupMenuItem(value: 'edit', child: Text(s.t('edit'))),
+                  PopupMenuItem(value: 'agent', child: Text(s.t('continueAgent'))),
+                ]),
+            ])),
+          ]))));
+      });
+  }
+
+  Widget _empty(IconData icon, String label) => Padding(padding: const EdgeInsets.all(24),
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 54, color: Theme.of(context).colorScheme.outlineVariant),
+      const SizedBox(height: 18), Text(s.t(label), textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.titleMedium),
+      if (studio.config.imageModel.isEmpty) Padding(padding: const EdgeInsets.only(top: 14),
+        child: TextButton(onPressed: _settings, child: Text(s.t('configure')))),
+    ]));
+
+  Widget _conversation() {
+    if (studio.chat.isEmpty) return Center(key: const ValueKey('agent'), child: _empty(Icons.auto_awesome_outlined, 'emptyAgent'));
+    return ListView.builder(key: ValueKey('agent-${studio.session}'), reverse: true,
+      padding: const EdgeInsets.all(20), itemCount: studio.chat.length,
+      itemBuilder: (context, index) {
+        final entry = studio.chat[studio.chat.length - index - 1];
+        final user = entry.role == 'user';
+        return Align(alignment: user ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
+          child: Container(margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(16),
+            constraints: const BoxConstraints(maxWidth: 680),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(20),
+              color: user ? Theme.of(context).colorScheme.secondaryContainer : Theme.of(context).colorScheme.surfaceContainerLow),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (entry.text.isNotEmpty) SelectableText(entry.text),
+              for (final id in entry.assetIds) FutureBuilder<Asset?>(future: studio.store.asset(id),
+                builder: (context, snapshot) {
+                  final asset = snapshot.data;
+                  if (asset == null) return const SizedBox.shrink();
+                  return Padding(padding: const EdgeInsets.only(top: 10), child: GestureDetector(
+                    onTap: () => _preview(asset), child: ClipRRect(borderRadius: BorderRadius.circular(14),
+                      child: ConstrainedBox(constraints: BoxConstraints(maxHeight: user ? 120 : 400), child: _image(asset)))));
+                }),
+            ])));
+      });
+  }
+
+  Widget _composer() {
+    final agent = _page == 1;
+    final refs = agent ? studio.agentRefs : studio.galleryRefs;
+    final controller = agent ? _agentPrompt : _galleryPrompt;
+    return Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 980),
+      child: Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 16), child: DecoratedBox(
+        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(24), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .5))),
+        child: Padding(padding: const EdgeInsets.all(12), child: Column(mainAxisSize: MainAxisSize.min, children: [
+          AnimatedSize(duration: _motion, alignment: AlignmentDirectional.topStart,
+            child: refs.isEmpty ? const SizedBox.shrink() : SizedBox(height: 80,
+              child: ListView.separated(scrollDirection: Axis.horizontal,
+                itemCount: refs.length, separatorBuilder: (_, _) => const SizedBox(width: 8),
+                itemBuilder: (context, i) => _appear('ref-${refs[i].id}', Stack(children: [
+              ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(width: 76, height: 76,
+                child: _image(refs[i], fit: BoxFit.cover))),
+              PositionedDirectional(start: 4, bottom: 4, child: Badge(label: Text('${i + 1}'))),
+              PositionedDirectional(end: 0, top: 0, child: IconButton.filledTonal(
+                tooltip: s.t('close'), visualDensity: VisualDensity.compact, iconSize: 16,
+                onPressed: studio.busy ? null : () => studio.removeReference(agent, i),
+                icon: const Icon(Icons.close))),
+            ]))))),
+          TextField(controller: controller, minLines: 1, maxLines: 4,
+            enabled: !studio.busy, textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(hintText: s.t(agent ? 'agentPrompt' : 'prompt'),
+              filled: false, border: InputBorder.none, enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none)),
+          Row(children: [
+            IconButton(tooltip: s.t('addReferences'), onPressed: studio.busy ? null : () => _guard(() => studio.pickReferences(agent)),
+              icon: const Icon(Icons.add_photo_alternate_outlined)),
+            PopupMenuButton<String>(tooltip: s.t('more'), initialValue: _size,
+              onSelected: (v) => setState(() => _size = v),
+              itemBuilder: (_) => ['1024x1024','1536x1024','1024x1536'].map((v) => PopupMenuItem(value: v,
+                child: Text({'1024x1024': '1:1', '1536x1024': '3:2', '1024x1536': '2:3'}[v]!))).toList(),
+              child: Padding(padding: const EdgeInsets.all(12), child: Text(
+                {'1024x1024': '1:1', '1536x1024': '3:2', '1024x1536': '2:3'}[_size]!))),
+            const Spacer(),
+            FilledButton(onPressed: studio.busy ? null : () => _guard(() async {
+              await studio.submit(controller.text, agent, _size);
+              if (studio.error == null) controller.clear();
+            }), child: Icon(agent ? Icons.arrow_upward_rounded : Icons.auto_awesome_rounded)),
+          ]),
+        ]))))));
+  }
+
+  Widget _image(Asset asset, {BoxFit fit = BoxFit.contain}) => Image.file(
+    File(studio.store.file(asset).path), fit: fit, cacheWidth: 640,
+    errorBuilder: (_, _, _) => const Center(child: Icon(Icons.broken_image_outlined)),
+    frameBuilder: (context, child, frame, synchronous) => AnimatedOpacity(
+      opacity: frame == null && !synchronous ? 0 : 1,
+      duration: MediaQuery.of(context).disableAnimations ? Duration.zero : const Duration(milliseconds: 180), child: child));
+
+  void _assetAction(String action, Asset asset) {
+    if (action == 'save') {
+      _guard(() async { await studio.export(asset); if (mounted) _notice(s.t('saved')); });
+    } else {
+      studio.useReference(asset, action == 'agent');
+      _switch(action == 'agent' ? 1 : 0);
+    }
+  }
+
+  void _preview(Asset asset) => showDialog<void>(context: context, builder: (context) => Dialog(
+    clipBehavior: Clip.antiAlias, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 900, maxHeight: 700),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Align(alignment: AlignmentDirectional.centerEnd, child: IconButton(tooltip: s.t('close'),
+          onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close))),
+        Flexible(child: InteractiveViewer(minScale: .5, maxScale: 5,
+          child: Hero(tag: _heroTag(asset), child: Image.file(studio.store.file(asset), fit: BoxFit.contain,
+            errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined))))),
+        Padding(padding: const EdgeInsets.all(12), child: Wrap(spacing: 12, children: [
+          TextButton.icon(onPressed: () { Navigator.pop(context); _assetAction('save', asset); },
+            icon: const Icon(Icons.download_outlined), label: Text(s.t('saveImage'))),
+          TextButton(onPressed: () { Navigator.pop(context); _assetAction('edit', asset); }, child: Text(s.t('edit'))),
+          TextButton(onPressed: () { Navigator.pop(context); _assetAction('agent', asset); }, child: Text(s.t('continueAgent'))),
+        ])),
+      ]))));
+
+  Future<void> _history() async {
+    final sessions = await studio.conversations();
+    if (!mounted) return;
+    await showModalBottomSheet<void>(context: context, isScrollControlled: true, builder: (context) => SafeArea(
+      child: SizedBox(height: MediaQuery.sizeOf(context).height * .6, child: ListView(children: [
+        Padding(padding: const EdgeInsets.all(20), child: Text(s.t('history'), style: Theme.of(context).textTheme.titleLarge)),
+        for (final session in sessions) FutureBuilder<List<ChatEntry>>(
+          future: studio.store.messages(session['session'] as String), builder: (context, snapshot) {
+            final entries = snapshot.data;
+            return ListTile(
+              leading: const Icon(Icons.chat_bubble_outline_rounded),
+              title: Text(entries == null || entries.isEmpty ? '…' : entries.first.text,
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+              selected: session['session'] == studio.session,
+              onTap: () { Navigator.pop(context); _guard(() => studio.switchConversation(session['session'] as String)); });
+          }),
+      ]))));
+  }
+}
