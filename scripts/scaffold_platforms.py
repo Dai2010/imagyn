@@ -161,10 +161,11 @@ def patch_android(target: Path, release_signing: bool) -> None:
         if anchor not in manifest_text:
             fail("could not find <application in AndroidManifest.xml; "
                  "the Flutter template changed, update this script")
+        # `str.replace` takes no keyword arguments (`re.subn` above does take
+        # `count=`; that difference is what reddened the first attempt).
         manifest_text = manifest_text.replace(
             anchor,
-            '    <uses-permission android:name="android.permission.INTERNET" />\n' + anchor,
-            count=1)
+            '    <uses-permission android:name="android.permission.INTERNET" />\n' + anchor)
     manifest.write_text(manifest_text)
 
     # Only one MainActivity may exist: ours replaces the generated one, and any
