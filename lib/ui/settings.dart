@@ -23,6 +23,8 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _status;
   /// Diagnostic line shown under [_status]: the server's own words.
   String? _detail;
+  /// Which check is in flight, so the spinner sits on the button that was tapped.
+  String? _running;
   StudioApi? _client;
   final _cancel = CancelToken();
   Strings get s => Strings.of(context);
@@ -64,8 +66,20 @@ class _SettingsPageState extends State<SettingsPage> {
       SnackBar(content: Text(message), duration: const Duration(seconds: 6)));
   }
 
+  /// The check buttons carry the progress themselves. The status line and the
+  /// linear indicator sit at the bottom of a long form, so a tap in the middle
+  /// of it looks like nothing happened — long enough to matter, since a slow
+  /// endpoint can take about a minute of timeouts before the first is reached.
+  Widget _checkButton(String label, String what, {bool images = false, bool text = false}) =>
+    OutlinedButton(
+      onPressed: _checking ? null : () => _check(images: images, text: text),
+      child: _running == what
+        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+        : Text(s.t(label)));
+
   Future<void> _check({bool images = false, bool text = false}) async {
-    setState(() { _checking = true; _status = null; _detail = null; });
+    final what = text ? 'text' : (images ? 'images' : 'models');
+    setState(() { _checking = true; _running = what; _status = null; _detail = null; });
     StudioApi? client;
     try {
       client = StudioApi(config, _key.text.trim(), _imageKey.text.trim(), widget.studio.store);
@@ -88,9 +102,9 @@ class _SettingsPageState extends State<SettingsPage> {
         _finish('connected', detail: '${models.length} models');
       }
     } catch (e) {
-      _finish(errorCode(e), detail: errorDetailOf(e));
+      _finish(errorCode(e), detail: errorDetailOf(e, secrets: [_key.text, _imageKey.text]));
     }
-    finally { client?.close(); _client = null; if (mounted) setState(() => _checking = false); }
+    finally { client?.close(); _client = null; if (mounted) setState(() { _checking = false; _running = null; }); }
   }
 
   Future<void> _save() async {
@@ -144,8 +158,8 @@ class _SettingsPageState extends State<SettingsPage> {
             SwitchListTile(contentPadding: EdgeInsets.zero, title: Text(s.t('vision')), value: _vision,
               onChanged: (v) => setState(() => _vision = v)),
             Wrap(spacing: 8, children: [
-              OutlinedButton(onPressed: () => _check(), child: Text(s.t('checkModels'))),
-              OutlinedButton(onPressed: () => _check(text: true), child: Text(s.t('checkText'))),
+              _checkButton('checkModels', 'models'),
+              _checkButton('checkText', 'text', text: true),
             ]),
           ]),
           _section('imageConnection', [
@@ -155,7 +169,7 @@ class _SettingsPageState extends State<SettingsPage> {
               items: List.generate(16, (i) => DropdownMenuItem(value: i + 1, child: Text('${i + 1}'))),
               onChanged: (v) => setState(() => _limit = v!)),
             const SizedBox(height: 12),
-            OutlinedButton(onPressed: () => _check(images: true), child: Text(s.t('checkModels'))),
+            _checkButton('checkModels', 'images', images: true),
             const SizedBox(height: 8), Text(s.t('checkNote'), style: Theme.of(context).textTheme.bodySmall),
           ]),
           _section('network', [_field(_proxy, 'proxy', hint: 'http://127.0.0.1:8080')]),

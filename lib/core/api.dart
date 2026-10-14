@@ -27,35 +27,36 @@ class StudioApi {
   final LocalStore store;
   final Dio dio;
   static const maxImageBytes = 30 * 1024 * 1024;
+  /// How many same-origin hops a model list may take before giving up.
+  static const maxRedirects = 3;
 
   Map<String, String> get agentHeaders => config.protocol == ApiProtocol.anthropic
     ? {'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'}
     : {'Authorization': 'Bearer $key', 'content-type': 'application/json'};
   Map<String, String> get imageHeaders => {'Authorization': 'Bearer ${imageKey.isEmpty ? key : imageKey}'};
 
-  /// Fetches the model list. A model list is a cheap idempotent GET, so a
-  /// connection-level failure is retried a couple of times the way ChatBox does
-  /// — but a response, even an error one, means the service answered and a retry
-  /// would only repeat it.
+  /// Fetches the model list.
+  ///
+  /// Auto-following redirects is off on this client so the credential cannot be
+  /// handed to another host, but a redirect that keeps the request on the same
+  /// scheme, host and port is followed by hand — many compatible services
+  /// normalise `/models` with one. A connection that never reached the service
+  /// is retried, the way ChatBox does; a response, even an error one, is not.
   Future<List<String>> listModels({bool images = false}) async {
-    final uri = images ? config.imageEndpoint('models') : config.endpoint('models');
+    var uri = images ? config.imageEndpoint('models') : config.endpoint('models');
     final headers = images ? imageHeaders : agentHeaders;
-    DioException? networkFailure;
-    for (var attempt = 0; attempt < 3; attempt++) {
+    for (var hop = 0; hop <= maxRedirects; hop++) {
       try {
-        final response = await dio.getUri(uri, options: Options(headers: headers));
-        final data = objectResponse(response.data)['data'];
-        if (data is! List) throw const FormatException('invalidResponse');
-        return data.whereType<Map>().map((e) => e['id']).whereType<String>().toList()..sort();
+        final response = await retryNetwork(() => dio.getUri(uri, options: Options(headers: headers)));
+        return modelIds(response.data);
       } on DioException catch (error) {
-        if (error.response != null) rethrow;
-        networkFailure = error;
-        if (attempt < 2) {
-          await Future<void>.delayed(const Duration(milliseconds: 500));
-        }
+        final response = error.response;
+        final target = response == null ? null : sameOriginRedirect(uri, response);
+        if (target == null) rethrow;
+        uri = target;
       }
     }
-    throw networkFailure!;
+    throw const FormatException('redirectBlocked');
   }
 
   Future<List<Uint8List>> generate(String prompt, List<Asset> refs, String size,
@@ -177,6 +178,47 @@ Dio networkClient(String proxy, {bool followRedirects = true}) {
       ..findProxy = (_) => 'PROXY ${uri.host}:${uri.port}');
   }
   return dio;
+}
+
+/// Retries a request only when it never reached the service, the way ChatBox
+/// does: a response, even an error one, means the service answered and retrying
+/// would only repeat the same answer.
+Future<T> retryNetwork<T>(Future<T> Function() request, {int attempts = 3}) async {
+  DioException? failure;
+  for (var attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await request();
+    } on DioException catch (error) {
+      if (error.response != null) rethrow;
+      failure = error;
+      if (attempt < attempts - 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+    }
+  }
+  throw failure!;
+}
+
+/// The redirect target, but only when following it keeps the request on the same
+/// scheme, host and port. Anything else would hand the credential to another
+/// host, which is exactly why this client does not follow redirects by itself.
+Uri? sameOriginRedirect(Uri from, Response<dynamic> response) {
+  final status = response.statusCode ?? 0;
+  if (status < 300 || status >= 400) return null;
+  final location = response.headers.value('location');
+  if (location == null) return null;
+  final target = from.resolve(location);
+  if (target.scheme != from.scheme || target.host != from.host) return null;
+  return _portOf(target) == _portOf(from) ? target : null;
+}
+
+int _portOf(Uri uri) => uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
+
+/// The ids out of a `{"data": [{"id": …}]}` model list.
+List<String> modelIds(Object? body) {
+  final data = objectResponse(body)['data'];
+  if (data is! List) throw const FormatException('invalidResponse');
+  return data.whereType<Map>().map((e) => e['id']).whereType<String>().toList()..sort();
 }
 
 Map<String, dynamic> objectResponse(Object? value) {

@@ -199,7 +199,7 @@ class Studio extends ChangeNotifier {
       await refresh();
     } catch (e) {
       error = errorCode(e, submitted: jobId != null);
-      errorDetail = errorDetailOf(e);
+      errorDetail = errorDetailOf(e, secrets: [key, imageKey]);
       if (jobId != null) await store.job(jobId, 'unknown', {'prompt': prompt, 'session': session});
     } finally {
       client.close();
@@ -251,7 +251,12 @@ String errorCode(Object error, {bool submitted = false}) {  if (error is FormatE
 /// response body. Kept separate from [errorCode] because it is diagnostic text,
 /// not a localizable message — without it every 4xx reads the same and nobody
 /// can tell a bad key from a wrong path from a proxy block.
-String? errorDetailOf(Object failure) {
+///
+/// [secrets] are the API keys in play. They are stripped before the text is
+/// returned: a gateway or a compatible service may echo the request (including
+/// its `Authorization` header) back inside an error body, and this text is
+/// rendered in the UI.
+String? errorDetailOf(Object failure, {List<String> secrets = const []}) {
   if (failure is DioException) {
     final response = failure.response;
     final status = response?.statusCode;
@@ -262,8 +267,22 @@ String? errorDetailOf(Object failure) {
       if (text.isNotEmpty) text,
       if (status == null && text.isEmpty) failure.message ?? '',
     ];
-    return parts.where((part) => part.isNotEmpty).join(' · ');
+    return redact(parts.where((part) => part.isNotEmpty).join(' · '), secrets);
   }
   if (failure is FormatException) return failure.message;
-  return failure.toString();
+  return redact(failure.toString(), secrets);
+}
+
+/// Removes anything credential-shaped from diagnostic text: the configured keys
+/// themselves, plus the usual auth fields a gateway may echo back.
+String redact(String text, List<String> secrets) {
+  var result = text;
+  for (final secret in secrets) {
+    final trimmed = secret.trim();
+    if (trimmed.length >= 4) result = result.replaceAll(trimmed, '[REDACTED]');
+  }
+  result = result.replaceAllMapped(
+    RegExp(r'(?i)(authorization|api[_-]?key|x-api-key)("?\s*[:=]\s*"?)[^\s",}]+'),
+    (match) => '${match[1]}${match[2]}[REDACTED]');
+  return result.replaceAll(RegExp(r'(?i)bearer\s+[A-Za-z0-9._\-]{8,}'), 'Bearer [REDACTED]');
 }
