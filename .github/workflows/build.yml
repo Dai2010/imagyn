@@ -1,33 +1,40 @@
-# Build the Android APK from main and upload it as a test artifact.
+# Build the Android APK on every push to main. A manual run (workflow_dispatch)
+# additionally builds the three desktop platforms, packages them, and attaches
+# everything to a GitHub prerelease: the artifacts then travel inside GitHub and
+# the published assets can be fetched through a download mirror, which the
+# Actions artifact API cannot be.
 #
-# Only Android is built. The app also targets Linux, Windows and macOS, and
-# `scripts/scaffold_platforms.py` can produce those folders, but the APK is the
-# artifact that actually gets installed and tried.
+# Signing: only the Android APK is signed, and only with the runner's throwaway
+# Android debug key. release.yml is the path that produces a properly signed
+# APK, and it refuses to run without the release keystore. The desktop packages
+# are unsigned, so Windows SmartScreen and macOS Gatekeeper warn on first run —
+# the release notes say so rather than hiding it. Windows is x64 only: Flutter
+# ships no 32-bit Windows embedder.
 name: build
 
 on:
   push:
     branches: [main]
-  # A manual run can also attach the APK to a GitHub prerelease. That keeps the
-  # artifact inside GitHub instead of carrying it back to a machine on a slow or
-  # blocked link: the published asset can be fetched through a download mirror,
-  # which the Actions artifact API cannot.
+  # A manual run can attach the packages to a GitHub prerelease. Avoid a "v"
+  # prefix on the tag: v* runs release.yml, which needs the signing keystore.
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag for the prerelease. Do not start it with "v": a v* tag runs release.yml, which refuses to publish without the signing keystore.'
+        description: 'Tag for the prerelease. Do not start it with "v".'
         required: true
         default: 'preview'
       title:
         description: 'Release title'
         required: false
-        default: 'Imagyn 预览 APK（debug 签名，仅供试装）'
+        default: 'Imagyn 预览版（Android / Linux / Windows / macOS）'
 
 permissions:
   contents: read
 
 concurrency:
-  group: build-${{ github.ref }}
+  # Keyed on the event as well as the ref, so a manual run does not queue behind
+  # — or cancel — the build that a push to main just started.
+  group: build-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -51,54 +58,166 @@ jobs:
 
       # A release build rather than a debug one: this artifact exists to be
       # installed and judged on a real phone, and a debug APK is noticeably
-      # slower and twice the size. It is signed with the runner's throwaway
-      # Android debug key, which is deterministic, so successive runs overwrite
-      # each other cleanly. Installing a properly signed release over it later
-      # needs an uninstall first, which is why release.yml refuses to run
-      # without the real keystore.
+      # slower and twice the size. It is signed with the throwaway Android debug
+      # key, which is deterministic, so successive runs overwrite each other
+      # cleanly. Installing a properly signed release over it later needs an
+      # uninstall first, which is why release.yml refuses to run without the
+      # real keystore.
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
         with:
-          name: imagyn-android-release-debugkey
-          path: build/app/outputs/flutter-apk/*.apk
+          name: android
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+  linux:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # libsecret-1-dev and libjsoncpp-dev are what flutter_secure_storage's
+      # Linux plugin finds through pkg-config; without them the CMake configure
+      # step of `flutter build linux` fails outright on a clean runner.
+      # rpm and libarchive-tools carry rpmbuild and bsdtar for packaging.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgtk-3-dev \
+            libsecret-1-dev libjsoncpp-dev rpm libarchive-tools
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - id: version
+        run: echo "value=$(grep -m1 '^version:' pubspec.yaml | cut -d' ' -f2 | cut -d'+' -f1)" >> "$GITHUB_OUTPUT"
+
+      - run: python3 scripts/scaffold_platforms.py linux
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - run: scripts/package_linux.sh build/linux/x64/release/bundle "${{ steps.version.outputs.value }}" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install the packaging tools
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          dotnet tool install --global wix
+
+      - shell: bash
+        run: python scripts/scaffold_platforms.py windows
+      - shell: bash
+        run: flutter pub get
+      - shell: bash
+        run: flutter build windows --release
+      - shell: pwsh
+        run: |
+          $line = (Select-String -Path pubspec.yaml -Pattern '^version:').Line
+          $version = $line.Split(' ')[1].Split('+')[0]
+          ./scripts/package_windows.ps1 -Bundle build/windows/x64/runner/Release `
+            -Version $version -Out dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - id: version
+        run: echo "value=$(grep -m1 '^version:' pubspec.yaml | cut -d' ' -f2 | cut -d'+' -f1)" >> "$GITHUB_OUTPUT"
+
+      - run: python3 scripts/scaffold_platforms.py macos
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - run: scripts/package_macos.sh build/macos/Build/Products/Release/imagyn.app "${{ steps.version.outputs.value }}" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*
           if-no-files-found: error
 
   publish:
     # Manual runs only: an ordinary push to main should not keep minting releases.
     if: github.event_name == 'workflow_dispatch'
-    needs: android
+    needs: [android, linux, windows, macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      # The artifact is fetched from GitHub's own storage, so nothing here
+      - uses: actions/checkout@v4
+
+      # Every artifact is fetched from GitHub's own storage, so nothing here
       # depends on the machine that will end up downloading the release.
       - uses: actions/download-artifact@v4
         with:
-          name: imagyn-android-release-debugkey
           path: dist
+          merge-multiple: true
 
       - name: Checksums and release notes
         run: |
           cd dist
-          sha256sum -- *.apk > SHA256SUMS
+          sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
           digest="$(awk '{print $1}' SHA256SUMS)"
           {
-            echo "**这是预览包，不是正式发布。**"
-            echo
-            echo "签名：**Android debug 密钥**，不是 release keystore。可以安装试用；以后装正式签名版需要先卸载（应用内私有历史会丢，已导出到相册的图片不受影响）。"
+            echo "**这是预览版，不是正式发布。**"
             echo
             echo "来源：\`build\` 流水线 #${{ github.run_id }}，提交 \`${{ github.sha }}\`。"
             echo
-            echo "- minSdk 29（Android 10+），fat APK（arm64-v8a / armeabi-v7a / x86_64）"
-            echo "- 应用名：映想（中文环境）/ Imagyn"
-            echo "- sha256: $digest"
+            echo "## 签名状态"
             echo
-            echo "国内下载：在附件地址前加 https://ghfast.top/ 前缀即可。"
+            echo "- **Android APK** —— 用 **Android debug 密钥**签名，不是 release keystore。可以安装试用；以后装正式签名版需要先卸载（应用内私有历史会丢，已导出到相册的图片不受影响）。"
+            echo "- **Windows MSI / EXE、macOS DMG / PKG、Linux deb / rpm / Arch** —— **未签名**。Windows SmartScreen 会提示未知发布者，macOS 需要右键打开。消除这一点需要 Authenticode 证书与 Apple Developer ID，两个都还没有。"
+            echo "- **Windows 只有 64 位**：Flutter 不提供 32 位 Windows 目标。"
             echo
-            echo "已知限制：桌面三平台（deb / rpm / Arch / MSI / EXE / DMG / PKG）要等带签名的正式流程，目前只出 APK；未与真实接口联调，能否出图取决于你自己配置的兼容服务。"
+            echo "## 附件"
+            echo
+            echo "- \`app-release.apk\` —— Android，minSdk 29，fat APK（arm64-v8a / armeabi-v7a / x86_64）"
+            echo "- \`.deb\` / \`.rpm\` / \`.pkg.tar.zst\` —— Linux（Debian/Ubuntu、Fedora/RHEL、Arch），x86_64"
+            echo "- \`-setup.exe\`（Inno Setup）/ \`.msi\`（WiX）—— Windows x64"
+            echo "- \`.dmg\` / \`.pkg\` —— macOS"
+            echo
+            echo "## 国内下载"
+            echo
+            echo "在任意附件地址前加 https://ghfast.top/ 前缀即可。"
+            echo
+            echo "## 已知限制"
+            echo
+            echo "未与真实接口联调：能不能出图取决于你自己配置的 OpenAI / Anthropic 兼容服务。"
+            echo
+            echo "## 校验"
+            echo
+            echo "全部附件的 sha256 见 \`SHA256SUMS\`。"
           } > ../NOTES.md
 
       - uses: softprops/action-gh-release@v2
