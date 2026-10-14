@@ -2,7 +2,7 @@
 <!--
   WiX source for the Imagyn MSI.
 
-  Built by scripts/package_windows.ps1 with WiX v5 or newer:
+  Built by scripts/package_windows.ps1 with WiX v4:
 
     wix build -arch x64 -d Version=0.1.0 -d SourceDir=<bundle> ^
       -d IconFile=<ico> -o imagyn-0.1.0-windows-x64.msi Imagyn.wxs

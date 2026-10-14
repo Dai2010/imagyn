@@ -120,7 +120,12 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          dotnet tool install --global wix
+          # WiX v5 and newer refuse to build until the Open Source Maintenance
+          # Fee EULA is accepted (error WIX7015) — a licensing decision this
+          # project cannot make on the runner. v4 is the last line that builds
+          # without it, and it already supports the <Files> element the .wxs
+          # uses.
+          dotnet tool install --global wix --version 4.*
 
       - shell: bash
         run: python scripts/scaffold_platforms.py windows
@@ -216,7 +221,10 @@ jobs:
 
   publish:
     # Manual runs only: an ordinary push to main should not keep minting releases.
-    if: github.event_name == 'workflow_dispatch'
+    # `always()` so that one broken platform cannot hold the whole release
+    # hostage: whatever did build gets published, and the notes list the files
+    # that actually exist rather than the ones that were meant to.
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
     needs: [android, linux, windows, macos]
     runs-on: ubuntu-24.04
     permissions:
@@ -248,12 +256,9 @@ jobs:
             echo "- **Windows MSI / EXE、macOS DMG / PKG、Linux deb / rpm / Arch** —— **未签名**。Windows SmartScreen 会提示未知发布者，macOS 需要右键打开。消除这一点需要 Authenticode 证书与 Apple Developer ID，两个都还没有。"
             echo "- **Windows 只有 64 位**：Flutter 不提供 32 位 Windows 目标。"
             echo
-            echo "## 附件"
+            echo "## 附件（本次实际产出的文件）"
             echo
-            echo "- \`app-release.apk\` —— Android，minSdk 29，fat APK（arm64-v8a / armeabi-v7a / x86_64）"
-            echo "- \`.deb\` / \`.rpm\` / \`.pkg.tar.zst\` —— Linux（Debian/Ubuntu、Fedora/RHEL、Arch），x86_64"
-            echo "- \`-setup.exe\`（Inno Setup）/ \`.msi\`（WiX）—— Windows x64"
-            echo "- \`.dmg\` / \`.pkg\` —— macOS"
+            ls -1 dist | sed 's/^/- /'
             echo
             echo "## 国内下载"
             echo

@@ -8,8 +8,9 @@
 #
 # Only x64: Flutter has no 32-bit Windows embedder (TargetPlatform lists
 # windows_x64 and windows_arm64 and nothing else), so there is no x86 build to
-# package. Requires the Inno Setup compiler (ISCC.exe) and WiX v5 or newer
-# (`dotnet tool install --global wix`).
+# package. Requires the Inno Setup compiler (ISCC.exe) and WiX v4
+# (`dotnet tool install --global wix --version 4.*`) — v5 and newer refuse to
+# build until the Open Source Maintenance Fee EULA is accepted (error WIX7015).
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Bundle,
