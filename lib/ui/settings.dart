@@ -21,6 +21,8 @@ class _SettingsPageState extends State<SettingsPage> {
   late int _limit;
   bool _checking = false, _saving = false;
   String? _status;
+  /// Diagnostic line shown under [_status]: the server's own words.
+  String? _detail;
   StudioApi? _client;
   final _cancel = CancelToken();
   Strings get s => Strings.of(context);
@@ -51,8 +53,19 @@ class _SettingsPageState extends State<SettingsPage> {
     protocol: _protocol, imageModel: _imageModel.text.trim(), agentModel: _agentModel.text.trim(),
     vision: _vision, maxReferences: _limit, proxy: _proxy.text.trim());
 
+  /// Reports the outcome where the user is actually looking. The status line
+  /// lives at the bottom of a long scrolling form, so on its own it reads as
+  /// "the button did nothing".
+  void _finish(String status, {String? detail}) {
+    if (!mounted) return;
+    setState(() { _status = status; _detail = detail; });
+    final message = detail == null ? s.t(status) : '${s.t(status)}\n$detail';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 6)));
+  }
+
   Future<void> _check({bool images = false, bool text = false}) async {
-    setState(() { _checking = true; _status = null; });
+    setState(() { _checking = true; _status = null; _detail = null; });
     StudioApi? client;
     try {
       client = StudioApi(config, _key.text.trim(), _imageKey.text.trim(), widget.studio.store);
@@ -60,11 +73,11 @@ class _SettingsPageState extends State<SettingsPage> {
       if (text) {
         final reply = await client.converse([const ChatEntry('user', 'Reply with OK. Do not call any tools.')], [], _cancel);
         if (reply.imagePrompt != null) throw const FormatException('invalidResponse');
-        if (mounted) setState(() => _status = 'connected');
+        _finish('connected');
       } else {
         final models = await client.listModels(images: images);
         if (!mounted) return;
-        if (models.isEmpty) { setState(() => _status = 'noModels'); return; }
+        if (models.isEmpty) { _finish('noModels'); return; }
         final chosen = await showDialog<String>(context: context, builder: (context) => SimpleDialog(
           title: Text(s.t(images ? 'imageModel' : 'agentModel')), children: [
             SizedBox(width: 400, height: 360, child: ListView.builder(itemCount: models.length,
@@ -72,9 +85,11 @@ class _SettingsPageState extends State<SettingsPage> {
           ]));
         if (!mounted) return;
         if (chosen != null) (images ? _imageModel : _agentModel).text = chosen;
-        setState(() => _status = 'connected');
+        _finish('connected', detail: '${models.length} models');
       }
-    } catch (e) { if (mounted) setState(() => _status = errorCode(e)); }
+    } catch (e) {
+      _finish(errorCode(e), detail: errorDetailOf(e));
+    }
     finally { client?.close(); _client = null; if (mounted) setState(() => _checking = false); }
   }
 
@@ -149,7 +164,12 @@ class _SettingsPageState extends State<SettingsPage> {
         ])),
         const SizedBox(height: 20),
         if (_checking) const LinearProgressIndicator(),
-        if (_status != null) Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Text(s.t(_status!))),
+        if (_status != null) Padding(padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(s.t(_status!)),
+            if (_detail != null) Padding(padding: const EdgeInsets.only(top: 6),
+              child: SelectableText(_detail!, style: Theme.of(context).textTheme.bodySmall)),
+          ])),
         FilledButton(onPressed: _checking || _saving ? null : _save, child: Text(s.t('save'))),
       ]))),
   );

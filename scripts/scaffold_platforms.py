@@ -25,6 +25,7 @@ workflow wants for its test artifacts.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -81,12 +82,25 @@ def run(command: list[str]) -> None:
     subprocess.run(command, check=True)
 
 
-def generate(platforms: list[str], workdir: Path) -> Path:
-    if shutil.which("flutter") is None:
+def flutter_command() -> list[str]:
+    """The command that launches the Flutter tool on this platform.
+
+    On Windows the SDK ships `flutter.bat`, which subprocess cannot execute
+    directly — it has to be handed to cmd.exe, or Windows raises
+    FileNotFoundError.
+    """
+    exe = shutil.which("flutter")
+    if exe is None:
         fail("flutter is not on PATH; install the Flutter SDK first")
+    if os.name == "nt":
+        return ["cmd", "/c", exe]
+    return [exe]
+
+
+def generate(platforms: list[str], workdir: Path) -> Path:
     generated = workdir / "scaffold"
-    run([
-        "flutter", "create",
+    run(flutter_command() + [
+        "create",
         "--platforms", ",".join(platforms),
         "--org", "app",
         "--project-name", "imagyn",

@@ -33,12 +33,29 @@ class StudioApi {
     : {'Authorization': 'Bearer $key', 'content-type': 'application/json'};
   Map<String, String> get imageHeaders => {'Authorization': 'Bearer ${imageKey.isEmpty ? key : imageKey}'};
 
+  /// Fetches the model list. A model list is a cheap idempotent GET, so a
+  /// connection-level failure is retried a couple of times the way ChatBox does
+  /// — but a response, even an error one, means the service answered and a retry
+  /// would only repeat it.
   Future<List<String>> listModels({bool images = false}) async {
-    final response = await dio.getUri(images ? config.imageEndpoint('models') : config.endpoint('models'),
-      options: Options(headers: images ? imageHeaders : agentHeaders));
-    final data = objectResponse(response.data)['data'];
-    if (data is! List) throw const FormatException('invalidResponse');
-    return data.whereType<Map>().map((e) => e['id']).whereType<String>().toList()..sort();
+    final uri = images ? config.imageEndpoint('models') : config.endpoint('models');
+    final headers = images ? imageHeaders : agentHeaders;
+    DioException? networkFailure;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final response = await dio.getUri(uri, options: Options(headers: headers));
+        final data = objectResponse(response.data)['data'];
+        if (data is! List) throw const FormatException('invalidResponse');
+        return data.whereType<Map>().map((e) => e['id']).whereType<String>().toList()..sort();
+      } on DioException catch (error) {
+        if (error.response != null) rethrow;
+        networkFailure = error;
+        if (attempt < 2) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
+      }
+    }
+    throw networkFailure!;
   }
 
   Future<List<Uint8List>> generate(String prompt, List<Asset> refs, String size,

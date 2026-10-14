@@ -35,6 +35,13 @@ if (-not (Test-Path $license)) {
 }
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 
+# Inno Setup resolves `Source` and `OutputDir` relative to the .iss file's own
+# directory, and WiX's `$(SourceDir)` behaves the same way, so a relative path
+# makes the packaging look under packaging/windows/build/... and fail. Pin both
+# to absolute paths now that the output directory exists.
+$Out = (Resolve-Path -LiteralPath $Out).Path
+$Bundle = (Resolve-Path -LiteralPath $Bundle).Path
+
 # --- EXE installer (Inno Setup) ----------------------------------------------
 $iscc = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",

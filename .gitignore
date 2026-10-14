@@ -4,6 +4,10 @@
 /build/
 /coverage/
 
+# Python bytecode from scripts/*.py.
+__pycache__/
+*.pyc
+
 # Signing material: never committed, in any directory.
 *.jks
 *.keystore

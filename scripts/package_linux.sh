@@ -26,10 +26,15 @@ HOMEPAGE=https://github.com/Dai2010/imagyn
 SUMMARY="Minimalist AI image studio"
 # Debian wants the continuation lines of Description pre-wrapped and indented;
 # RPM takes the same text as a plain paragraph.
-DEB_DESCRIPTION='Imagyn generates and edits images through any OpenAI- or Anthropic-compatible
+# Debian wants the summary on the Description: line itself and every following
+# line indented by exactly one space — a bare "Imagyn generates …" line makes
+# dpkg-deb read it as a field name and reject the package. RPM takes the same
+# text as a plain paragraph, where the indent is harmless.
+DEB_DESCRIPTION="Minimalist AI image studio
+ Imagyn generates and edits images through any OpenAI- or Anthropic-compatible
  endpoint you configure. The Gallery and the Agent share one local artwork
  library: API keys stay in the system keyring and images never leave your
- device except to the service you pointed the app at.'
+ device except to the service you pointed the app at."
 RPM_DESCRIPTION='Imagyn generates and edits images through any OpenAI- or Anthropic-compatible
 endpoint you configure. The Gallery and the Agent share one local artwork
 library: API keys stay in the system keyring and images never leave your device
@@ -80,8 +85,7 @@ Installed-Size: $(du -sk "$STAGE/usr" | cut -f1)
 Depends: libgtk-3-0 | libgtk-3-0t64, libglib2.0-0 | libglib2.0-0t64, libblkid1, liblzma5, libstdc++6, libsecret-1-0, libjsoncpp25
 Maintainer: $MAINTAINER
 Homepage: $HOMEPAGE
-Description: $SUMMARY
-$DEB_DESCRIPTION
+Description: $DEB_DESCRIPTION
 CONTROL
 
 # Only refresh the caches; a missing tool must not fail the installation.

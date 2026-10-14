@@ -21,6 +21,10 @@ class Studio extends ChangeNotifier {
   String languageSetting = 'system';
   bool ready = false, onboarding = true, busy = false, reduceMotion = false;
   String? error;
+  /// The raw reason behind [error] — an HTTP status plus a body snippet — so a
+  /// failure can be told apart instead of every 4xx looking identical. Shown as
+  /// a secondary line under the localized message.
+  String? errorDetail;
   String stage = 'working';
   List<Asset> gallery = [], galleryRefs = [], agentRefs = [];
   List<ChatEntry> chat = [];
@@ -154,6 +158,7 @@ class Studio extends ChangeNotifier {
     final client = api;
     busy = true;
     error = null;
+    errorDetail = null;
     stage = agent ? 'discussing' : 'working';
     _cancel = CancelToken();
     _api = client;
@@ -194,6 +199,7 @@ class Studio extends ChangeNotifier {
       await refresh();
     } catch (e) {
       error = errorCode(e, submitted: jobId != null);
+      errorDetail = errorDetailOf(e);
       if (jobId != null) await store.job(jobId, 'unknown', {'prompt': prompt, 'session': session});
     } finally {
       client.close();
@@ -226,8 +232,7 @@ class Studio extends ChangeNotifier {
   }
 }
 
-String errorCode(Object error, {bool submitted = false}) {
-  if (error is FormatException) return error.message;
+String errorCode(Object error, {bool submitted = false}) {  if (error is FormatException) return error.message;
   if (error is DioException) {
     if (CancelToken.isCancel(error)) return 'cancelled';
     final status = error.response?.statusCode;
@@ -240,4 +245,25 @@ String errorCode(Object error, {bool submitted = false}) {
     if (submitted) return 'unknown';
   }
   return submitted ? 'unknown' : 'error';
+}
+
+/// The server's own words about a failure: the HTTP status and the start of the
+/// response body. Kept separate from [errorCode] because it is diagnostic text,
+/// not a localizable message — without it every 4xx reads the same and nobody
+/// can tell a bad key from a wrong path from a proxy block.
+String? errorDetailOf(Object failure) {
+  if (failure is DioException) {
+    final response = failure.response;
+    final status = response?.statusCode;
+    var text = response?.data?.toString().trim() ?? '';
+    if (text.length > 300) text = '${text.substring(0, 300)}…';
+    final parts = <String>[
+      if (status != null) 'HTTP $status',
+      if (text.isNotEmpty) text,
+      if (status == null && text.isEmpty) failure.message ?? '',
+    ];
+    return parts.where((part) => part.isNotEmpty).join(' · ');
+  }
+  if (failure is FormatException) return failure.message;
+  return failure.toString();
 }

@@ -69,7 +69,11 @@ class _StudioShellState extends State<StudioShell> {
       AnimatedSize(duration: _motion, alignment: AlignmentDirectional.topStart,
         child: studio.error == null ? const SizedBox.shrink() : Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-          child: Text(s.t(studio.error!), style: TextStyle(color: Theme.of(context).colorScheme.error)))),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(s.t(studio.error!), style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            if (studio.errorDetail != null) SelectableText(studio.errorDetail!,
+              style: Theme.of(context).textTheme.bodySmall),
+          ]))),
       AnimatedSize(duration: _motion, alignment: AlignmentDirectional.topStart,
         child: studio.busy ? Padding(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
           child: Row(children: [const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
