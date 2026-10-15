@@ -148,7 +148,7 @@ jobs:
           # WiX v5 and newer refuse to build until the Open Source Maintenance
           # Fee EULA is accepted (error WIX7015) — a licensing decision this
           # project cannot make on the runner. v4 is the last line that builds
-          # without it, and it already supports the <Files> element the .wxs
+          # without it, and the packaging script generates the file components the .wxs
           # uses.
           dotnet tool install --global wix --version 4.*
 

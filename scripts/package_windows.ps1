@@ -85,14 +85,18 @@ if (-not $innoVersion) {
     (Join-Path $root 'packaging\windows\imagyn.iss')
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 
-# --- MSI (WiX v5+) -----------------------------------------------------------
+# --- MSI (WiX v4) -----------------------------------------------------------
+$harvest = Join-Path $Out "AppFiles.wxs"
+& python (Join-Path $root "scripts\harvest_windows.py") $Bundle $harvest
+if ($LASTEXITCODE -ne 0) { throw "Windows file harvesting failed" }
 $msi = Join-Path $Out "imagyn-$Version-windows-x64.msi"
 & wix build -arch x64 `
     -d "Version=$Version" `
     -d "SourceDir=$Bundle" `
     -d "IconFile=$icon" `
     -o $msi `
-    (Join-Path $root 'packaging\windows\Imagyn.wxs')
+    (Join-Path $root 'packaging\windows\Imagyn.wxs') $harvest
 if ($LASTEXITCODE -ne 0) { throw "wix build failed with exit code $LASTEXITCODE" }
+Remove-Item -LiteralPath $harvest
 
 Get-ChildItem $Out | ForEach-Object { Write-Host "package_windows: $($_.Name)" }

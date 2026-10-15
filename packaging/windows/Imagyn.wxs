@@ -7,9 +7,7 @@
     wix build -arch x64 -d Version=0.1.0 -d SourceDir=<bundle> ^
       -d IconFile=<ico> -o imagyn-0.1.0-windows-x64.msi Imagyn.wxs
 
-  The <Files> element harvests the whole Flutter bundle, so there is no
-  heat.exe step and no component list to keep in sync. No UI extension is
-  referenced, which keeps the build to the core WiX package alone.
+  AppFiles is generated from the complete Flutter bundle by harvest_windows.py.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Imagyn"
@@ -39,12 +37,6 @@
       <ComponentRef Id="StartMenuShortcut" />
     </Feature>
   </Package>
-
-  <Fragment>
-    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
-      <Files Include="$(SourceDir)\**" />
-    </ComponentGroup>
-  </Fragment>
 
   <Fragment>
     <Component Id="StartMenuShortcut" Directory="AppShortcutFolder" Guid="B6C2A8F1-40D7-4E95-8C13-7A5F2D9E6B04">
