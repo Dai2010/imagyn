@@ -30,14 +30,15 @@
 | OpenAI Images（`images/generations`、`images/edits`） | 已实现，含多参考图编辑、URL 与 Base64 输出 |
 | OpenAI Chat Completions + `generate_image` 工具 | 已实现（Agent 模式） |
 | Anthropic Messages + `generate_image` 工具 | 已实现（Agent 模式） |
-| OpenAI Responses 生图工具、流式事件 | 未实现 |
+| OpenAI Images SSE 流式结果 | 已实现，可在图片接口兼容选项中开启 |
+| OpenAI Responses 生图工具 | 未实现 |
 | 蒙版编辑、批量任务、云同步、本地推理 | 未实现，属后续扩展 |
 
 模型列表本身不能证明生图能力，连接检查也不等于生图测试。付费的生成测试由你在画廊主动触发。细节见 [docs/capabilities.md](docs/capabilities.md)。
 
 ## 构建
 
-需要 Flutter（Dart SDK ≥ 3.9）。
+需要 Flutter（Dart SDK ≥ 3.12）。
 
 平台目录不入库，由脚本生成后叠加本仓库自有文件：
 
@@ -74,6 +75,8 @@ test/        协议解析、配置校验、文案一致性
 ```
 
 ## 文档
+
+- [docs/image-workflow.md](docs/image-workflow.md) — 图片接口对齐、画廊与提交行为、验证边界
 
 - [docs/research.md](docs/research.md) — 技术选型调研与产品设计（画廊/Agent、存储、签名、CI 的完整设计）
 - [docs/capabilities.md](docs/capabilities.md) — 接口能力矩阵与降级规则

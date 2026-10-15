@@ -35,8 +35,21 @@ jobs:
             exit 1
           fi
 
-  android:
+  verify:
     needs: guard
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test --reporter expanded
+
+  android:
+    needs: verify
     runs-on: ubuntu-24.04
     environment: release
     steps:
@@ -113,7 +126,7 @@ jobs:
           if-no-files-found: error
 
   linux:
-    needs: guard
+    needs: verify
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -144,7 +157,7 @@ jobs:
           if-no-files-found: error
 
   windows:
-    needs: guard
+    needs: verify
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -158,7 +171,7 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          dotnet tool install --global wix
+          dotnet tool install --global wix --version 4.*
 
       - shell: bash
         run: python scripts/scaffold_platforms.py windows
@@ -179,7 +192,7 @@ jobs:
           if-no-files-found: error
 
   macos:
-    needs: guard
+    needs: verify
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -236,6 +249,16 @@ jobs:
           body: |
             映想 Imagyn ${{ github.ref_name }}
 
+            **本次更新**
+            - 对照参考工具调整 Images 请求参数、参考图上传与 SSE 结果解析。
+            - 新画廊支持搜索、收藏、任务筛选及提示词和参数复用。
+            - 任务提交后立即清空输入框，生成期间可以继续写下一条。
+            - 修复 Windows MSI 打包与 macOS 联网权限。
+
+            **验证范围**
+            - 静态分析和 53 项离线测试通过；真实中转站出图尚未验收通过。
+            - 单次真实请求返回上游 HTTP 400，未自动重试；无法据此确认限流。
+
             **签名状态 / Signing**
             - Android APK — signed with the release keystore.
             - Windows MSI + EXE, macOS DMG + PKG, Linux deb + rpm + Arch — **unsigned**.
@@ -245,7 +268,7 @@ jobs:
             - Windows is 64-bit only: Flutter ships no 32-bit Windows embedder.
 
             **许可证 / License**: GPL-3.0-or-later. The corresponding source is attached
-            as `imagyn-${{ github.ref_name }}-source.tar.gz`, as the GPL requires.
+            as a `*-source.tar.gz` archive, as the GPL requires.
 
             **校验 / Checksums**: see `SHA256SUMS`.
           files: dist/*

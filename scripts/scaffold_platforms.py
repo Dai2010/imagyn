@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import plistlib
 import re
 import shutil
 import subprocess
@@ -227,6 +228,13 @@ def main() -> None:
             copied = copy_overlay(platform, target)
             print(f"+ {platform}: generated, {len(copied)} file(s) overlaid"
                   + (f" ({', '.join(copied)})" if copied else ""))
+            if platform == "macos":
+                for entitlements in (target / "Runner").glob("*.entitlements"):
+                    with entitlements.open("rb") as source:
+                        values = plistlib.load(source)
+                    values["com.apple.security.network.client"] = True
+                    with entitlements.open("wb") as destination:
+                        plistlib.dump(values, destination)
             if platform == "android":
                 if not copied:
                     fail("platform/android/ contributed no files, so the media-save "
