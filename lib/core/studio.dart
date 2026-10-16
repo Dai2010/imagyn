@@ -37,6 +37,7 @@ class Studio extends ChangeNotifier {
   CancelToken? _cancel;
   StudioApi? _api;
   Map<String, dynamic> _conversationSettings = {};
+  Future<void> _favoriteUpdates = Future<void>.value();
 
   ServiceConfig get activeConfig => config.copyWith(
     agentModel: _conversationSettings['agentModel'] as String?,
@@ -116,6 +117,7 @@ class Studio extends ChangeNotifier {
     );
     await _loadConversationSettings();
     await refresh();
+    await _restoreAgentReferences();
     ready = true;
     notifyListeners();
   }
@@ -237,7 +239,13 @@ class Studio extends ChangeNotifier {
     await store.setSetting('currentSession', id);
     await _loadConversationSettings();
     chat = await store.messages(session);
+    await _restoreAgentReferences();
+    notifyListeners();
+  }
+
+  Future<void> _restoreAgentReferences() async {
     agentRefs = [];
+    if (!activeConfig.vision) return;
     for (final entry in chat.reversed) {
       if (entry.role == 'assistant' && entry.assetIds.isNotEmpty) {
         final asset = await store.asset(entry.assetIds.first);
@@ -245,7 +253,6 @@ class Studio extends ChangeNotifier {
         break;
       }
     }
-    notifyListeners();
   }
 
   Future<void> setImageOptions(ImageOptions value) async {
@@ -255,12 +262,19 @@ class Studio extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> toggleFavorite(Asset asset) async {
-    final next = {...favorites};
-    if (!next.add(asset.id)) next.remove(asset.id);
-    await store.setSetting('favorites', jsonEncode(next.toList()));
-    favorites = next;
-    notifyListeners();
+  Future<void> toggleFavorite(Asset asset) {
+    // Each toggle must read the result of the preceding write, including when
+    // multiple taps arrive before SQLite has completed its first operation.
+    final update = _favoriteUpdates.then((_) async {
+      final next = {...favorites};
+      if (!next.add(asset.id)) next.remove(asset.id);
+      await store.setSetting('favorites', jsonEncode(next.toList()));
+      favorites = next;
+      notifyListeners();
+    });
+    // A failed write still reaches its caller, while the queue remains usable.
+    _favoriteUpdates = update.catchError((Object _) {});
+    return update;
   }
 
   Future<void> dismissJob(ImageJob job) async {
@@ -382,7 +396,9 @@ class Studio extends ChangeNotifier {
             assetIds: created.map((a) => a.id).toList(),
           ),
         );
-        if (created.isNotEmpty) agentRefs = [created.first];
+        if (created.isNotEmpty && requestConfig.vision) {
+          agentRefs = [created.first];
+        }
       }
       await refresh();
     } catch (e) {
@@ -426,17 +442,24 @@ class Studio extends ChangeNotifier {
     try {
       final images = await client.downloadImages(outputs, _cancel!);
       final created = <Asset>[];
+      // Recovery payloads can contain large Base64 images. Once downloaded,
+      // keep the saved files as the source of truth and release those copies.
+      final parameters = Map<String, dynamic>.of(job.record)..remove('outputs');
+      final references = List<String>.from(
+        job.record['references'] as List? ?? [],
+      );
       for (final bytes in images) {
         created.add(
           await store.saveAsset(
             bytes,
             prompt: job.prompt,
-            parameters: job.record,
+            parentId: references.isEmpty ? null : references.first,
+            parameters: parameters,
           ),
         );
       }
       await store.job(job.id, 'complete', {
-        ...job.record,
+        ...parameters,
         'assets': created.map((a) => a.id).toList(),
       });
       final targetSession = job.record['session'] as String?;
@@ -449,7 +472,9 @@ class Studio extends ChangeNotifier {
             assetIds: created.map((a) => a.id).toList(),
           ),
         );
-        if (targetSession == session && created.isNotEmpty) {
+        if (targetSession == session &&
+            created.isNotEmpty &&
+            client.config.vision) {
           agentRefs = [created.first];
         }
       }

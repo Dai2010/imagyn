@@ -195,11 +195,17 @@ class StudioApi {
         if (payload.length > maxImageBytes * 4 ~/ 3 + 8) {
           throw const FormatException('imageTooLarge');
         }
+        final Uint8List bytes;
         try {
-          result.add(base64Decode(payload));
+          bytes = base64Decode(payload);
         } on FormatException {
           throw const FormatException('invalidImage');
         }
+        if (bytes.length > maxImageBytes) {
+          throw const FormatException('imageTooLarge');
+        }
+        sniffMime(bytes);
+        result.add(bytes);
       } else {
         final uri = Uri.parse(output);
         if (!['https', 'http'].contains(uri.scheme) ||
@@ -222,22 +228,27 @@ class StudioApi {
             }
             bytes.add(chunk);
           }
-          result.add(bytes.takeBytes());
+          final image = bytes.takeBytes();
+          sniffMime(image);
+          result.add(image);
         } on DioException catch (error) {
           throw ImageApiException(
             'downloadFailed',
             error.message ?? 'Image download failed',
-            outputs: images.every((image) => !image.startsWith('data:'))
-                ? images
-                : const [],
+            // Retry consumes both URLs and inline images. Preserve the entire
+            // batch so a failed URL cannot discard its Base64 siblings.
+            outputs: images,
+          );
+        } on FormatException catch (error) {
+          throw ImageApiException(
+            error.message,
+            error.message,
+            outputs: images,
           );
         } finally {
           download.close(force: true);
         }
       }
-    }
-    for (final bytes in result) {
-      sniffMime(bytes);
     }
     return result;
   }
@@ -475,14 +486,12 @@ Future<List<String>> readImageResponse(
   Stream<List<int>> stream, {
   required bool eventStream,
 }) async {
+  // Bound source bytes before decoding or splitting lines: an SSE peer can
+  // otherwise grow LineSplitter's buffer indefinitely without a newline.
+  final boundedStream = _limitImageResponseBytes(stream);
   if (!eventStream) {
     final body = StringBuffer();
-    var length = 0;
-    await for (final text in utf8.decoder.bind(stream)) {
-      length += text.length;
-      if (length > StudioApi.maxImageBytes * 14) {
-        throw const FormatException('imageTooLarge');
-      }
+    await for (final text in utf8.decoder.bind(boundedStream)) {
       body.write(text);
     }
     return imageOutputs(objectResponse(body.toString()));
@@ -490,12 +499,10 @@ Future<List<String>> readImageResponse(
   final completed = <String>[];
   List<String>? finalResult;
   final data = <String>[];
-  var length = 0;
   void dispatch() {
     if (data.isEmpty) return;
     final payload = data.join('\n');
     data.clear();
-    length = 0;
     if (payload.trim() == '[DONE]') return;
     final event = objectResponse(payload);
     final type = event['type'] as String? ?? '';
@@ -522,15 +529,11 @@ Future<List<String>> readImageResponse(
   }
 
   await for (final line
-      in utf8.decoder.bind(stream).transform(const LineSplitter())) {
+      in utf8.decoder.bind(boundedStream).transform(const LineSplitter())) {
     if (line.isEmpty) {
       dispatch();
     } else if (line.startsWith('data:')) {
       final value = line.substring(5).replaceFirst(RegExp(r'^ '), '');
-      length += value.length;
-      if (length > StudioApi.maxImageBytes * 14) {
-        throw const FormatException('imageTooLarge');
-      }
       data.add(value);
     }
   }
@@ -538,6 +541,17 @@ Future<List<String>> readImageResponse(
   final result = finalResult ?? completed;
   if (result.isEmpty) throw const FormatException('incompleteImageStream');
   return result;
+}
+
+Stream<List<int>> _limitImageResponseBytes(Stream<List<int>> source) async* {
+  var received = 0;
+  await for (final chunk in source) {
+    received += chunk.length;
+    if (received > StudioApi.maxImageBytes * 14) {
+      throw const FormatException('imageTooLarge');
+    }
+    yield chunk;
+  }
 }
 
 AgentReply parseAgentReply(
@@ -601,6 +615,12 @@ AgentReply parseAgentReply(
     for (final block in blocks.whereType<Map>()) {
       if (block['type'] == 'text') texts.add(block['text'] as String);
       if (block['type'] == 'tool_use') {
+        // A valid-looking input can still belong to a turn cut off by a token
+        // limit. Only dispatch a call once the service says it is ready.
+        if (response['stop_reason'] != null &&
+            response['stop_reason'] != 'tool_use') {
+          throw const FormatException('invalidTool');
+        }
         if (block['name'] != 'generate_image') {
           throw const FormatException('unsupportedTool');
         }
@@ -612,15 +632,44 @@ AgentReply parseAgentReply(
     if (choices is! List || choices.isEmpty) {
       throw const FormatException('invalidResponse');
     }
-    final message = choices.first['message'] as Map;
+    final choice = choices.first;
+    if (choice is! Map || choice['message'] is! Map) {
+      throw const FormatException('invalidResponse');
+    }
+    final message = choice['message'] as Map;
     if (message['content'] is String) texts.add(message['content'] as String);
-    final tools = message['tool_calls'] as List? ?? [];
+    final refusal = message['refusal'];
+    if (refusal != null && refusal is! String) {
+      throw const FormatException('invalidResponse');
+    }
+    final refused = refusal is String && refusal.isNotEmpty;
+    if (refused) texts.add(refusal);
+    final tools = message['tool_calls'] ?? [];
+    if (tools is! List) throw const FormatException('invalidTool');
+    if (tools.isNotEmpty &&
+        (refused ||
+            (choice['finish_reason'] != null &&
+                choice['finish_reason'] != 'tool_calls'))) {
+      throw const FormatException('invalidTool');
+    }
     for (final tool in tools) {
+      if (tool is! Map || tool['function'] is! Map) {
+        throw const FormatException('invalidTool');
+      }
       final fn = tool['function'] as Map;
       if (fn['name'] != 'generate_image') {
         throw const FormatException('unsupportedTool');
       }
-      prompts.add(validatePrompt(jsonDecode(fn['arguments'] as String)));
+      if (fn['arguments'] is! String) {
+        throw const FormatException('invalidTool');
+      }
+      Object? arguments;
+      try {
+        arguments = jsonDecode(fn['arguments'] as String);
+      } on FormatException {
+        throw const FormatException('invalidTool');
+      }
+      prompts.add(validatePrompt(arguments));
     }
   }
   if (prompts.length > 1) throw const FormatException('multipleCalls');
