@@ -388,6 +388,20 @@ class _GalleryViewState extends State<GalleryView> {
                 label: Text(s.t('retryDownload')),
               ),
               const SizedBox(height: 8),
+            ] else if (job.prompt.trim().isNotEmpty) ...[
+              // Nothing ever came back from the service, so the work itself is
+              // what gets repeated, from the prompt and references it recorded.
+              FilledButton.icon(
+                onPressed: studio.busy
+                    ? null
+                    : () {
+                        Navigator.pop(context);
+                        studio.retryJob(job);
+                      },
+                icon: const Icon(Icons.refresh_rounded),
+                label: Text(s.t('retryGenerate')),
+              ),
+              const SizedBox(height: 8),
             ],
             FilledButton(
               onPressed: studio.busy

@@ -10,9 +10,21 @@ import 'models.dart';
 import 'store.dart';
 
 class AgentReply {
-  const AgentReply(this.text, this.imagePrompt);
+  const AgentReply(this.text, this.imagePrompt, {this.reasoning = ''});
   final String text;
   final String? imagePrompt;
+
+  /// The model's own thinking when the service exposes it: DeepSeek's
+  /// `reasoning_content`, an Anthropic `thinking` block, or a Responses
+  /// reasoning summary. Empty when the service sends none.
+  final String reasoning;
+}
+
+/// One piece of a streaming turn. [text] and [reasoning] are the deltas carried
+/// by a single update, so usually only one of them is non-empty.
+class AgentDelta {
+  const AgentDelta({this.text = '', this.reasoning = ''});
+  final String text, reasoning;
 }
 
 class ImageApiException implements Exception {
@@ -35,6 +47,11 @@ class StudioApi {
   final LocalStore store;
   final Dio dio;
   static const maxImageBytes = 30 * 1024 * 1024;
+
+  /// How far an Agent response may grow before reading it is abandoned. Only
+  /// text passes through it, so this guards against a stream that never ends
+  /// rather than against a real payload.
+  static const maxAgentBytes = 8 * 1024 * 1024;
 
   /// How many same-origin hops a model list may take before giving up.
   static const maxRedirects = 3;
@@ -154,22 +171,8 @@ class StudioApi {
     final stream = response.data!.stream;
     final status = response.statusCode ?? 0;
     if (status < 200 || status >= 300) {
-      final chunks = <int>[];
-      await for (final chunk in stream) {
-        chunks.addAll(chunk.take(4096 - chunks.length));
-        if (chunks.length >= 4096) break;
-      }
-      final detail = utf8.decode(chunks, allowMalformed: true);
-      final code = status == 401 || status == 403
-          ? 'authError'
-          : status == 429
-          ? 'rateLimit'
-          : status >= 300 && status < 400
-          ? 'redirectBlocked'
-          : status >= 500
-          ? 'unknown'
-          : 'serviceError';
-      throw ImageApiException(code, 'HTTP $status · $detail');
+      final failure = await _httpFailure(status, stream);
+      throw failure;
     }
     final images = await readImageResponse(
       stream,
@@ -259,6 +262,100 @@ class StudioApi {
     CancelToken cancel, {
     AgentOptions? options,
   }) async {
+    final request = await _agentRequest(history, refs, options);
+    final response = await dio.postUri(
+      config.endpoint(config.protocol.chatPath),
+      data: _agentBody(request, stream: false),
+      options: Options(headers: agentHeaders),
+      cancelToken: cancel,
+    );
+    return parseAgentReply(objectResponse(response.data), config.protocol);
+  }
+
+  /// The streaming form of [converse]: text and reasoning reach [onDelta] as
+  /// they arrive.
+  ///
+  /// The deltas only drive the display. When the stream ends the pieces are
+  /// rebuilt into the same shape [parseAgentReply] already validates, so a turn
+  /// cut off by a token limit — or a half-written tool call — is rejected by
+  /// exactly the rules a non-streaming reply goes through, instead of by a
+  /// second set of checks that could drift away from them.
+  Future<AgentReply> converseStream(
+    List<ChatEntry> history,
+    List<Asset> refs,
+    CancelToken cancel, {
+    AgentOptions? options,
+    void Function(AgentDelta delta)? onDelta,
+  }) async {
+    final request = await _agentRequest(history, refs, options);
+    final response = await dio.postUri<ResponseBody>(
+      config.endpoint(config.protocol.chatPath),
+      data: _agentBody(request, stream: true),
+      options: Options(
+        headers: agentHeaders,
+        responseType: ResponseType.stream,
+        receiveTimeout: const Duration(minutes: 10),
+        validateStatus: (_) => true,
+      ),
+      cancelToken: cancel,
+    );
+    final stream = response.data!.stream;
+    final status = response.statusCode ?? 0;
+    if (status < 200 || status >= 300) {
+      final failure = await _httpFailure(status, stream);
+      throw failure;
+    }
+    final bounded = _limitBytes(stream, maxAgentBytes, 'responseTooLarge');
+    // A service that ignores `stream: true` still answers with one JSON body;
+    // accepting that is better than failing the turn over the transport.
+    final eventStream =
+        response.headers
+            .value('content-type')
+            ?.contains('text/event-stream') ==
+        true;
+    if (!eventStream) {
+      final body = StringBuffer();
+      await for (final text in utf8.decoder.bind(bounded)) {
+        body.write(text);
+      }
+      return parseAgentReply(objectResponse(body.toString()), config.protocol);
+    }
+    return switch (config.protocol) {
+      ApiProtocol.anthropic => _streamAnthropic(bounded, onDelta),
+      ApiProtocol.responses => _streamResponses(bounded, onDelta),
+      ApiProtocol.openai => _streamOpenAi(bounded, onDelta),
+    };
+  }
+
+  /// Reads the beginning of a rejected response so the failure can carry the
+  /// service's own words rather than a bare status code.
+  Future<ImageApiException> _httpFailure(
+    int status,
+    Stream<List<int>> stream,
+  ) async {
+    final chunks = <int>[];
+    await for (final chunk in stream) {
+      chunks.addAll(chunk.take(4096 - chunks.length));
+      if (chunks.length >= 4096) break;
+    }
+    final detail = utf8.decode(chunks, allowMalformed: true);
+    final code = status == 401 || status == 403
+        ? 'authError'
+        : status == 429
+        ? 'rateLimit'
+        : status >= 300 && status < 400
+        ? 'redirectBlocked'
+        : status >= 500
+        ? 'unknown'
+        : 'serviceError';
+    return ImageApiException(code, 'HTTP $status · $detail');
+  }
+
+  Future<_AgentRequest> _agentRequest(
+    List<ChatEntry> history,
+    List<Asset> refs,
+    AgentOptions? options,
+  ) async {
     final settings = options ?? config.agentOptions;
     settings.validate(config.protocol);
     history = settings.selectHistory(history);
@@ -300,7 +397,6 @@ class StudioApi {
               },
       );
     }
-    final system = settings.systemPrompt;
     final messages = <Map<String, dynamic>>[];
     for (var i = 0; i < history.length; i++) {
       final entry = history[i];
@@ -326,11 +422,20 @@ class StudioApi {
         });
       }
     }
+    return _AgentRequest(settings, messages, settings.systemPrompt);
+  }
+
+  Map<String, dynamic> _agentBody(
+    _AgentRequest request, {
+    required bool stream,
+  }) {
+    final settings = request.settings;
+    final system = request.system;
     final anthropic = config.protocol == ApiProtocol.anthropic;
-    final body = config.protocol == ApiProtocol.responses
+    return config.protocol == ApiProtocol.responses
         ? <String, dynamic>{
             'model': config.agentModel,
-            'input': messages,
+            'input': request.messages,
             if (system.isNotEmpty) 'instructions': system,
             if (settings.maxOutputTokens != null)
               'max_output_tokens': settings.maxOutputTokens,
@@ -339,6 +444,7 @@ class StudioApi {
             if (settings.topP != null) 'top_p': settings.topP,
             'store': false,
             'parallel_tool_calls': false,
+            if (stream) 'stream': true,
             'tools': [
               {'type': 'function', ...imageTool, 'strict': true},
             ],
@@ -348,7 +454,7 @@ class StudioApi {
             'messages': [
               if (!anthropic && system.isNotEmpty)
                 {'role': 'system', 'content': system},
-              ...messages,
+              ...request.messages,
             ],
             if (anthropic && system.isNotEmpty) 'system': system,
             if (anthropic) 'max_tokens': settings.maxOutputTokens ?? 2048,
@@ -357,6 +463,7 @@ class StudioApi {
             if (settings.temperature != null)
               'temperature': settings.temperature,
             if (settings.topP != null) 'top_p': settings.topP,
+            if (stream) 'stream': true,
             'tools': [
               anthropic
                   ? {
@@ -368,13 +475,237 @@ class StudioApi {
             ],
             if (!anthropic) 'parallel_tool_calls': false,
           };
-    final response = await dio.postUri(
-      config.endpoint(config.protocol.chatPath),
-      data: body,
-      options: Options(headers: agentHeaders),
-      cancelToken: cancel,
-    );
-    return parseAgentReply(objectResponse(response.data), config.protocol);
+  }
+
+  /// Chat Completions: `delta.content` for the answer, DeepSeek's
+  /// `reasoning_content` (some gateways spell it `reasoning` or `thinking`) for
+  /// the thinking, and `delta.tool_calls[].function.arguments` in fragments.
+  Future<AgentReply> _streamOpenAi(
+    Stream<List<int>> source,
+    void Function(AgentDelta delta)? onDelta,
+  ) async {
+    final text = StringBuffer();
+    final reasoning = StringBuffer();
+    final refusal = StringBuffer();
+    final names = <int, String>{};
+    final arguments = <int, StringBuffer>{};
+    final order = <int>[];
+    String? finish;
+    var done = false;
+    await for (final event in _sseEvents(source)) {
+      if (event.isEmpty) {
+        done = true;
+        continue;
+      }
+      final error = event['error'];
+      if (error != null) {
+        throw ImageApiException(
+          'serviceError',
+          error is Map ? '${error['message'] ?? error}' : '$error',
+        );
+      }
+      final choices = event['choices'];
+      if (choices is! List || choices.isEmpty) continue;
+      final choice = choices.first;
+      if (choice is! Map) throw const FormatException('invalidResponse');
+      if (choice['finish_reason'] is String) {
+        finish = choice['finish_reason'] as String;
+      }
+      // A gateway may send the whole message instead of a delta.
+      final delta = choice['delta'] ?? choice['message'];
+      if (delta is! Map) continue;
+      final piece = _deltaText(delta['content']);
+      if (piece.isNotEmpty) {
+        text.write(piece);
+        onDelta?.call(AgentDelta(text: piece));
+      }
+      final thought = _deltaText(
+        delta['reasoning_content'] ?? delta['reasoning'] ?? delta['thinking'],
+      );
+      if (thought.isNotEmpty) {
+        reasoning.write(thought);
+        onDelta?.call(AgentDelta(reasoning: thought));
+      }
+      final denied = delta['refusal'];
+      if (denied is String) refusal.write(denied);
+      final calls = delta['tool_calls'];
+      if (calls is List) {
+        for (final call in calls.whereType<Map>()) {
+          final index = (call['index'] as num?)?.toInt() ?? 0;
+          if (!names.containsKey(index) && !arguments.containsKey(index)) {
+            order.add(index);
+          }
+          final fn = call['function'];
+          if (fn is! Map) continue;
+          final name = fn['name'];
+          if (name is String && name.isNotEmpty) names[index] = name;
+          final args = fn['arguments'];
+          if (args is String) (arguments[index] ??= StringBuffer()).write(args);
+        }
+      }
+    }
+    // Neither a finish reason nor the `[DONE]` marker means the connection died
+    // mid-turn: the call accumulated so far is one the service never confirmed,
+    // and acting on it would start a generation nobody asked to be billed for.
+    if (finish == null && !done) {
+      throw const FormatException('incompleteStream');
+    }
+    return parseAgentReply({
+      'choices': [
+        {
+          'finish_reason': finish,
+          'message': {
+            'content': text.isEmpty ? null : text.toString(),
+            // The thinking is stored with the message, so it has to survive the
+            // reassembly too — otherwise it shows while streaming and then
+            // vanishes from the finished bubble.
+            if (reasoning.isNotEmpty) 'reasoning_content': reasoning.toString(),
+            if (refusal.isNotEmpty) 'refusal': refusal.toString(),
+            if (order.isNotEmpty)
+              'tool_calls': [
+                for (final index in order)
+                  {
+                    'function': {
+                      'name': names[index] ?? '',
+                      'arguments': (arguments[index] ?? StringBuffer())
+                          .toString(),
+                    },
+                  },
+              ],
+          },
+        },
+      ],
+    }, ApiProtocol.openai);
+  }
+
+  /// Anthropic Messages: `content_block_delta` carries `text_delta`,
+  /// `thinking_delta` and `input_json_delta`; the stop reason only arrives with
+  /// `message_delta` at the end.
+  Future<AgentReply> _streamAnthropic(
+    Stream<List<int>> source,
+    void Function(AgentDelta delta)? onDelta,
+  ) async {
+    final blocks = <int, Map<String, dynamic>>{};
+    final partials = <int, StringBuffer>{};
+    String? stop;
+    var stopped = false;
+    await for (final event in _sseEvents(source)) {
+      final type = event['type'];
+      if (type == 'message_stop') {
+        stopped = true;
+        continue;
+      }
+      if (type == 'error') {
+        final error = event['error'];
+        throw ImageApiException(
+          'serviceError',
+          error is Map ? '${error['message'] ?? error}' : '${error ?? type}',
+        );
+      }
+      if (type == 'message_delta') {
+        final delta = event['delta'];
+        if (delta is Map && delta['stop_reason'] is String) {
+          stop = delta['stop_reason'] as String;
+        }
+        continue;
+      }
+      if (type == 'content_block_start') {
+        final block = event['content_block'];
+        if (block is! Map) continue;
+        final index = (event['index'] as num?)?.toInt() ?? 0;
+        blocks[index] = {
+          'type': block['type'],
+          if (block['name'] is String) 'name': block['name'],
+          if (block['text'] is String) 'text': block['text'],
+          if (block['thinking'] is String) 'thinking': block['thinking'],
+        };
+        continue;
+      }
+      if (type != 'content_block_delta') continue;
+      final delta = event['delta'];
+      if (delta is! Map) continue;
+      final index = (event['index'] as num?)?.toInt() ?? 0;
+      final kind = delta['type'];
+      final block = blocks[index] ??= {
+        'type': kind == 'thinking_delta'
+            ? 'thinking'
+            : kind == 'input_json_delta'
+            ? 'tool_use'
+            : 'text',
+      };
+      if (kind == 'text_delta' && delta['text'] is String) {
+        final piece = delta['text'] as String;
+        block['text'] = '${block['text'] ?? ''}$piece';
+        onDelta?.call(AgentDelta(text: piece));
+      } else if (kind == 'thinking_delta' && delta['thinking'] is String) {
+        final piece = delta['thinking'] as String;
+        block['thinking'] = '${block['thinking'] ?? ''}$piece';
+        onDelta?.call(AgentDelta(reasoning: piece));
+      } else if (kind == 'input_json_delta' && delta['partial_json'] is String) {
+        (partials[index] ??= StringBuffer()).write(
+          delta['partial_json'] as String,
+        );
+      }
+    }
+    // `message_stop`, or at least a stop reason, is the only proof that the turn
+    // finished rather than the connection dropping.
+    if (!stopped && stop == null) {
+      throw const FormatException('incompleteStream');
+    }
+    final indexes = blocks.keys.toList()..sort();
+    final content = <Map<String, dynamic>>[];
+    for (final index in indexes) {
+      final block = Map<String, dynamic>.of(blocks[index]!);
+      if (block['type'] == 'tool_use') {
+        final partial = partials[index]?.toString() ?? '';
+        block['input'] = _decodedJson(partial);
+      }
+      content.add(block);
+    }
+    return parseAgentReply({
+      'stop_reason': stop,
+      'content': content,
+    }, ApiProtocol.anthropic);
+  }
+
+  /// Responses: the text arrives as `response.output_text.delta` events and the
+  /// finished turn as a single `response.completed` object. That object is what
+  /// states the function call and the turn's own status, so the deltas are only
+  /// there for the display.
+  Future<AgentReply> _streamResponses(
+    Stream<List<int>> source,
+    void Function(AgentDelta delta)? onDelta,
+  ) async {
+    Map<String, dynamic>? completed;
+    String? failure;
+    await for (final event in _sseEvents(source)) {
+      final type = event['type'];
+      if (type == 'response.completed') {
+        final response = event['response'];
+        if (response is Map<String, dynamic>) completed = response;
+        continue;
+      }
+      if (type == 'response.failed' ||
+          type == 'response.error' ||
+          type == 'error') {
+        final error = event['error'];
+        failure = error is Map ? '${error['message'] ?? error}' : '$type';
+        continue;
+      }
+      if (type == 'response.output_text.delta' && event['delta'] is String) {
+        onDelta?.call(AgentDelta(text: event['delta'] as String));
+        continue;
+      }
+      if (type == 'response.reasoning_summary_text.delta' &&
+          event['delta'] is String) {
+        onDelta?.call(AgentDelta(reasoning: event['delta'] as String));
+      }
+    }
+    if (failure != null) throw ImageApiException('serviceError', failure);
+    // Without the finished response nothing states what the turn did, so the
+    // stream was cut off rather than answered.
+    if (completed == null) throw const FormatException('incompleteStream');
+    return parseAgentReply(completed, ApiProtocol.responses);
   }
 
   void close() => dio.close(force: true);
@@ -488,7 +819,11 @@ Future<List<String>> readImageResponse(
 }) async {
   // Bound source bytes before decoding or splitting lines: an SSE peer can
   // otherwise grow LineSplitter's buffer indefinitely without a newline.
-  final boundedStream = _limitImageResponseBytes(stream);
+  final boundedStream = _limitBytes(
+    stream,
+    StudioApi.maxImageBytes * 14,
+    'imageTooLarge',
+  );
   if (!eventStream) {
     final body = StringBuffer();
     await for (final text in utf8.decoder.bind(boundedStream)) {
@@ -543,13 +878,15 @@ Future<List<String>> readImageResponse(
   return result;
 }
 
-Stream<List<int>> _limitImageResponseBytes(Stream<List<int>> source) async* {
+Stream<List<int>> _limitBytes(
+  Stream<List<int>> source,
+  int limit,
+  String code,
+) async* {
   var received = 0;
   await for (final chunk in source) {
     received += chunk.length;
-    if (received > StudioApi.maxImageBytes * 14) {
-      throw const FormatException('imageTooLarge');
-    }
+    if (received > limit) throw FormatException(code);
     yield chunk;
   }
 }
@@ -560,6 +897,7 @@ AgentReply parseAgentReply(
 ) {
   final texts = <String>[];
   final prompts = <String>[];
+  final reasons = <String>[];
   if (protocol == ApiProtocol.responses) {
     if (response['error'] != null ||
         (response['status'] != null && response['status'] != 'completed')) {
@@ -605,7 +943,16 @@ AgentReply parseAgentReply(
           throw const FormatException('invalidTool');
         }
         prompts.add(validatePrompt(arguments));
-      } else if (item['type'] != 'reasoning') {
+      } else if (item['type'] == 'reasoning') {
+        // A reasoning summary is display material, never an instruction.
+        final summary = item['summary'];
+        if (summary is List) {
+          for (final part in summary.whereType<Map>()) {
+            final thought = part['text'];
+            if (thought is String && thought.isNotEmpty) reasons.add(thought);
+          }
+        }
+      } else {
         throw const FormatException('unsupportedTool');
       }
     }
@@ -614,6 +961,10 @@ AgentReply parseAgentReply(
     if (blocks is! List) throw const FormatException('invalidResponse');
     for (final block in blocks.whereType<Map>()) {
       if (block['type'] == 'text') texts.add(block['text'] as String);
+      if (block['type'] == 'thinking') {
+        final thought = block['thinking'];
+        if (thought is String && thought.isNotEmpty) reasons.add(thought);
+      }
       if (block['type'] == 'tool_use') {
         // A valid-looking input can still belong to a turn cut off by a token
         // limit. Only dispatch a call once the service says it is ready.
@@ -638,6 +989,8 @@ AgentReply parseAgentReply(
     }
     final message = choice['message'] as Map;
     if (message['content'] is String) texts.add(message['content'] as String);
+    final thought = message['reasoning_content'] ?? message['reasoning'];
+    if (thought is String && thought.isNotEmpty) reasons.add(thought);
     final refusal = message['refusal'];
     if (refusal != null && refusal is! String) {
       throw const FormatException('invalidResponse');
@@ -676,7 +1029,11 @@ AgentReply parseAgentReply(
   if (texts.isEmpty && prompts.isEmpty) {
     throw const FormatException('invalidResponse');
   }
-  return AgentReply(texts.join('\n'), prompts.isEmpty ? null : prompts.single);
+  return AgentReply(
+    texts.join('\n'),
+    prompts.isEmpty ? null : prompts.single,
+    reasoning: reasons.join('\n'),
+  );
 }
 
 String validatePrompt(Object? input) {
@@ -688,4 +1045,80 @@ String validatePrompt(Object? input) {
     throw const FormatException('invalidTool');
   }
   return prompt;
+}
+
+/// The parts of an Agent turn that are the same whether it is streamed or not:
+/// the validated options, the assembled messages and the system prompt.
+class _AgentRequest {
+  const _AgentRequest(this.settings, this.messages, this.system);
+  final AgentOptions settings;
+  final List<Map<String, dynamic>> messages;
+  final String system;
+}
+
+/// The JSON object of each `data:` frame in a server-sent event stream. Frames
+/// are separated by a blank line, so `event:` names, comments and keep-alives
+/// are skipped without needing to understand them.
+///
+/// An empty map stands for the `[DONE]` marker, so a caller can tell a stream
+/// the service finished from one that was cut off — from the outside they look
+/// the same.
+Stream<Map<String, dynamic>> _sseEvents(Stream<List<int>> source) async* {
+  final data = <String>[];
+  await for (final line
+      in utf8.decoder.bind(source).transform(const LineSplitter())) {
+    if (line.isNotEmpty) {
+      if (line.startsWith('data:')) {
+        data.add(line.substring(5).replaceFirst(RegExp(r'^ '), ''));
+      }
+      continue;
+    }
+    final event = _takeFrame(data);
+    if (event != null) yield event;
+  }
+  // A stream that ends without its closing blank line still carries a frame.
+  final event = _takeFrame(data);
+  if (event != null) yield event;
+}
+
+/// Takes the buffered frame, or null when it held nothing usable. An empty map
+/// means the peer sent `[DONE]`.
+Map<String, dynamic>? _takeFrame(List<String> data) {
+  final payload = data.join('\n').trim();
+  data.clear();
+  if (payload.isEmpty) return null;
+  if (payload == '[DONE]') return const {};
+  try {
+    final decoded = jsonDecode(payload);
+    return decoded is Map<String, dynamic> ? decoded : null;
+  } on FormatException {
+    return null;
+  }
+}
+
+/// Flattens the shapes a gateway may use for one piece of text: a plain string,
+/// or the array of content blocks an Anthropic-shaped service sends through an
+/// OpenAI-shaped endpoint.
+String _deltaText(Object? value) {
+  if (value is String) return value;
+  if (value is List) {
+    final buffer = StringBuffer();
+    for (final block in value.whereType<Map>()) {
+      final text = block['text'];
+      if (text is String) buffer.write(text);
+    }
+    return buffer.toString();
+  }
+  return '';
+}
+
+/// The decoded tool input, or null when the fragments never formed valid JSON —
+/// which is what a turn cut off in the middle of a call looks like.
+Object? _decodedJson(String text) {
+  if (text.isEmpty) return null;
+  try {
+    return jsonDecode(text);
+  } on FormatException {
+    return null;
+  }
 }

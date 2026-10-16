@@ -176,6 +176,22 @@ class LocalStore {
       )
       .then((_) {});
 
+  /// Removes one conversation's messages and the per-conversation settings that
+  /// belong to it. The images it produced stay: they are the user's work, and
+  /// the Gallery is where they are kept.
+  Future<void> deleteSession(String session) async {
+    await db.delete(
+      'messages',
+      where: 'session = ?',
+      whereArgs: [session],
+    );
+    await db.delete(
+      'settings',
+      where: 'key = ?',
+      whereArgs: ['conversation:$session'],
+    );
+  }
+
   /// Marks jobs that were still being submitted when the process died as
   /// unknown, and reports how many there were so the caller can warn the user
   /// before another paid request is allowed.

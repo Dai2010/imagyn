@@ -27,6 +27,7 @@ class ServiceConfig {
     this.proxy = '',
     this.imageStream = false,
     this.imageResponseB64 = false,
+    this.streamAgent = true,
     this.agentProfiles = const {},
   });
   final String baseUrl;
@@ -38,6 +39,7 @@ class ServiceConfig {
   final int maxReferences;
   final String proxy;
   final bool imageStream, imageResponseB64;
+  final bool streamAgent;
   final Map<String, AgentOptions> agentProfiles;
 
   AgentOptions get agentOptions =>
@@ -58,6 +60,7 @@ class ServiceConfig {
     proxy: proxy,
     imageStream: imageStream,
     imageResponseB64: imageResponseB64,
+    streamAgent: streamAgent,
     agentProfiles: agentProfiles ?? this.agentProfiles,
   );
 
@@ -84,6 +87,7 @@ class ServiceConfig {
     'proxy': proxy,
     'imageStream': imageStream,
     'imageResponseB64': imageResponseB64,
+    'streamAgent': streamAgent,
     'agentProfiles': agentProfiles.map(
       (key, value) => MapEntry(key, value.toJson()),
     ),
@@ -107,6 +111,7 @@ class ServiceConfig {
     proxy: j['proxy'] as String? ?? '',
     imageStream: j['imageStream'] == true,
     imageResponseB64: j['imageResponseB64'] == true,
+    streamAgent: j['streamAgent'] != false,
     agentProfiles: (j['agentProfiles'] as Map<String, dynamic>? ?? {}).map(
       (key, value) => MapEntry(
         key,
@@ -304,20 +309,31 @@ class Asset {
 }
 
 class ChatEntry {
-  const ChatEntry(this.role, this.text, {this.assetIds = const [], this.model});
+  const ChatEntry(
+    this.role,
+    this.text, {
+    this.assetIds = const [],
+    this.model,
+    this.reasoning = '',
+  });
   final String role, text;
   final String? model;
+
+  /// What the model thought before answering, when the service exposes it.
+  final String reasoning;
   final List<String> assetIds;
   Map<String, dynamic> toJson() => {
     'role': role,
     'text': text,
     'assetIds': assetIds,
     if (model != null) 'model': model,
+    if (reasoning.isNotEmpty) 'reasoning': reasoning,
   };
   factory ChatEntry.fromJson(Map<String, dynamic> j) => ChatEntry(
     j['role'] as String,
     j['text'] as String,
     model: j['model'] as String?,
+    reasoning: j['reasoning'] as String? ?? '',
     assetIds: List<String>.from(j['assetIds'] as List? ?? []),
   );
 }

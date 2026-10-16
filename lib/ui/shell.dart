@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 
 import '../core/models.dart';
 import '../core/studio.dart';
@@ -342,77 +343,148 @@ class _StudioShellState extends State<StudioShell> {
     ),
   );
 
+  /// The conversation, plus the reply being written while a turn is arriving.
   Widget _conversation() {
-    if (studio.chat.isEmpty) {
+    final streaming =
+        studio.streamingText.isNotEmpty || studio.streamingReasoning.isNotEmpty;
+    if (studio.chat.isEmpty && !streaming) {
       return Center(
         key: const ValueKey('agent'),
         child: _empty(Icons.auto_awesome_outlined, 'emptyAgent'),
       );
     }
+    final bubbles = <Widget>[
+      for (final entry in studio.chat) _bubble(entry),
+      if (streaming)
+        _bubble(
+          ChatEntry(
+            'assistant',
+            studio.streamingText,
+            reasoning: studio.streamingReasoning,
+          ),
+          streaming: true,
+        ),
+    ];
     return ListView.builder(
       key: ValueKey('agent-${studio.session}'),
       reverse: true,
       padding: const EdgeInsets.all(20),
-      itemCount: studio.chat.length,
-      itemBuilder: (context, index) {
-        final entry = studio.chat[studio.chat.length - index - 1];
-        final user = entry.role == 'user';
-        return Align(
-          alignment: user
-              ? AlignmentDirectional.centerEnd
-              : AlignmentDirectional.centerStart,
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(16),
-            constraints: const BoxConstraints(maxWidth: 680),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              color: user
-                  ? Theme.of(context).colorScheme.secondaryContainer
-                  : Theme.of(context).colorScheme.surfaceContainerLow,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (!user && entry.model != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      entry.model!,
-                      style: Theme.of(context).textTheme.labelSmall,
-                    ),
-                  ),
-                if (entry.text.isNotEmpty) SelectableText(entry.text),
-                for (final id in entry.assetIds)
-                  FutureBuilder<Asset?>(
-                    future: studio.store.asset(id),
-                    builder: (context, snapshot) {
-                      final asset = snapshot.data;
-                      if (asset == null) return const SizedBox.shrink();
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: GestureDetector(
-                          onTap: () => _preview(asset),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxHeight: user ? 120 : 400,
-                              ),
-                              child: _image(asset),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
+      itemCount: bubbles.length,
+      itemBuilder: (context, index) => bubbles[bubbles.length - index - 1],
     );
   }
+
+  Widget _bubble(ChatEntry entry, {bool streaming = false}) {
+    final user = entry.role == 'user';
+    return Align(
+      alignment: user
+          ? AlignmentDirectional.centerEnd
+          : AlignmentDirectional.centerStart,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        constraints: const BoxConstraints(maxWidth: 680),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: user
+              ? Theme.of(context).colorScheme.secondaryContainer
+              : Theme.of(context).colorScheme.surfaceContainerLow,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!user && entry.model != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  entry.model!,
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ),
+            if (entry.reasoning.isNotEmpty) _thinking(entry.reasoning),
+            if (entry.text.isNotEmpty)
+              user || streaming
+                  // A turn is shown as plain text while it arrives: half a
+                  // table, a formula without its closing `$` or an unfinished
+                  // code fence cannot be parsed at all, and re-parsing every
+                  // frame would only make the bubble flicker. Once the turn is
+                  // finished the stored message is rendered as Markdown.
+                  ? SelectableText(entry.text)
+                  : SelectionArea(
+                      child: GptMarkdown(
+                        entry.text,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                        textDirection: Directionality.of(context),
+                        // Models write `$…$`, not the package's `\(…\)`.
+                        useDollarSignsForLatex: true,
+                        imageBuilder: _blockedImage,
+                      ),
+                    ),
+            for (final id in entry.assetIds)
+              FutureBuilder<Asset?>(
+                future: studio.store.asset(id),
+                builder: (context, snapshot) {
+                  final asset = snapshot.data;
+                  if (asset == null) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: GestureDetector(
+                      onTap: () => _preview(asset),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: user ? 120 : 400,
+                          ),
+                          child: _image(asset),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The model's own thinking, folded away so it does not push the answer off
+  /// the screen, but one tap away for the models that expose it.
+  Widget _thinking(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: const EdgeInsets.only(bottom: 12),
+      shape: const Border(),
+      collapsedShape: const Border(),
+      dense: true,
+      title: Text(s.t('thinking'), style: Theme.of(context).textTheme.labelSmall),
+      children: [
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: SelectableText(
+            text,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  /// A Markdown image points at a host of the model's choosing, and the default
+  /// builder would fetch it — reporting this device to a third party the user
+  /// never configured. A reply does not need the picture, so the address is
+  /// shown instead of being loaded.
+  Widget _blockedImage(
+    BuildContext context,
+    String imageUrl,
+    double? width,
+    double? height,
+  ) => Text(
+    imageUrl,
+    style: Theme.of(context).textTheme.bodySmall,
+  );
 
   Widget _composer() {
     final agent = _page == 1;
@@ -732,6 +804,30 @@ class _StudioShellState extends State<StudioShell> {
     ),
   );
 
+  Future<void> _confirmDelete(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(s.t('deleteConversation')),
+        content: Text(s.t('deleteConfirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(s.t('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(s.t('delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    // Close the list first: the conversation it was listing no longer exists.
+    Navigator.pop(context);
+    await _guard(() => studio.deleteConversation(id));
+  }
+
   Future<void> _history() async {
     final sessions = await studio.conversations();
     if (!mounted) return;
@@ -764,7 +860,13 @@ class _StudioShellState extends State<StudioShell> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      selected: session['session'] == studio.session,
+                      trailing: IconButton(
+                        tooltip: s.t('deleteConversation'),
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        onPressed: studio.busy
+                            ? null
+                            : () => _confirmDelete(session['session'] as String),
+                      ),
                       onTap: () {
                         Navigator.pop(context);
                         _guard(
