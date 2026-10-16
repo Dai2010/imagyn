@@ -23,6 +23,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(SettingsPage), findsOneWidget);
       expect(find.byKey(const ValueKey('systemPrompt')), findsNothing);
+      // The four tabs must all show their own label: the segmented button's
+      // default selected tick used to eat the active segment's text.
+      expect(find.byIcon(Icons.check), findsNothing);
+      for (final label in ['画廊', 'Agent', '通用', '关于']) {
+        expect(find.text(label), findsWidgets, reason: label);
+      }
       await tester.tap(find.text('Agent').last);
       await tester.pumpAndSettle();
       await tester.tap(find.byType(DropdownButtonFormField<ApiProtocol>));
@@ -36,14 +42,15 @@ void main() {
       final prompt = find.byKey(const ValueKey('systemPrompt'));
       await tester.ensureVisible(prompt);
       await tester.enterText(prompt, '我的提示词');
-      await tester.ensureVisible(find.byType(SegmentedButton<int>));
-      await tester.tap(find.text('画廊').last);
+      await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('systemPrompt')), findsNothing);
       await tester.tap(find.text('Agent').last);
       await tester.pumpAndSettle();
       expect(tester.widget<TextFormField>(prompt).controller!.text, '我的提示词');
-      await tester.tap(find.text('通用'));
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('通用').last);
       await tester.pumpAndSettle();
       final save = find.widgetWithText(FilledButton, '保存');
       await tester.ensureVisible(save);
