@@ -388,14 +388,22 @@ class _SettingsPageState extends State<SettingsPage> {
                               (v) => DropdownMenuItem(
                                 value: v,
                                 child: Text(
-                                  v == ApiProtocol.openai
-                                      ? 'OpenAI'
-                                      : 'Anthropic / Claude',
+                                  v.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             )
                             .toList(),
                         onChanged: (v) => setState(() => _protocol = v!),
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: Text(
+                          'POST /${_protocol.chatPath}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
                       ),
                       const SizedBox(height: 14),
                       _field(_base, 'endpoint', hint: 'https://…/v1'),

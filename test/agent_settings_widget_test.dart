@@ -25,6 +25,14 @@ void main() {
       expect(find.byKey(const ValueKey('systemPrompt')), findsNothing);
       await tester.tap(find.text('Agent').last);
       await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<ApiProtocol>));
+      await tester.pumpAndSettle();
+      expect(find.text('OpenAI · Chat Completions'), findsWidgets);
+      expect(find.text('OpenAI · Responses'), findsOneWidget);
+      expect(find.text('Anthropic · Messages'), findsOneWidget);
+      await tester.tap(find.text('OpenAI · Responses'));
+      await tester.pumpAndSettle();
+      expect(find.text('POST /responses'), findsOneWidget);
       final prompt = find.byKey(const ValueKey('systemPrompt'));
       await tester.ensureVisible(prompt);
       await tester.enterText(prompt, '我的提示词');
@@ -43,6 +51,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(SettingsPage), findsNothing);
       expect(store.savedConfig.agentOptions.systemPrompt, '我的提示词');
+      expect(store.savedConfig.protocol, ApiProtocol.responses);
       expect(tester.takeException(), isNull);
     },
   );

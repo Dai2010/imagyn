@@ -290,11 +290,7 @@ class Studio extends ChangeNotifier {
         if (requestConfig.agentModel.trim().isEmpty) {
           throw const FormatException('missingAgentModel');
         }
-        config.endpoint(
-          config.protocol == ApiProtocol.anthropic
-              ? 'messages'
-              : 'chat/completions',
-        );
+        requestConfig.endpoint(requestConfig.protocol.chatPath);
         if (refs.isNotEmpty && !config.vision) {
           throw const FormatException('visionDisabled');
         }

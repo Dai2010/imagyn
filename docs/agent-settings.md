@@ -17,12 +17,20 @@ Agent 参数按模型 ID 保存。系统提示词默认保留旧版内容，允�
 ## 参数语义
 
 - 上下文消息数量：0 发送全部；正数仅携带最近若干条消息，包括本次用户消息，必要时跳过开头孤立的 assistant 消息。本地历史不删除。这是消息条数限制，不是 Token 计数、模型窗口大小或自动摘要。
-- 最大输出 Tokens：可选正整数。OpenAI 兼容协议发送 `max_completion_tokens`；Claude 发送 `max_tokens`，留空使用原有的 2048 默认值。服务必须支持所填参数及数值范围。
+- 最大输出 Tokens：可选正整数。Chat Completions 发送 `max_completion_tokens`，Responses 发送 `max_output_tokens`（最小 16）；Claude 发送 `max_tokens`，留空使用原有的 2048 默认值。服务必须支持所填参数及数值范围。
 - Temperature / Top P：留空不发送。Temperature 的应用校验范围为 OpenAI 0–2、Claude 0–1；Top P 为 0–1。Claude 仅允许填写其中一种，避免同时传参被拒绝。部分模型不接受采样参数，应留空。
-- 系统提示词：OpenAI 作为 system 消息发送；Claude 作为顶层 system 字段发送；留空时均省略。
+- 系统提示词：Chat Completions 作为 system 消息发送；Responses 使用 `instructions`；Claude 作为顶层 system 字段发送；留空时均省略。
 
 模型上下文上限与输出上限最终由服务决定。应用不静默换模型、不自动重试收费请求，也不会用开发用的 GitHub 代理转发生图或对话请求。
 
 ## 验证
 
 本机 HTTP 回环验证两种协议的模型 ID、自定义系统提示词、上下文裁剪、输出参数、空值省略与回复模型记录。存储测试验证旧配置迁移、按模型保存、会话恢复与新会话默认值；360px 窄屏测试验证页签、提示词跨页保存和切模型保留草稿。没有调用真实付费接口。
+
+## 三种对话协议
+
+设置分别标注 OpenAI · Chat Completions、OpenAI · Responses、Anthropic · Messages，并显示实际 POST 路径。旧配置的 `openai` 仍对应 Chat Completions，不会自动切换。
+
+Responses 使用 `/responses`、`input` 消息与 `input_image` 参考图、扁平 function 工具声明；解析 output 数组中的 output_text/refusal 与 function_call。拒绝不完整结果、未知工具和多次生图调用，沿用应用的一轮一次生图逻辑。使用 `store: false`，每次提交裁剪后的本地历史，不依赖 previous_response_id 或服务端会话；工具生成的图片继续通过独立 Images 接口获取。本实现不启用 Responses 内置 image_generation，也不支持 Agent SSE。
+
+协议依据 [OpenAI Responses API](https://developers.openai.com/api/reference/python/resources/responses/methods/create) 和 [Function calling](https://developers.openai.com/api/docs/guides/function-calling) 独立实现。
