@@ -5,6 +5,7 @@ import '../core/api.dart';
 import '../core/models.dart';
 import '../core/studio.dart';
 import '../l10n/strings.dart';
+import 'agent_options.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.studio});
@@ -26,6 +27,11 @@ class _SettingsPageState extends State<SettingsPage> {
   late bool _vision, _motion, _imageStream, _imageResponseB64;
   late int _limit;
   bool _checking = false, _saving = false;
+  int _tab = 0;
+  var _agentEditor = GlobalKey<AgentOptionsEditorState>();
+  late String _profileModel;
+  late Map<String, AgentOptions> _profiles;
+  late AgentOptions _options;
   String? _status;
 
   /// Diagnostic line shown under [_status]: the server's own words.
@@ -56,6 +62,9 @@ class _SettingsPageState extends State<SettingsPage> {
     _motion = widget.studio.reduceMotion;
     _imageStream = c.imageStream;
     _imageResponseB64 = c.imageResponseB64;
+    _profiles = {...c.agentProfiles};
+    _profileModel = c.agentModel;
+    _options = c.agentOptions;
   }
 
   @override
@@ -87,6 +96,7 @@ class _SettingsPageState extends State<SettingsPage> {
     proxy: _proxy.text.trim(),
     imageStream: _imageStream,
     imageResponseB64: _imageResponseB64,
+    agentProfiles: _profiles,
   );
 
   /// Reports the outcome where the user is actually looking. The status line
@@ -124,7 +134,25 @@ class _SettingsPageState extends State<SettingsPage> {
         : Text(s.t(label)),
   );
 
+  void _selectAgentModel(String model) {
+    final edited = _agentEditor.currentState?.read();
+    if (_agentEditor.currentState != null && edited == null) return;
+    final options = edited ?? _options;
+    if (_profileModel.isNotEmpty) _profiles[_profileModel] = options;
+    setState(() {
+      _profileModel = model.trim();
+      _agentModel.text = _profileModel;
+      _options = _profiles[_profileModel] ?? const AgentOptions();
+      _agentEditor = GlobalKey<AgentOptionsEditorState>();
+    });
+  }
+
   Future<void> _check({bool images = false, bool text = false}) async {
+    if (text) {
+      final options = _agentEditor.currentState?.read();
+      if (_agentEditor.currentState != null && options == null) return;
+      _profiles[_agentModel.text.trim()] = options ?? _options;
+    }
     final what = text ? 'text' : (images ? 'images' : 'models');
     setState(() {
       _checking = true;
@@ -178,7 +206,13 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         );
         if (!mounted) return;
-        if (chosen != null) (images ? _imageModel : _agentModel).text = chosen;
+        if (chosen != null) {
+          if (images) {
+            _imageModel.text = chosen;
+          } else {
+            _selectAgentModel(chosen);
+          }
+        }
         _finish('connected', detail: '${models.length} models');
       }
     } catch (e) {
@@ -199,6 +233,11 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _save() async {
+    final value = _agentEditor.currentState?.read();
+    if (_agentEditor.currentState != null && value == null) return;
+    if (_agentModel.text.trim().isNotEmpty) {
+      _profiles[_agentModel.text.trim()] = value ?? _options;
+    }
     setState(() {
       _saving = true;
       _status = null;
@@ -225,10 +264,12 @@ class _SettingsPageState extends State<SettingsPage> {
     String label, {
     bool secret = false,
     String? hint,
+    ValueChanged<String>? onSubmitted,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 14),
     child: TextField(
       controller: c,
+      onSubmitted: onSubmitted,
       obscureText: secret,
       autocorrect: false,
       enableSuggestions: false,
@@ -253,9 +294,35 @@ class _SettingsPageState extends State<SettingsPage> {
     ),
   );
 
+  Widget _tabs() => SegmentedButton<int>(
+    segments: [
+      ButtonSegment(value: 0, label: Text(s.t('imageSettings'))),
+      ButtonSegment(value: 1, label: Text(s.t('agent'))),
+      ButtonSegment(value: 2, label: Text(s.t('generalSettings'))),
+    ],
+    selected: {_tab},
+    onSelectionChanged: (selection) {
+      final options = _agentEditor.currentState?.read();
+      if (_agentEditor.currentState != null && options == null) {
+        return;
+      }
+      if (options != null) _options = options;
+      setState(() => _tab = selection.single);
+    },
+  );
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(s.t('settings'))),
+    appBar: AppBar(
+      title: Text(s.t('settings')),
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(64),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: IgnorePointer(ignoring: _checking || _saving, child: _tabs()),
+        ),
+      ),
+    ),
     body: Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 680),
@@ -266,54 +333,54 @@ class _SettingsPageState extends State<SettingsPage> {
               ignoring: _checking || _saving,
               child: Column(
                 children: [
-                  _section('imageConnection', [
-                    _field(_imageBase, 'imageEndpoint', hint: 'https://…/v1'),
-                    _field(_imageKey, 'imageKey', secret: true),
-                    _field(_imageModel, 'imageModel'),
-                    DropdownButtonFormField<int>(
-                      initialValue: _limit,
-                      decoration: InputDecoration(labelText: s.t('limit')),
-                      items: List.generate(
-                        16,
-                        (i) => DropdownMenuItem(
-                          value: i + 1,
-                          child: Text('${i + 1}'),
+                  if (_tab == 0)
+                    _section('imageConnection', [
+                      _field(_imageBase, 'imageEndpoint', hint: 'https://…/v1'),
+                      _field(_imageKey, 'imageKey', secret: true),
+                      _field(_imageModel, 'imageModel'),
+                      DropdownButtonFormField<int>(
+                        initialValue: _limit,
+                        decoration: InputDecoration(labelText: s.t('limit')),
+                        items: List.generate(
+                          16,
+                          (i) => DropdownMenuItem(
+                            value: i + 1,
+                            child: Text('${i + 1}'),
+                          ),
                         ),
+                        onChanged: (v) => setState(() => _limit = v!),
                       ),
-                      onChanged: (v) => setState(() => _limit = v!),
-                    ),
-                    const SizedBox(height: 12),
-                    _checkButton('checkModels', 'images', images: true),
-                    const SizedBox(height: 8),
-                    Text(
-                      s.t('checkNote'),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    ExpansionTile(
-                      tilePadding: EdgeInsets.zero,
-                      title: Text(s.t('imageCompatibility')),
-                      children: [
-                        SwitchListTile(
-                          title: Text(s.t('imageStream')),
-                          subtitle: Text(s.t('imageStreamNote')),
-                          value: _imageStream,
-                          onChanged: (v) => setState(() => _imageStream = v),
-                        ),
-                        SwitchListTile(
-                          title: Text(s.t('imageResponseB64')),
-                          subtitle: Text(s.t('imageResponseB64Note')),
-                          value: _imageResponseB64,
-                          onChanged: (v) =>
-                              setState(() => _imageResponseB64 = v),
-                        ),
-                      ],
-                    ),
-                  ]),
-                  ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    title: Text(s.t('optionalAgent')),
-                    children: [
+                      const SizedBox(height: 12),
+                      _checkButton('checkModels', 'images', images: true),
+                      const SizedBox(height: 8),
+                      Text(
+                        s.t('checkNote'),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: Text(s.t('imageCompatibility')),
+                        children: [
+                          SwitchListTile(
+                            title: Text(s.t('imageStream')),
+                            subtitle: Text(s.t('imageStreamNote')),
+                            value: _imageStream,
+                            onChanged: (v) => setState(() => _imageStream = v),
+                          ),
+                          SwitchListTile(
+                            title: Text(s.t('imageResponseB64')),
+                            subtitle: Text(s.t('imageResponseB64Note')),
+                            value: _imageResponseB64,
+                            onChanged: (v) =>
+                                setState(() => _imageResponseB64 = v),
+                          ),
+                        ],
+                      ),
+                    ]),
+                  if (_tab == 1)
+                    _section('connection', [
                       DropdownButtonFormField<ApiProtocol>(
+                        isExpanded: true,
                         initialValue: _protocol,
                         decoration: InputDecoration(labelText: s.t('protocol')),
                         items: ApiProtocol.values
@@ -333,7 +400,21 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(height: 14),
                       _field(_base, 'endpoint', hint: 'https://…/v1'),
                       _field(_key, 'key', secret: true),
-                      _field(_agentModel, 'agentModel'),
+                      _field(
+                        _agentModel,
+                        'agentModel',
+                        onSubmitted: _selectAgentModel,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Text(s.t('modelDefaultsNote')),
+                      ),
+                      AgentOptionsEditor(
+                        key: _agentEditor,
+                        options: _options,
+                        protocol: _protocol,
+                      ),
+                      const SizedBox(height: 16),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: Text(s.t('vision')),
@@ -347,53 +428,60 @@ class _SettingsPageState extends State<SettingsPage> {
                           _checkButton('checkText', 'text', text: true),
                         ],
                       ),
-                    ],
-                  ),
-                  _section('appearance', [
-                    DropdownButtonFormField<String>(
-                      initialValue: _language,
-                      decoration: InputDecoration(labelText: s.t('language')),
-                      items: [
-                        DropdownMenuItem(
-                          value: 'system',
-                          child: Text(s.t('system')),
-                        ),
-                        ...Strings.names.entries.map(
-                          (e) => DropdownMenuItem(
-                            value: e.key,
-                            child: Text(e.value),
+                    ]),
+                  if (_tab == 2)
+                    _section('appearance', [
+                      DropdownButtonFormField<String>(
+                        isExpanded: true,
+                        initialValue: _language,
+                        decoration: InputDecoration(labelText: s.t('language')),
+                        items: [
+                          DropdownMenuItem(
+                            value: 'system',
+                            child: Text(s.t('system')),
                           ),
-                        ),
-                      ],
-                      onChanged: (v) => setState(() => _language = v!),
+                          ...Strings.names.entries.map(
+                            (e) => DropdownMenuItem(
+                              value: e.key,
+                              child: Text(e.value),
+                            ),
+                          ),
+                        ],
+                        onChanged: (v) => setState(() => _language = v!),
+                      ),
+                      const SizedBox(height: 14),
+                      DropdownButtonFormField<String>(
+                        isExpanded: true,
+                        initialValue: _theme,
+                        decoration: InputDecoration(labelText: s.t('theme')),
+                        items: ['system', 'light', 'dark']
+                            .map(
+                              (v) => DropdownMenuItem(
+                                value: v,
+                                child: Text(s.t(v)),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (v) => setState(() => _theme = v!),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(s.t('reduceMotion')),
+                        value: _motion,
+                        onChanged: (v) => setState(() => _motion = v),
+                      ),
+                    ]),
+                  if (_tab == 2)
+                    _section('network', [
+                      _field(_proxy, 'proxy', hint: 'http://127.0.0.1:8080'),
+                    ]),
+                  if (_tab == 2)
+                    _section('storage', [Text(s.t('storageNote'))]),
+                  if (_tab == 2)
+                    Text(
+                      s.t('privacy'),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    const SizedBox(height: 14),
-                    DropdownButtonFormField<String>(
-                      initialValue: _theme,
-                      decoration: InputDecoration(labelText: s.t('theme')),
-                      items: ['system', 'light', 'dark']
-                          .map(
-                            (v) =>
-                                DropdownMenuItem(value: v, child: Text(s.t(v))),
-                          )
-                          .toList(),
-                      onChanged: (v) => setState(() => _theme = v!),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(s.t('reduceMotion')),
-                      value: _motion,
-                      onChanged: (v) => setState(() => _motion = v),
-                    ),
-                  ]),
-                  _section('network', [
-                    _field(_proxy, 'proxy', hint: 'http://127.0.0.1:8080'),
-                  ]),
-                  _section('storage', [Text(s.t('storageNote'))]),
-                  Text(
-                    s.t('privacy'),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
                 ],
               ),
             ),

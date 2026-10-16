@@ -63,3 +63,7 @@ Claude 官方支持看图分析，但不直接生成照片或插画。因此 Ant
 ## 画廊与 Images 接口更新
 
 本轮已增加生成参数、作品搜索与收藏、独立任务卡片、提交后清空输入、可选 Images SSE 结果与下载重试。实现与验证记录见 [image-workflow.md](image-workflow.md)。Responses 生图仍未实现。
+
+## Agent 参数与会话模型
+
+设置分为生图、Agent 和通用页签。支持按模型编辑系统提示词、上下文消息数量、最大输出 Tokens、Temperature 和 Top P；对话可覆盖默认值并切换 Agent/图片模型，历史与草稿保留。旧配置与消息向后兼容；上下文按消息条数裁剪，不进行 Token 计数或自动摘要。详见 [agent-settings.md](agent-settings.md)。

@@ -8,6 +8,8 @@ import '../l10n/strings.dart';
 import 'settings.dart';
 import 'gallery.dart';
 import 'image_options.dart';
+import 'agent_options.dart';
+import 'model_picker.dart';
 
 class StudioShell extends StatefulWidget {
   const StudioShell({super.key, required this.studio});
@@ -328,7 +330,7 @@ class _StudioShellState extends State<StudioShell> {
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.titleMedium,
         ),
-        if (studio.config.imageModel.isEmpty)
+        if (studio.activeConfig.imageModel.isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 14),
             child: TextButton(
@@ -372,6 +374,14 @@ class _StudioShellState extends State<StudioShell> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (!user && entry.model != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      entry.model!,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ),
                 if (entry.text.isNotEmpty) SelectableText(entry.text),
                 for (final id in entry.assetIds)
                   FutureBuilder<Asset?>(
@@ -482,6 +492,34 @@ class _StudioShellState extends State<StudioShell> {
                             ),
                           ),
                   ),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Wrap(
+                      spacing: 4,
+                      children: [
+                        if (agent) _modelButton(true),
+                        _modelButton(false),
+                        if (agent)
+                          IconButton(
+                            key: const ValueKey('agentOptions'),
+                            tooltip: s.t('conversationSettings'),
+                            onPressed: studio.busy
+                                ? null
+                                : () => _guard(() async {
+                                    final value = await showAgentOptions(
+                                      context,
+                                      studio.agentOptions,
+                                      studio.config.protocol,
+                                    );
+                                    if (value != null) {
+                                      await studio.setAgentOptions(value);
+                                    }
+                                  }),
+                            icon: const Icon(Icons.tune_rounded, size: 20),
+                          ),
+                      ],
+                    ),
+                  ),
                   TextField(
                     controller: controller,
                     minLines: 1,
@@ -549,6 +587,36 @@ class _StudioShellState extends State<StudioShell> {
     );
   }
 
+  Widget _modelButton(bool agent) {
+    final model = agent
+        ? studio.activeConfig.agentModel
+        : studio.activeConfig.imageModel;
+    return TextButton.icon(
+      key: ValueKey(agent ? 'switchAgentModel' : 'switchImageModel'),
+      onPressed: studio.busy
+          ? null
+          : () => _guard(() async {
+              final model = await showModalBottomSheet<String>(
+                context: context,
+                isScrollControlled: true,
+                useSafeArea: true,
+                showDragHandle: true,
+                builder: (_) => ModelPicker(studio: studio, agent: agent),
+              );
+              if (model != null) await studio.switchModel(model, agent: agent);
+            }),
+      icon: Icon(agent ? Icons.forum_outlined : Icons.image_outlined, size: 16),
+      label: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 170),
+        child: Text(
+          model.isEmpty ? s.t(agent ? 'agentModel' : 'imageModel') : model,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+
   Future<void> _options() async {
     final value = await showModalBottomSheet<ImageOptions>(
       context: context,
@@ -557,7 +625,7 @@ class _StudioShellState extends State<StudioShell> {
       showDragHandle: true,
       builder: (_) => ImageOptionsSheet(
         options: studio.imageOptions,
-        model: studio.config.imageModel,
+        model: studio.activeConfig.imageModel,
       ),
     );
     if (value != null) await _guard(() => studio.setImageOptions(value));

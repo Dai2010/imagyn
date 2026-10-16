@@ -32,7 +32,7 @@ void main() {
       'referenceLimit', 'visionDisabled', 'invalidImage', 'imageTooLarge', 'invalidImageUrl',
       'noImage', 'invalidResponse', 'unsupportedTool', 'invalidTool', 'multipleCalls',
       'authError', 'rateLimit', 'serviceError', 'emptyPrompt', 'cancelled', 'unknown', 'error',
-      'redirectBlocked', 'invalidImageOptions', 'promptTooLong', 'downloadFailed', 'incompleteImageStream',
+      'invalidAgentOptions', 'redirectBlocked', 'invalidImageOptions', 'promptTooLong', 'downloadFailed', 'incompleteImageStream',
     ];
     for (final code in errorCodes) {
       expect(translations['en']!.containsKey(code), isTrue, reason: code);

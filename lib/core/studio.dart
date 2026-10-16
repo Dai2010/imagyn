@@ -36,6 +36,59 @@ class Studio extends ChangeNotifier {
   ImageOptions imageOptions = const ImageOptions();
   CancelToken? _cancel;
   StudioApi? _api;
+  Map<String, dynamic> _conversationSettings = {};
+
+  ServiceConfig get activeConfig => config.copyWith(
+    agentModel: _conversationSettings['agentModel'] as String?,
+    imageModel: _conversationSettings['imageModel'] as String?,
+  );
+  AgentOptions get agentOptions {
+    final profiles = _conversationSettings['agentProfiles'] as Map?;
+    final value = profiles?[activeConfig.agentModel];
+    return value is Map
+        ? AgentOptions.fromJson(Map<String, dynamic>.from(value))
+        : activeConfig.agentOptions;
+  }
+
+  Future<void> _loadConversationSettings() async {
+    _conversationSettings = Map<String, dynamic>.from(
+      jsonDecode(await store.setting('conversation:$session') ?? '{}') as Map,
+    );
+  }
+
+  Future<void> _saveConversationSettings(Map<String, dynamic> value) async {
+    await store.setSetting('conversation:$session', jsonEncode(value));
+    _conversationSettings = value;
+    notifyListeners();
+  }
+
+  Future<void> switchModel(String model, {required bool agent}) async {
+    if (busy) return;
+    if (model.trim().isEmpty) {
+      throw FormatException(agent ? 'missingAgentModel' : 'missingImageModel');
+    }
+    await _saveConversationSettings({
+      ..._conversationSettings,
+      agent ? 'agentModel' : 'imageModel': model.trim(),
+    });
+  }
+
+  Future<void> setAgentOptions(AgentOptions value) async {
+    if (busy) return;
+    value.validate(config.protocol);
+    await _saveConversationSettings({
+      ..._conversationSettings,
+      'agentProfiles': {
+        ...?_conversationSettings['agentProfiles'] as Map?,
+        activeConfig.agentModel: value.toJson(),
+      },
+    });
+  }
+
+  Future<void> resetConversationOptions() async {
+    if (busy) return;
+    await _saveConversationSettings({});
+  }
 
   Future<void> initialize() async {
     config = await store.config();
@@ -50,6 +103,7 @@ class Studio extends ChangeNotifier {
     reduceMotion = await store.setting('reduceMotion') == 'true';
     onboarding = await store.setting('onboardingVersion') == null;
     session = await store.setting('currentSession') ?? store.newId();
+    await store.setSetting('currentSession', session);
     // A job that was mid-submission when the process died may still be running
     // on the service. Say so at startup, before another paid request is sent.
     await store.recoverJobs();
@@ -60,6 +114,7 @@ class Studio extends ChangeNotifier {
       jsonDecode(await store.setting('imageOptions') ?? '{}')
           as Map<String, dynamic>,
     );
+    await _loadConversationSettings();
     await refresh();
     ready = true;
     notifyListeners();
@@ -89,6 +144,9 @@ class Studio extends ChangeNotifier {
     if (busy) return;
     if (value.baseUrl.isNotEmpty) value.endpoint('models');
     if (value.imageBaseUrl.isNotEmpty) value.imageEndpoint('models');
+    for (final options in value.agentProfiles.values) {
+      options.validate(value.protocol);
+    }
     final probe = networkClient(value.proxy);
     probe.close();
     final language = locale == 'system' || Strings.isSupported(locale)
@@ -108,7 +166,7 @@ class Studio extends ChangeNotifier {
     notifyListeners();
   }
 
-  StudioApi get api => StudioApi(config, key, imageKey, store);
+  StudioApi get api => StudioApi(activeConfig, key, imageKey, store);
 
   Future<void> pickReferences(bool agent) async {
     if (busy) return;
@@ -163,6 +221,7 @@ class Studio extends ChangeNotifier {
     if (busy) return;
     session = store.newId();
     await store.setSetting('currentSession', session);
+    _conversationSettings = {};
     chat = [];
     agentRefs = [];
     notifyListeners();
@@ -176,6 +235,7 @@ class Studio extends ChangeNotifier {
     if (busy) return;
     session = id;
     await store.setSetting('currentSession', id);
+    await _loadConversationSettings();
     chat = await store.messages(session);
     agentRefs = [];
     for (final entry in chat.reversed) {
@@ -218,13 +278,16 @@ class Studio extends ChangeNotifier {
     if (prompt.trim().isEmpty) throw const FormatException('emptyPrompt');
     final refs = List<Asset>.of(agent ? agentRefs : galleryRefs);
     final client = api;
+    final requestConfig = client.config;
+    final requestAgentOptions = agentOptions;
     try {
       options.validate();
       if (!agent) {
         client.validateGeneration(prompt, refs, options);
       } else {
+        requestAgentOptions.validate(requestConfig.protocol);
         if (key.isEmpty) throw const FormatException('missingKey');
-        if (config.agentModel.trim().isEmpty) {
+        if (requestConfig.agentModel.trim().isEmpty) {
           throw const FormatException('missingAgentModel');
         }
         config.endpoint(
@@ -264,7 +327,12 @@ class Studio extends ChangeNotifier {
         onAccepted?.call();
         chat = await store.messages(session);
         notifyListeners();
-        final result = await client.converse(chat, refs, _cancel!);
+        final result = await client.converse(
+          chat,
+          refs,
+          _cancel!,
+          options: requestAgentOptions,
+        );
         reply = result.text;
         imagePrompt = result.imagePrompt;
       }
@@ -277,7 +345,7 @@ class Studio extends ChangeNotifier {
         record = {
           'prompt': imagePrompt,
           'references': refs.map((a) => a.id).toList(),
-          'model': config.imageModel,
+          'model': requestConfig.imageModel,
           ...options.toJson(),
           'createdAt': DateTime.now().toIso8601String(),
           'session': agent ? session : null,
@@ -314,6 +382,7 @@ class Studio extends ChangeNotifier {
           ChatEntry(
             'assistant',
             reply.isEmpty && created.isNotEmpty ? '' : reply,
+            model: requestConfig.agentModel,
             assetIds: created.map((a) => a.id).toList(),
           ),
         );
