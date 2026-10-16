@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api.dart';
 import '../core/models.dart';
@@ -24,10 +26,15 @@ class _SettingsPageState extends State<SettingsPage> {
       _proxy;
   late String _language, _theme;
   late ApiProtocol _protocol;
-  late bool _vision, _motion, _imageStream, _imageResponseB64;
+  late bool _vision, _motion, _imageStream, _imageResponseB64, _streamAgent;
   late int _limit;
   bool _checking = false, _saving = false;
   int _tab = 0;
+
+  /// Which secret fields are currently shown in the clear. Keys are hidden by
+  /// default, but on a phone there is no way to check what was typed without
+  /// being able to reveal it.
+  final _revealed = <TextEditingController, bool>{};
   var _agentEditor = GlobalKey<AgentOptionsEditorState>();
   late String _profileModel;
   late Map<String, AgentOptions> _profiles;
@@ -62,6 +69,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _motion = widget.studio.reduceMotion;
     _imageStream = c.imageStream;
     _imageResponseB64 = c.imageResponseB64;
+    _streamAgent = c.streamAgent;
     _profiles = {...c.agentProfiles};
     _profileModel = c.agentModel;
     _options = c.agentOptions;
@@ -96,6 +104,7 @@ class _SettingsPageState extends State<SettingsPage> {
     proxy: _proxy.text.trim(),
     imageStream: _imageStream,
     imageResponseB64: _imageResponseB64,
+    streamAgent: _streamAgent,
     agentProfiles: _profiles,
   );
 
@@ -263,6 +272,7 @@ class _SettingsPageState extends State<SettingsPage> {
     TextEditingController c,
     String label, {
     bool secret = false,
+    bool url = false,
     String? hint,
     ValueChanged<String>? onSubmitted,
   }) => Padding(
@@ -270,13 +280,70 @@ class _SettingsPageState extends State<SettingsPage> {
     child: TextField(
       controller: c,
       onSubmitted: onSubmitted,
-      obscureText: secret,
+      // A key stays hidden until it is asked for; an address is meant to be
+      // read, and gets the keyboard that knows about dots and slashes.
+      obscureText: secret && !(_revealed[c] ?? false),
+      keyboardType: url ? TextInputType.url : null,
       autocorrect: false,
       enableSuggestions: false,
       textDirection: TextDirection.ltr,
-      decoration: InputDecoration(labelText: s.t(label), hintText: hint),
+      decoration: InputDecoration(
+        labelText: s.t(label),
+        hintText: hint,
+        suffixIcon: !secret
+            ? null
+            : IconButton(
+                tooltip: s.t((_revealed[c] ?? false) ? 'hideSecret' : 'showSecret'),
+                icon: Icon(
+                  (_revealed[c] ?? false)
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                ),
+                onPressed: () =>
+                    setState(() => _revealed[c] = !(_revealed[c] ?? false)),
+              ),
+      ),
     ),
   );
+
+  /// A row that opens [url]. No icon: the address is the label's other half.
+  Widget _link(String label, String address, String url) => ListTile(
+    contentPadding: EdgeInsets.zero,
+    title: Text(s.t(label)),
+    subtitle: Text(address),
+    onTap: () => _open(url),
+  );
+
+  /// The version actually installed, read from the package rather than from the
+  /// source tree, so it still answers correctly for a shipped build.
+  Widget _version() => ListTile(
+    contentPadding: EdgeInsets.zero,
+    title: Text(s.t('version')),
+    subtitle: FutureBuilder<PackageInfo>(
+      future: PackageInfo.fromPlatform(),
+      builder: (context, snapshot) =>
+          Text(snapshot.hasData ? '${snapshot.data!.version}+${snapshot.data!.buildNumber}' : '…'),
+    ),
+  );
+
+  Future<void> _open(String url) async {
+    // A platform with no handler answers `false` rather than throwing, so the
+    // return value is what decides whether the fallback is needed.
+    bool opened;
+    try {
+      opened = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      opened = false;
+    }
+    if (opened || !mounted) return;
+    // Nothing here could take the link, so at least let it be copied.
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: SelectableText(url)));
+  }
   Widget _section(String label, List<Widget> children) => Padding(
     padding: const EdgeInsets.only(bottom: 28),
     child: Column(
@@ -294,11 +361,18 @@ class _SettingsPageState extends State<SettingsPage> {
     ),
   );
 
+  /// A tab label, pinned to a single line on purpose: a wrapped label makes the
+  /// button taller, and the room the AppBar gives this row is fixed — the growth
+  /// then shows up as a vertical overflow instead of a cramped label.
+  Widget _tabLabel(String key) =>
+      Text(s.t(key), maxLines: 1, overflow: TextOverflow.ellipsis);
+
   Widget _tabs() => SegmentedButton<int>(
     segments: [
-      ButtonSegment(value: 0, label: Text(s.t('imageSettings'))),
-      ButtonSegment(value: 1, label: Text(s.t('agent'))),
-      ButtonSegment(value: 2, label: Text(s.t('generalSettings'))),
+      ButtonSegment(value: 0, label: _tabLabel('gallery')),
+      ButtonSegment(value: 1, label: _tabLabel('agent')),
+      ButtonSegment(value: 2, label: _tabLabel('generalSettings')),
+      ButtonSegment(value: 3, label: _tabLabel('about')),
     ],
     selected: {_tab},
     onSelectionChanged: (selection) {
@@ -316,7 +390,10 @@ class _SettingsPageState extends State<SettingsPage> {
     appBar: AppBar(
       title: Text(s.t('settings')),
       bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(64),
+        // The button plus the gap under it (60 + 12), with slack for a larger
+        // text scale: the AppBar lays this row out at a fixed height, so a
+        // short slot would overflow rather than simply look tight.
+        preferredSize: const Size.fromHeight(72),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child: IgnorePointer(ignoring: _checking || _saving, child: _tabs()),
@@ -335,7 +412,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 children: [
                   if (_tab == 0)
                     _section('imageConnection', [
-                      _field(_imageBase, 'imageEndpoint', hint: 'https://…/v1'),
+                      _field(
+                        _imageBase,
+                        'imageEndpoint',
+                        url: true,
+                        hint: 'https://…/v1',
+                      ),
                       _field(_imageKey, 'imageKey', secret: true),
                       _field(_imageModel, 'imageModel'),
                       DropdownButtonFormField<int>(
@@ -406,7 +488,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 14),
-                      _field(_base, 'endpoint', hint: 'https://…/v1'),
+                      _field(_base, 'endpoint', url: true, hint: 'https://…/v1'),
                       _field(_key, 'key', secret: true),
                       _field(
                         _agentModel,
@@ -428,6 +510,13 @@ class _SettingsPageState extends State<SettingsPage> {
                         title: Text(s.t('vision')),
                         value: _vision,
                         onChanged: (v) => setState(() => _vision = v),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(s.t('agentStream')),
+                        subtitle: Text(s.t('agentStreamNote')),
+                        value: _streamAgent,
+                        onChanged: (v) => setState(() => _streamAgent = v),
                       ),
                       Wrap(
                         spacing: 8,
@@ -490,6 +579,20 @@ class _SettingsPageState extends State<SettingsPage> {
                       s.t('privacy'),
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
+                  if (_tab == 3)
+                    _section('about', [
+                      _link(
+                        'projectHome',
+                        'github.com/Dai2010/imagyn',
+                        'https://github.com/Dai2010/imagyn',
+                      ),
+                      _link(
+                        'myGithub',
+                        'github.com/Dai2010',
+                        'https://github.com/Dai2010',
+                      ),
+                      _version(),
+                    ]),
                 ],
               ),
             ),
@@ -513,10 +616,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
-            FilledButton(
-              onPressed: _checking || _saving ? null : _save,
-              child: Text(s.t('save')),
-            ),
+            if (_tab != 3)
+              FilledButton(
+                onPressed: _checking || _saving ? null : _save,
+                child: Text(s.t('save')),
+              ),
           ],
         ),
       ),
