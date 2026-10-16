@@ -21,8 +21,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - run: python3 -m unittest discover -s test -p '*_test.py' -v
+
       # Pinned to the stable channel rather than a version number: the SDK
-      # constraint in pubspec.yaml (>= 3.9.0) is what actually gates the tool
+      # constraint in pubspec.yaml (>= 3.12.0) is what actually gates the tool
       # chain, and a guessed version string fails harder than a moving channel.
       # Pin the exact version once one has been verified green.
       - uses: subosito/flutter-action@v2

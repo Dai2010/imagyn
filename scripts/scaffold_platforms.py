@@ -199,6 +199,21 @@ def patch_android(target: Path, release_signing: bool) -> None:
     gradle_file.write_text(text)
 
 
+def patch_macos(target: Path) -> None:
+    for entitlements in (target / "Runner").glob("*.entitlements"):
+        with entitlements.open("rb") as source:
+            values = plistlib.load(source)
+        values["com.apple.security.network.client"] = True
+        # file_selector needs read/write access for importing references and
+        # saving generated images through the native Open and Save dialogs.
+        values["com.apple.security.files.user-selected.read-write"] = True
+        # flutter_secure_storage 9.x requires Keychain Sharing in both build
+        # configurations. Preserve any access groups supplied by an overlay.
+        values.setdefault("keychain-access-groups", [])
+        with entitlements.open("wb") as destination:
+            plistlib.dump(values, destination)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -229,12 +244,7 @@ def main() -> None:
             print(f"+ {platform}: generated, {len(copied)} file(s) overlaid"
                   + (f" ({', '.join(copied)})" if copied else ""))
             if platform == "macos":
-                for entitlements in (target / "Runner").glob("*.entitlements"):
-                    with entitlements.open("rb") as source:
-                        values = plistlib.load(source)
-                    values["com.apple.security.network.client"] = True
-                    with entitlements.open("wb") as destination:
-                        plistlib.dump(values, destination)
+                patch_macos(target)
             if platform == "android":
                 if not copied:
                     fail("platform/android/ contributed no files, so the media-save "

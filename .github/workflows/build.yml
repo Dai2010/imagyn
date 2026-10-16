@@ -249,8 +249,9 @@ jobs:
     # `always()` so that one broken platform cannot hold the whole release
     # hostage: whatever did build gets published, and the notes list the files
     # that actually exist rather than the ones that were meant to.
+    # Finish the APK-only publication before replacing its notes and checksums.
     if: ${{ always() && github.event_name == 'workflow_dispatch' }}
-    needs: [android, linux, windows, macos]
+    needs: [android, linux, windows, macos, publish-apk]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -283,7 +284,7 @@ jobs:
             echo
             echo "## 附件（本次实际产出的文件）"
             echo
-            ls -1 dist | sed 's/^/- /'
+            ls -1 | sed 's/^/- /'
             echo
             echo "## 国内下载"
             echo
