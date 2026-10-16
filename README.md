@@ -28,10 +28,11 @@
 | 接口 | 状态 |
 | --- | --- |
 | OpenAI Images（`images/generations`、`images/edits`） | 已实现，含多参考图编辑、URL 与 Base64 输出 |
-| OpenAI Chat Completions + `generate_image` 工具 | 已实现（Agent 模式） |
+| OpenAI Chat Completions + `generate_image` 工具 | 已实现（Agent 模式，`/chat/completions`） |
+| OpenAI Responses + `generate_image` 工具 | 已实现（Agent 模式，`/responses`） |
 | Anthropic Messages + `generate_image` 工具 | 已实现（Agent 模式） |
 | OpenAI Images SSE 流式结果 | 已实现，可在图片接口兼容选项中开启 |
-| OpenAI Responses 生图工具 | 未实现 |
+| OpenAI Responses 内置 `image_generation` 工具 | 未实现；Agent 使用应用的 `generate_image` 调用独立 Images 接口 |
 | 蒙版编辑、批量任务、云同步、本地推理 | 未实现，属后续扩展 |
 
 模型列表本身不能证明生图能力，连接检查也不等于生图测试。付费的生成测试由你在画廊主动触发。细节见 [docs/capabilities.md](docs/capabilities.md)。
@@ -105,6 +106,6 @@ test/        协议解析、配置校验、文案一致性
 
 Status: **work in progress.** The code is in place, but cross-platform device acceptance and live-service integration are not done yet.
 
-Implemented: OpenAI Images (`images/generations`, `images/edits`) with multiple reference images, and the `generate_image` tool over OpenAI Chat Completions and Anthropic Messages. Not implemented: the OpenAI Responses image tool, streaming, mask editing, batch jobs, cloud sync, local inference. "OpenAI/Claude compatible" describes a wire format only — it does not guarantee image output.
+Implemented: OpenAI Images (`images/generations`, `images/edits`) with multiple reference images, and the `generate_image` tool over OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages. Not implemented: the Responses built-in image_generation tool, Agent streaming, mask editing, batch jobs, cloud sync, local inference. "OpenAI/Claude compatible" describes a wire format only — it does not guarantee image output.
 
 Build instructions, layout and open questions are in the sections above. Documentation lives in [`docs/`](docs/).

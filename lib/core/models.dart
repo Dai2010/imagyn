@@ -1,6 +1,19 @@
 import 'dart:convert';
 
-enum ApiProtocol { openai, anthropic }
+enum ApiProtocol { openai, responses, anthropic }
+
+extension ApiProtocolDetails on ApiProtocol {
+  String get label => switch (this) {
+    ApiProtocol.openai => 'OpenAI · Chat Completions',
+    ApiProtocol.responses => 'OpenAI · Responses',
+    ApiProtocol.anthropic => 'Anthropic · Messages',
+  };
+  String get chatPath => switch (this) {
+    ApiProtocol.openai => 'chat/completions',
+    ApiProtocol.responses => 'responses',
+    ApiProtocol.anthropic => 'messages',
+  };
+}
 
 class ServiceConfig {
   const ServiceConfig({
@@ -78,9 +91,11 @@ class ServiceConfig {
 
   factory ServiceConfig.fromJson(Map<String, dynamic> j) => ServiceConfig(
     baseUrl: j['baseUrl'] as String? ?? '',
-    protocol: j['protocol'] == 'anthropic'
-        ? ApiProtocol.anthropic
-        : ApiProtocol.openai,
+    protocol: switch (j['protocol']) {
+      'anthropic' => ApiProtocol.anthropic,
+      'responses' => ApiProtocol.responses,
+      _ => ApiProtocol.openai,
+    },
     imageModel: j['imageModel'] as String? ?? '',
     imageBaseUrl: j['imageBaseUrl'] as String? ?? '',
     agentModel: j['agentModel'] as String? ?? '',
@@ -131,7 +146,8 @@ class AgentOptions {
         contextMessages < 0 ||
         contextMessages > 10000 ||
         (maxOutputTokens != null &&
-            (maxOutputTokens! < 1 || maxOutputTokens! > 1048576)) ||
+            (maxOutputTokens! < (protocol == ApiProtocol.responses ? 16 : 1) ||
+                maxOutputTokens! > 1048576)) ||
         (temperature != null &&
             (!temperature!.isFinite ||
                 temperature! < 0 ||

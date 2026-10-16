@@ -13,8 +13,9 @@
 | OpenAI Images `images/generations` | 文字生图 | 已实现 |
 | OpenAI Images `images/edits` | 多参考图编辑 | 已实现，`image` 字段按 multipart 重复发送 |
 | OpenAI Chat Completions + `generate_image` 工具 | Agent 对话生图 | 已实现，`parallel_tool_calls: false` |
+| OpenAI Responses + `generate_image` 工具 | Agent 对话生图 | 已实现，`/responses`，文本/参考图输入，函数调用，`store: false` |
 | Anthropic Messages + `generate_image` 工具 | Agent 对话生图 | 已实现，`input_schema` 形式 |
-| OpenAI Responses 生图工具 | 工具形式生图、连续修改 | 未实现 |
+| OpenAI Responses 内置 `image_generation` 工具 | 工具形式生图、连续修改 | 未实现 |
 | 流的式事件（SSE） | 增量显示 | 未实现 |
 | 蒙版编辑、批量任务、云任务查询 | — | 未实现 |
 
@@ -62,7 +63,7 @@ Claude 官方支持看图分析，但不直接生成照片或插画。因此 Ant
 
 ## 画廊与 Images 接口更新
 
-本轮已增加生成参数、作品搜索与收藏、独立任务卡片、提交后清空输入、可选 Images SSE 结果与下载重试。实现与验证记录见 [image-workflow.md](image-workflow.md)。Responses 生图仍未实现。
+本轮已增加生成参数、作品搜索与收藏、独立任务卡片、提交后清空输入、可选 Images SSE 结果与下载重试。实现与验证记录见 [image-workflow.md](image-workflow.md)。Responses 内置 `image_generation` 仍未实现；Agent 的 `/responses` + 应用 `generate_image` 工具已实现。
 
 ## Agent 参数与会话模型
 

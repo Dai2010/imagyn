@@ -140,7 +140,13 @@ class AgentOptionsEditorState extends State<AgentOptionsEditor> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
-          _number(_tokens, 'maxOutputTokens', 1, 1048576, integer: true),
+          _number(
+            _tokens,
+            'maxOutputTokens',
+            widget.protocol == ApiProtocol.responses ? 16 : 1,
+            1048576,
+            integer: true,
+          ),
           _number(
             _temperature,
             'temperature',

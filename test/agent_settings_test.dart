@@ -139,10 +139,23 @@ void main() {
             jsonDecode(await utf8.decoder.bind(request).join())
                 as Map<String, dynamic>,
           );
+          expect(request.uri.path, '/v1/${protocol.chatPath}');
           request.response.headers.contentType = ContentType.json;
           request.response.write(
             jsonEncode(
-              protocol == ApiProtocol.openai
+              protocol == ApiProtocol.responses
+                  ? {
+                      'status': 'completed',
+                      'output': [
+                        {
+                          'type': 'message',
+                          'content': [
+                            {'type': 'output_text', 'text': 'OK'},
+                          ],
+                        },
+                      ],
+                    }
+                  : protocol == ApiProtocol.openai
                   ? {
                       'choices': [
                         {
@@ -186,10 +199,18 @@ void main() {
         expect(body['model'], 'selected-model');
         expect(body['temperature'], .4);
         expect(body.containsKey('top_p'), isFalse);
-        final messages = body['messages'] as List;
+        final messages =
+            body[protocol == ApiProtocol.responses ? 'input' : 'messages']
+                as List;
         expect(messages.last['content'], 'latest');
         expect(messages.any((e) => e['content'] == 'old'), isFalse);
-        if (protocol == ApiProtocol.openai) {
+        if (protocol == ApiProtocol.responses) {
+          expect(body['instructions'], 'custom instruction');
+          expect(body['max_output_tokens'], 4096);
+          expect(body['store'], false);
+          expect(body.containsKey('messages'), false);
+          expect(messages.length, 1);
+        } else if (protocol == ApiProtocol.openai) {
           expect(messages.first, {
             'role': 'system',
             'content': 'custom instruction',

@@ -269,7 +269,12 @@ class StudioApi {
       }
       final data = base64Encode(await file.readAsBytes());
       contents.add(
-        config.protocol == ApiProtocol.anthropic
+        config.protocol == ApiProtocol.responses
+            ? {
+                'type': 'input_image',
+                'image_url': 'data:${asset.mime};base64,$data',
+              }
+            : config.protocol == ApiProtocol.anthropic
             ? {
                 'type': 'image',
                 'source': {
@@ -295,7 +300,12 @@ class StudioApi {
           'role': 'user',
           'content': [
             ...contents,
-            {'type': 'text', 'text': entry.text},
+            {
+              'type': config.protocol == ApiProtocol.responses
+                  ? 'input_text'
+                  : 'text',
+              'text': entry.text,
+            },
           ],
         });
       } else {
@@ -306,32 +316,49 @@ class StudioApi {
       }
     }
     final anthropic = config.protocol == ApiProtocol.anthropic;
-    final body = <String, dynamic>{
-      'model': config.agentModel,
-      'messages': [
-        if (!anthropic && system.isNotEmpty)
-          {'role': 'system', 'content': system},
-        ...messages,
-      ],
-      if (anthropic && system.isNotEmpty) 'system': system,
-      if (anthropic) 'max_tokens': settings.maxOutputTokens ?? 2048,
-      if (!anthropic && settings.maxOutputTokens != null)
-        'max_completion_tokens': settings.maxOutputTokens,
-      if (settings.temperature != null) 'temperature': settings.temperature,
-      if (settings.topP != null) 'top_p': settings.topP,
-      'tools': [
-        anthropic
-            ? {
-                'name': imageTool['name'],
-                'description': imageTool['description'],
-                'input_schema': imageTool['parameters'],
-              }
-            : {'type': 'function', 'function': imageTool},
-      ],
-      if (!anthropic) 'parallel_tool_calls': false,
-    };
+    final body = config.protocol == ApiProtocol.responses
+        ? <String, dynamic>{
+            'model': config.agentModel,
+            'input': messages,
+            if (system.isNotEmpty) 'instructions': system,
+            if (settings.maxOutputTokens != null)
+              'max_output_tokens': settings.maxOutputTokens,
+            if (settings.temperature != null)
+              'temperature': settings.temperature,
+            if (settings.topP != null) 'top_p': settings.topP,
+            'store': false,
+            'parallel_tool_calls': false,
+            'tools': [
+              {'type': 'function', ...imageTool, 'strict': true},
+            ],
+          }
+        : <String, dynamic>{
+            'model': config.agentModel,
+            'messages': [
+              if (!anthropic && system.isNotEmpty)
+                {'role': 'system', 'content': system},
+              ...messages,
+            ],
+            if (anthropic && system.isNotEmpty) 'system': system,
+            if (anthropic) 'max_tokens': settings.maxOutputTokens ?? 2048,
+            if (!anthropic && settings.maxOutputTokens != null)
+              'max_completion_tokens': settings.maxOutputTokens,
+            if (settings.temperature != null)
+              'temperature': settings.temperature,
+            if (settings.topP != null) 'top_p': settings.topP,
+            'tools': [
+              anthropic
+                  ? {
+                      'name': imageTool['name'],
+                      'description': imageTool['description'],
+                      'input_schema': imageTool['parameters'],
+                    }
+                  : {'type': 'function', 'function': imageTool},
+            ],
+            if (!anthropic) 'parallel_tool_calls': false,
+          };
     final response = await dio.postUri(
-      config.endpoint(anthropic ? 'messages' : 'chat/completions'),
+      config.endpoint(config.protocol.chatPath),
       data: body,
       options: Options(headers: agentHeaders),
       cancelToken: cancel,
@@ -519,7 +546,56 @@ AgentReply parseAgentReply(
 ) {
   final texts = <String>[];
   final prompts = <String>[];
-  if (protocol == ApiProtocol.anthropic) {
+  if (protocol == ApiProtocol.responses) {
+    if (response['error'] != null ||
+        (response['status'] != null && response['status'] != 'completed')) {
+      throw const FormatException('invalidResponse');
+    }
+    final output = response['output'];
+    if (output is! List) throw const FormatException('invalidResponse');
+    for (final item in output) {
+      if (item is! Map) throw const FormatException('invalidResponse');
+      if (item['type'] == 'message') {
+        if (item['status'] != null && item['status'] != 'completed') {
+          throw const FormatException('invalidResponse');
+        }
+        final content = item['content'];
+        if (content is! List) throw const FormatException('invalidResponse');
+        for (final block in content) {
+          if (block is! Map) throw const FormatException('invalidResponse');
+          if (block['type'] == 'output_text') {
+            if (block['text'] is! String) {
+              throw const FormatException('invalidResponse');
+            }
+            if ((block['text'] as String).isNotEmpty) {
+              texts.add(block['text'] as String);
+            }
+          } else if (block['type'] == 'refusal' && block['refusal'] is String) {
+            texts.add(block['refusal'] as String);
+          }
+        }
+      } else if (item['type'] == 'function_call') {
+        if (item['status'] != null && item['status'] != 'completed') {
+          throw const FormatException('invalidTool');
+        }
+        if (item['name'] != 'generate_image') {
+          throw const FormatException('unsupportedTool');
+        }
+        if (item['arguments'] is! String) {
+          throw const FormatException('invalidTool');
+        }
+        Object? arguments;
+        try {
+          arguments = jsonDecode(item['arguments'] as String);
+        } on FormatException {
+          throw const FormatException('invalidTool');
+        }
+        prompts.add(validatePrompt(arguments));
+      } else if (item['type'] != 'reasoning') {
+        throw const FormatException('unsupportedTool');
+      }
+    }
+  } else if (protocol == ApiProtocol.anthropic) {
     final blocks = response['content'];
     if (blocks is! List) throw const FormatException('invalidResponse');
     for (final block in blocks.whereType<Map>()) {

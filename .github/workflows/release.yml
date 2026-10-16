@@ -250,6 +250,8 @@ jobs:
             映想 Imagyn ${{ github.ref_name }}
 
             **本次更新**
+            - 新增 OpenAI `/responses` Agent 协议，与 Chat Completions / Anthropic Messages 分开标注。
+            - Responses 支持文本、参考图、自定义提示词与应用 generate_image 工具（非内置 image_generation）。
             - 设置分为「生图 / Agent / 通用」三个固定页签。
             - 对话中可切换 Agent 和图片模型，保留历史与输入草稿。
             - Agent 系统提示词支持自定义、留空和恢复默认。
@@ -257,7 +259,7 @@ jobs:
             - 会话设置可在重启后恢复，新对话继承全局默认；回复显示所用模型。
 
             **验证范围**
-            - 静态分析和 62 项离线测试通过，覆盖两种对话协议和窄屏交互。
+            - 静态分析和 68 项离线测试通过，覆盖三种对话协议和窄屏交互。
             - 上下文按消息数量裁剪，不是模型 Token 窗口；本地历史保留。
             - 本次未调用付费接口；真实中转站出图尚未验收通过。
 
