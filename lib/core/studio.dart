@@ -442,6 +442,9 @@ class Studio extends ChangeNotifier {
     try {
       final images = await client.downloadImages(outputs, _cancel!);
       final created = <Asset>[];
+      // Recovery payloads can contain large Base64 images. Once downloaded,
+      // keep the saved files as the source of truth and release those copies.
+      final parameters = Map<String, dynamic>.of(job.record)..remove('outputs');
       final references = List<String>.from(
         job.record['references'] as List? ?? [],
       );
@@ -451,12 +454,12 @@ class Studio extends ChangeNotifier {
             bytes,
             prompt: job.prompt,
             parentId: references.isEmpty ? null : references.first,
-            parameters: job.record,
+            parameters: parameters,
           ),
         );
       }
       await store.job(job.id, 'complete', {
-        ...job.record,
+        ...parameters,
         'assets': created.map((a) => a.id).toList(),
       });
       final targetSession = job.record['session'] as String?;

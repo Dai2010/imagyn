@@ -204,6 +204,7 @@ class StudioApi {
         if (bytes.length > maxImageBytes) {
           throw const FormatException('imageTooLarge');
         }
+        sniffMime(bytes);
         result.add(bytes);
       } else {
         final uri = Uri.parse(output);
@@ -227,22 +228,27 @@ class StudioApi {
             }
             bytes.add(chunk);
           }
-          result.add(bytes.takeBytes());
+          final image = bytes.takeBytes();
+          sniffMime(image);
+          result.add(image);
         } on DioException catch (error) {
           throw ImageApiException(
             'downloadFailed',
             error.message ?? 'Image download failed',
-            outputs: images.every((image) => !image.startsWith('data:'))
-                ? images
-                : const [],
+            // Retry consumes both URLs and inline images. Preserve the entire
+            // batch so a failed URL cannot discard its Base64 siblings.
+            outputs: images,
+          );
+        } on FormatException catch (error) {
+          throw ImageApiException(
+            error.message,
+            error.message,
+            outputs: images,
           );
         } finally {
           download.close(force: true);
         }
       }
-    }
-    for (final bytes in result) {
-      sniffMime(bytes);
     }
     return result;
   }

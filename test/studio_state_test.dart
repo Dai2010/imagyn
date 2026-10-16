@@ -242,7 +242,9 @@ void main() {
       expect(studio.error, isNull);
       expect(requests, 1);
       expect(studio.gallery.single.parentId, 'original');
+      expect(studio.gallery.single.parameters.containsKey('outputs'), isFalse);
       expect(store.savedJobs[job.id]!.state, 'complete');
+      expect(store.savedJobs[job.id]!.record.containsKey('outputs'), isFalse);
       expect(studio.chat.single.assetIds, [studio.gallery.single.id]);
       expect(
         studio.agentRefs.map((asset) => asset.id),

@@ -184,6 +184,90 @@ void main() {
     },
   );
 
+  for (final base64First in [true, false]) {
+    test(
+      'mixed results support download-only retry, base64First=$base64First',
+      () async {
+        final url = 'http://127.0.0.1:${server.port}/image';
+        final inline = 'data:image/*;base64,${base64Encode(png)}';
+        final outputs = base64First ? [inline, url] : [url, inline];
+        var generationRequests = 0;
+        var downloadRequests = 0;
+        var failDownload = true;
+        handler = (request) async {
+          if (request.uri.path == '/v1/images/generations') {
+            generationRequests++;
+            await request.drain<void>();
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(
+              jsonEncode({
+                'data': outputs
+                    .map(
+                      (output) => output == url
+                          ? {'url': url}
+                          : {'b64_json': base64Encode(png)},
+                    )
+                    .toList(),
+              }),
+            );
+          } else {
+            downloadRequests++;
+            expect(request.headers.value('authorization'), isNull);
+            if (failDownload) {
+              request.response.statusCode = 503;
+            } else {
+              request.response.add(png);
+            }
+          }
+          await request.response.close();
+        };
+
+        List<String>? recovered;
+        try {
+          await client.generate(
+            'icon',
+            [],
+            const ImageOptions(count: 2),
+            CancelToken(),
+          );
+          fail('Expected the download to fail');
+        } on ImageApiException catch (error) {
+          expect(error.code, 'downloadFailed');
+          recovered = error.outputs;
+        }
+        expect(recovered, outputs);
+        failDownload = false;
+        expect(await client.downloadImages(recovered, CancelToken()), [
+          png,
+          png,
+        ]);
+        expect(generationRequests, 1);
+        expect(downloadRequests, 2);
+      },
+    );
+  }
+
+  test('an invalid downloaded image retains its output for retry', () async {
+    final url = 'http://127.0.0.1:${server.port}/image';
+    var valid = false;
+    handler = (request) async {
+      request.response.add(
+        valid ? png : utf8.encode('<html>temporarily unavailable</html>'),
+      );
+      await request.response.close();
+    };
+    await expectLater(
+      client.downloadImages([url], CancelToken()),
+      throwsA(
+        isA<ImageApiException>()
+            .having((error) => error.code, 'code', 'invalidImage')
+            .having((error) => error.outputs, 'outputs', [url]),
+      ),
+    );
+    valid = true;
+    expect(await client.downloadImages([url], CancelToken()), [png]);
+  });
+
   test(
     'HTTP rejection retains status and message without resubmitting',
     () async {
