@@ -133,15 +133,15 @@ rows.update({'all': ['All', '全部', 'Tout', 'Todo', 'Все', 'الكل'],
  'moderation': ['Moderation', '审核', 'Modération', 'Moderación', 'Модерация', 'الإشراف'],
  'count': ['Count', '数量', 'Nombre', 'Cantidad', 'Количество', 'العدد'],
  'imageParametersNote': ['Options depend on the selected model and service. JPEG has no transparency. More images or higher '
-                         'quality may cost more.',
-                         '选项需模型和服务支持。JPEG 不支持透明背景；增加张数或提高质量可能增加费用。',
+                         'quality may cost more. The extra sizes are service specific: a standard OpenAI Images endpoint accepts only auto, 1024x1024, 1536x1024 and 1024x1536.',
+                         '选项需模型和服务支持。JPEG 不支持透明背景；增加张数或提高质量可能增加费用。扩展尺寸依服务而定：标准 OpenAI 图片接口只接受 auto、1024x1024、1536x1024、1024x1536。',
                          'Les options dépendent du modèle et du service. JPEG sans transparence. Plus d’images ou de qualité '
-                         'peut coûter plus cher.',
+                         'peut coûter plus cher. Les tailles étendues dépendent du service : une API OpenAI Images standard n’accepte que auto, 1024x1024, 1536x1024 et 1024x1536.',
                          'Las opciones dependen del modelo y servicio. JPEG no admite transparencia. Más imágenes o calidad '
-                         'pueden costar más.',
+                         'pueden costar más. Los tamaños extendidos dependen del servicio: una API OpenAI Images estándar solo acepta auto, 1024x1024, 1536x1024 y 1024x1536.',
                          'Параметры зависят от модели и сервиса. JPEG не поддерживает прозрачность. Больше изображений или выше '
-                         'качество — возможна большая стоимость.',
-                         'تعتمد الخيارات على النموذج والخدمة. لا يدعم JPEG الشفافية. قد تزيد التكلفة مع عدد الصور أو الجودة.'],
+                         'качество — возможна большая стоимость. Расширенные размеры зависят от сервиса: стандартный OpenAI Images принимает только auto, 1024x1024, 1536x1024 и 1024x1536.',
+                         'تعتمد الخيارات على النموذج والخدمة. لا يدعم JPEG الشفافية. قد تزيد التكلفة مع عدد الصور أو الجودة. المقاسات الموسّعة تعتمد على الخدمة: واجهة OpenAI Images القياسية تقبل auto و1024x1024 و1536x1024 و1024x1536 فقط.'],
  'done': ['Done', '完成', 'Terminé', 'Listo', 'Готово', 'تم'],
  'details': ['Details', '详情', 'Détails', 'Detalles', 'Подробнее', 'التفاصيل'],
  'reusePrompt': ['Use prompt & options',

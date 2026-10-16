@@ -203,6 +203,94 @@ class LocalStore {
   );
 }
 
+/// The pixel size the bytes actually carry, read from the file header alone.
+///
+/// What was asked for and what the service really produced are not always the
+/// same — a request for 1536x1024 can come back square — so the size that gets
+/// recorded and shown is the one measured here, with the requested one kept
+/// beside it for comparison.
+String? imageSizeOf(Uint8List bytes) =>
+    _pngSize(bytes) ?? _jpegSize(bytes) ?? _webpSize(bytes);
+
+String? _pngSize(Uint8List bytes) {
+  // Signature, chunk length, "IHDR", then width and height as big-endian 32-bit
+  // values.
+  if (bytes.length < 24 || sniffMime(bytes) != 'image/png') return null;
+  return '${_be32(bytes, 16)}x${_be32(bytes, 20)}';
+}
+
+String? _jpegSize(Uint8List bytes) {
+  if (bytes.length < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8) return null;
+  var index = 2;
+  while (index + 9 < bytes.length) {
+    if (bytes[index] != 0xFF) {
+      index++;
+      continue;
+    }
+    // Any number of 0xFF bytes may precede a marker as fill; taking the second
+    // one for the marker would read `C0 00` as a length and skip past the frame.
+    var next = index + 1;
+    while (next < bytes.length && bytes[next] == 0xFF) {
+      next++;
+    }
+    // The fill run moves past what the loop's bound on `index` vouched for, and
+    // the readings below reach up to `next + 7`: without this check a truncated
+    // buffer throws RangeError instead of reporting no size.
+    if (next + 8 >= bytes.length) return null;
+    final marker = bytes[next];
+    // A start-of-frame marker is the one that carries the dimensions; every
+    // other segment is skipped by its own declared length.
+    if (marker >= 0xC0 &&
+        marker <= 0xCF &&
+        marker != 0xC4 &&
+        marker != 0xC8 &&
+        marker != 0xCC) {
+      final height = (bytes[next + 4] << 8) | bytes[next + 5];
+      final width = (bytes[next + 6] << 8) | bytes[next + 7];
+      return '${width}x$height';
+    }
+    if (marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+      index = next + 1;
+      continue;
+    }
+    final length = (bytes[next + 1] << 8) | bytes[next + 2];
+    if (length < 2) return null;
+    index = next + 1 + length;
+  }
+  return null;
+}
+
+String? _webpSize(Uint8List bytes) {
+  if (bytes.length < 30 ||
+      String.fromCharCodes(bytes.sublist(0, 4)) != 'RIFF' ||
+      String.fromCharCodes(bytes.sublist(8, 12)) != 'WEBP') {
+    return null;
+  }
+  final kind = String.fromCharCodes(bytes.sublist(12, 16));
+  if (kind == 'VP8X') {
+    final width = 1 + (bytes[24] | (bytes[25] << 8) | (bytes[26] << 16));
+    final height = 1 + (bytes[27] | (bytes[28] << 8) | (bytes[29] << 16));
+    return '${width}x$height';
+  }
+  if (kind == 'VP8 ') {
+    final width = ((bytes[27] << 8) | bytes[26]) & 0x3FFF;
+    final height = ((bytes[29] << 8) | bytes[28]) & 0x3FFF;
+    return '${width}x$height';
+  }
+  if (kind == 'VP8L' && bytes.length >= 25) {
+    final bits =
+        bytes[21] | (bytes[22] << 8) | (bytes[23] << 16) | (bytes[24] << 24);
+    return '${(bits & 0x3FFF) + 1}x${((bits >> 14) & 0x3FFF) + 1}';
+  }
+  return null;
+}
+
+int _be32(Uint8List bytes, int offset) =>
+    (bytes[offset] << 24) |
+    (bytes[offset + 1] << 16) |
+    (bytes[offset + 2] << 8) |
+    bytes[offset + 3];
+
 String sniffMime(Uint8List bytes) {
   if (bytes.length >= 8 &&
       bytes[0] == 137 &&

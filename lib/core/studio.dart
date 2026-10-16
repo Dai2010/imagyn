@@ -467,12 +467,17 @@ class Studio extends ChangeNotifier {
         job.record['references'] as List? ?? [],
       );
       for (final bytes in images) {
+        // Recovery goes through the same measurement as a fresh generation, or
+        // a retried image would keep showing only the requested size.
+        final actual = imageSizeOf(bytes);
         created.add(
           await store.saveAsset(
             bytes,
             prompt: job.prompt,
             parentId: references.isEmpty ? null : references.first,
-            parameters: parameters,
+            parameters: actual == null
+                ? parameters
+                : {...parameters, 'actualSize': actual},
           ),
         );
       }
@@ -514,12 +519,16 @@ class Studio extends ChangeNotifier {
     final images = await client.generate(prompt, refs, options, _cancel!);
     final created = <Asset>[];
     for (final bytes in images) {
+      // What gets recorded is the size measured from the bytes, not the one that
+      // was asked for: a request for a wide size can come back square, and the
+      // Gallery needs the measured one to show that at all.
+      final actual = imageSizeOf(bytes);
       created.add(
         await store.saveAsset(
           bytes,
           prompt: prompt,
           parentId: refs.isEmpty ? null : refs.first.id,
-          parameters: record,
+          parameters: actual == null ? record : {...record, 'actualSize': actual},
         ),
       );
     }

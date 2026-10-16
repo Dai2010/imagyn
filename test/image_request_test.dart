@@ -61,7 +61,7 @@ void main() {
         expect(body, {
           'model': 'gpt-image-2.5-flare',
           'prompt': 'an app icon',
-          'size': '1024x1024',
+          'size': 'auto',
           'quality': 'auto',
           'output_format': 'png',
           'moderation': 'auto',

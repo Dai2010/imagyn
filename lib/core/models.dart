@@ -195,7 +195,7 @@ class AgentOptions {
 
 class ImageOptions {
   const ImageOptions({
-    this.size = '1024x1024',
+    this.size = 'auto',
     this.quality = 'auto',
     this.format = 'png',
     this.transparent = false,
@@ -245,7 +245,7 @@ class ImageOptions {
   };
 
   factory ImageOptions.fromJson(Map<String, dynamic> value) => ImageOptions(
-    size: value['size'] as String? ?? '1024x1024',
+    size: value['size'] as String? ?? 'auto',
     quality: value['quality'] as String? ?? 'auto',
     format: value['output_format'] as String? ?? 'png',
     transparent: value['transparent'] == true,
