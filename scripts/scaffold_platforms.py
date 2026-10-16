@@ -167,6 +167,23 @@ def patch_android(target: Path, release_signing: bool) -> None:
         manifest_text = manifest_text.replace(
             anchor,
             '    <uses-permission android:name="android.permission.INTERNET" />\n' + anchor)
+
+    # Opening a link needs the browser intent to be visible to this app: from
+    # Android 11 on a package that is not queried cannot be resolved, so the tap
+    # on an About row would quietly do nothing at all.
+    if "<queries>" not in manifest_text:
+        anchor = "<application"
+        if anchor not in manifest_text:
+            fail("could not find <application in AndroidManifest.xml; "
+                 "the Flutter template changed, update this script")
+        manifest_text = manifest_text.replace(
+            anchor,
+            '    <queries>\n'
+            '        <intent>\n'
+            '            <action android:name="android.intent.action.VIEW" />\n'
+            '            <data android:scheme="https" />\n'
+            '        </intent>\n'
+            '    </queries>\n' + anchor)
     manifest.write_text(manifest_text)
 
     # Only one MainActivity may exist: ours replaces the generated one, and any

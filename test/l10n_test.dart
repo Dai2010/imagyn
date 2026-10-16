@@ -33,6 +33,7 @@ void main() {
       'noImage', 'invalidResponse', 'unsupportedTool', 'invalidTool', 'multipleCalls',
       'authError', 'rateLimit', 'serviceError', 'emptyPrompt', 'cancelled', 'unknown', 'error',
       'invalidAgentOptions', 'redirectBlocked', 'invalidImageOptions', 'promptTooLong', 'downloadFailed', 'incompleteImageStream',
+      'responseTooLarge', 'incompleteStream',
     ];
     for (final code in errorCodes) {
       expect(translations['en']!.containsKey(code), isTrue, reason: code);

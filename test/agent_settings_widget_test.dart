@@ -37,7 +37,7 @@ void main() {
       await tester.ensureVisible(prompt);
       await tester.enterText(prompt, '我的提示词');
       await tester.ensureVisible(find.byType(SegmentedButton<int>));
-      await tester.tap(find.text('生图'));
+      await tester.tap(find.text('画廊').last);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('systemPrompt')), findsNothing);
       await tester.tap(find.text('Agent').last);

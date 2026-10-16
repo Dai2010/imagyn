@@ -39,6 +39,28 @@ class Studio extends ChangeNotifier {
   Map<String, dynamic> _conversationSettings = {};
   Future<void> _favoriteUpdates = Future<void>.value();
 
+  /// The turn arriving right now, so a reply can be read while it is written
+  /// instead of appearing all at once when it ends.
+  String streamingText = '', streamingReasoning = '';
+  DateTime _streamTick = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+
+  void _stream(AgentDelta delta) {
+    streamingText += delta.text;
+    streamingReasoning += delta.reasoning;
+    // Repainting for every fragment of a fast stream is what makes a phone
+    // stutter, so the display refreshes at a fixed rate instead.
+    final now = DateTime.now();
+    if (now.difference(_streamTick).inMilliseconds < 80) return;
+    _streamTick = now;
+    notifyListeners();
+  }
+
+  void _clearStream() {
+    streamingText = '';
+    streamingReasoning = '';
+    _streamTick = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+  }
+
   ServiceConfig get activeConfig => config.copyWith(
     agentModel: _conversationSettings['agentModel'] as String?,
     imageModel: _conversationSettings['imageModel'] as String?,
@@ -325,6 +347,7 @@ class Studio extends ChangeNotifier {
     try {
       String? imagePrompt = prompt.trim();
       String reply = '';
+      String reasoning = '';
       if (agent) {
         await store.addMessage(
           session,
@@ -337,13 +360,22 @@ class Studio extends ChangeNotifier {
         onAccepted?.call();
         chat = await store.messages(session);
         notifyListeners();
-        final result = await client.converse(
-          chat,
-          refs,
-          _cancel!,
-          options: requestAgentOptions,
-        );
+        final result = requestConfig.streamAgent
+            ? await client.converseStream(
+                chat,
+                refs,
+                _cancel!,
+                options: requestAgentOptions,
+                onDelta: _stream,
+              )
+            : await client.converse(
+                chat,
+                refs,
+                _cancel!,
+                options: requestAgentOptions,
+              );
         reply = result.text;
+        reasoning = result.reasoning;
         imagePrompt = result.imagePrompt;
       }
       final created = <Asset>[];
@@ -365,34 +397,19 @@ class Studio extends ChangeNotifier {
         if (!agent) onAccepted?.call();
         jobs = await store.jobs();
         notifyListeners();
-        final images = await client.generate(
-          imagePrompt,
-          refs,
-          options,
-          _cancel!,
+        created.addAll(
+          await _runJob(client, jobId, record, imagePrompt, refs, options),
         );
-        for (final bytes in images) {
-          created.add(
-            await store.saveAsset(
-              bytes,
-              prompt: imagePrompt,
-              parentId: refs.isEmpty ? null : refs.first.id,
-              parameters: record,
-            ),
-          );
-        }
-        await store.job(jobId, 'complete', {
-          ...record,
-          'assets': created.map((a) => a.id).toList(),
-        });
       }
       if (agent) {
+        _clearStream();
         await store.addMessage(
           session,
           ChatEntry(
             'assistant',
             reply.isEmpty && created.isNotEmpty ? '' : reply,
             model: requestConfig.agentModel,
+            reasoning: reasoning,
             assetIds: created.map((a) => a.id).toList(),
           ),
         );
@@ -423,6 +440,7 @@ class Studio extends ChangeNotifier {
       _api = null;
       _cancel = null;
       busy = false;
+      _clearStream();
       notifyListeners();
     }
   }
@@ -462,22 +480,7 @@ class Studio extends ChangeNotifier {
         ...parameters,
         'assets': created.map((a) => a.id).toList(),
       });
-      final targetSession = job.record['session'] as String?;
-      if (targetSession != null) {
-        await store.addMessage(
-          targetSession,
-          ChatEntry(
-            'assistant',
-            '',
-            assetIds: created.map((a) => a.id).toList(),
-          ),
-        );
-        if (targetSession == session &&
-            created.isNotEmpty &&
-            client.config.vision) {
-          agentRefs = [created.first];
-        }
-      }
+      await _attachResults(job.record, created, client.config.vision);
       await refresh();
     } catch (e) {
       error = errorCode(e);
@@ -495,6 +498,149 @@ class Studio extends ChangeNotifier {
       busy = false;
       notifyListeners();
     }
+  }
+
+  /// Runs one recorded generation and files whatever it returns. A fresh
+  /// submission and a retry both finish their job through here, so the two
+  /// cannot drift apart in what they store.
+  Future<List<Asset>> _runJob(
+    StudioApi client,
+    String jobId,
+    Map<String, dynamic> record,
+    String prompt,
+    List<Asset> refs,
+    ImageOptions options,
+  ) async {
+    final images = await client.generate(prompt, refs, options, _cancel!);
+    final created = <Asset>[];
+    for (final bytes in images) {
+      created.add(
+        await store.saveAsset(
+          bytes,
+          prompt: prompt,
+          parentId: refs.isEmpty ? null : refs.first.id,
+          parameters: record,
+        ),
+      );
+    }
+    await store.job(jobId, 'complete', {
+      ...record,
+      'assets': created.map((a) => a.id).toList(),
+    });
+    return created;
+  }
+
+  /// Files the images a job produced into the conversation that asked for them.
+  Future<void> _attachResults(
+    Map<String, dynamic> record,
+    List<Asset> created,
+    bool vision,
+  ) async {
+    final targetSession = record['session'] as String?;
+    if (targetSession == null || created.isEmpty) return;
+    await store.addMessage(
+      targetSession,
+      ChatEntry('assistant', '', assetIds: created.map((a) => a.id).toList()),
+    );
+    if (targetSession == session && vision) agentRefs = [created.first];
+  }
+
+  /// Picks an unfinished job back up from the record it left behind.
+  ///
+  /// A job the service answered but whose images were never downloaded only
+  /// needs the download repeated; one that never got an answer is submitted
+  /// again from its own prompt and references. This is what lets a turn survive
+  /// the phone killing the app in the background: the record is written before
+  /// the request goes out, so the work can be resumed instead of vanishing with
+  /// the process.
+  Future<void> retryJob(ImageJob job) async {
+    if (busy) return;
+    final outputs = List<String>.from(job.record['outputs'] as List? ?? []);
+    if (outputs.isNotEmpty) return retryDownload(job);
+    final prompt = job.prompt;
+    if (prompt.trim().isEmpty) return;
+    final options = job.options;
+    final refs = <Asset>[];
+    for (final id in List<String>.from(
+      job.record['references'] as List? ?? [],
+    )) {
+      final asset = await store.asset(id);
+      if (asset != null) refs.add(asset);
+    }
+    // The record names the model this job was submitted to. The model may have
+    // been switched since, and a retry that silently ran on the current one
+    // would file the result under a model that never produced it.
+    final recorded = job.record['model'] as String?;
+    final client = StudioApi(
+      recorded == null || recorded.isEmpty
+          ? activeConfig
+          : activeConfig.copyWith(imageModel: recorded),
+      key,
+      imageKey,
+      store,
+    );
+    busy = true;
+    error = null;
+    errorDetail = null;
+    stage = 'working';
+    _cancel = CancelToken();
+    _api = client;
+    notifyListeners();
+    try {
+      client.validateGeneration(prompt, refs, options);
+      await store.job(job.id, 'submitting', job.record);
+      jobs = await store.jobs();
+      notifyListeners();
+      final created = await _runJob(
+        client,
+        job.id,
+        job.record,
+        prompt,
+        refs,
+        options,
+      );
+      await _attachResults(job.record, created, client.config.vision);
+      await refresh();
+    } catch (e) {
+      error = errorCode(e, submitted: true);
+      errorDetail = errorDetailOf(e, secrets: [key, imageKey]);
+      await store.job(job.id, 'failed', {
+        ...job.record,
+        'error': error,
+        'detail': errorDetail,
+        if (e is ImageApiException && e.outputs.isNotEmpty)
+          'outputs': e.outputs,
+      });
+      jobs = await store.jobs();
+    } finally {
+      client.close();
+      _api = null;
+      _cancel = null;
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  /// Removes a conversation and the settings that belong to it. The images it
+  /// produced stay in the Gallery: they are the user's work, not chat state.
+  Future<void> deleteConversation(String id) async {
+    if (busy) return;
+    // Unfinished work outlives the conversation: the images a job may still
+    // produce are the user's, but a job that kept naming the deleted session
+    // would bring it back as a conversation holding one image.
+    for (final job in await store.jobs()) {
+      if (job.record['session'] != id) continue;
+      await store.job(job.id, job.state, {...job.record, 'session': null});
+    }
+    await store.deleteSession(id);
+    if (id == session) {
+      session = store.newId();
+      await store.setSetting('currentSession', session);
+      _conversationSettings = {};
+      chat = [];
+      agentRefs = [];
+    }
+    await refresh();
   }
 
   void cancel() {
