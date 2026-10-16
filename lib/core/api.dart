@@ -245,8 +245,12 @@ class StudioApi {
   Future<AgentReply> converse(
     List<ChatEntry> history,
     List<Asset> refs,
-    CancelToken cancel,
-  ) async {
+    CancelToken cancel, {
+    AgentOptions? options,
+  }) async {
+    final settings = options ?? config.agentOptions;
+    settings.validate(config.protocol);
+    history = settings.selectHistory(history);
     if (key.isEmpty) throw const FormatException('missingKey');
     if (config.agentModel.trim().isEmpty) {
       throw const FormatException('missingAgentModel');
@@ -280,13 +284,7 @@ class StudioApi {
               },
       );
     }
-    const system =
-        'You are Imagyn, an image creation assistant. Reply in the user language. '
-        'Use generate_image only for an explicit request to create or modify an image. '
-        'Never claim an image was generated yourself. For discussions reply in text. '
-        'Only one generation per turn. Reference images are ordered and supplied to '
-        'the image tool by the application. For an edit preserve user constraints. '
-        'If the target is unclear, ask. Tool prompts should be self-contained.';
+    final system = settings.systemPrompt;
     final messages = <Map<String, dynamic>>[];
     for (var i = 0; i < history.length; i++) {
       final entry = history[i];
@@ -311,11 +309,16 @@ class StudioApi {
     final body = <String, dynamic>{
       'model': config.agentModel,
       'messages': [
-        if (!anthropic) {'role': 'system', 'content': system},
+        if (!anthropic && system.isNotEmpty)
+          {'role': 'system', 'content': system},
         ...messages,
       ],
-      if (anthropic) 'system': system,
-      if (anthropic) 'max_tokens': 2048,
+      if (anthropic && system.isNotEmpty) 'system': system,
+      if (anthropic) 'max_tokens': settings.maxOutputTokens ?? 2048,
+      if (!anthropic && settings.maxOutputTokens != null)
+        'max_completion_tokens': settings.maxOutputTokens,
+      if (settings.temperature != null) 'temperature': settings.temperature,
+      if (settings.topP != null) 'top_p': settings.topP,
       'tools': [
         anthropic
             ? {

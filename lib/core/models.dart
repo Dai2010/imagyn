@@ -14,6 +14,7 @@ class ServiceConfig {
     this.proxy = '',
     this.imageStream = false,
     this.imageResponseB64 = false,
+    this.agentProfiles = const {},
   });
   final String baseUrl;
   final ApiProtocol protocol;
@@ -24,6 +25,28 @@ class ServiceConfig {
   final int maxReferences;
   final String proxy;
   final bool imageStream, imageResponseB64;
+  final Map<String, AgentOptions> agentProfiles;
+
+  AgentOptions get agentOptions =>
+      agentProfiles[agentModel] ?? const AgentOptions();
+
+  ServiceConfig copyWith({
+    String? agentModel,
+    String? imageModel,
+    Map<String, AgentOptions>? agentProfiles,
+  }) => ServiceConfig(
+    baseUrl: baseUrl,
+    protocol: protocol,
+    imageBaseUrl: imageBaseUrl,
+    imageModel: imageModel ?? this.imageModel,
+    agentModel: agentModel ?? this.agentModel,
+    vision: vision,
+    maxReferences: maxReferences,
+    proxy: proxy,
+    imageStream: imageStream,
+    imageResponseB64: imageResponseB64,
+    agentProfiles: agentProfiles ?? this.agentProfiles,
+  );
 
   Uri endpoint(String path) {
     final base = Uri.parse(baseUrl.trim().replaceFirst(RegExp(r'/+$'), ''));
@@ -48,6 +71,9 @@ class ServiceConfig {
     'proxy': proxy,
     'imageStream': imageStream,
     'imageResponseB64': imageResponseB64,
+    'agentProfiles': agentProfiles.map(
+      (key, value) => MapEntry(key, value.toJson()),
+    ),
   };
 
   factory ServiceConfig.fromJson(Map<String, dynamic> j) => ServiceConfig(
@@ -66,11 +92,84 @@ class ServiceConfig {
     proxy: j['proxy'] as String? ?? '',
     imageStream: j['imageStream'] == true,
     imageResponseB64: j['imageResponseB64'] == true,
+    agentProfiles: (j['agentProfiles'] as Map<String, dynamic>? ?? {}).map(
+      (key, value) => MapEntry(
+        key,
+        AgentOptions.fromJson(Map<String, dynamic>.from(value as Map)),
+      ),
+    ),
   );
 
   Uri imageEndpoint(String path) => imageBaseUrl.trim().isEmpty
       ? endpoint(path)
       : ServiceConfig(baseUrl: imageBaseUrl).endpoint(path);
+}
+
+const defaultAgentPrompt =
+    'You are Imagyn, an image creation assistant. Reply in the user language. '
+    'Use generate_image only for an explicit request to create or modify an image. '
+    'Never claim an image was generated yourself. For discussions reply in text. '
+    'Only one generation per turn. Reference images are ordered and supplied to '
+    'the image tool by the application. For an edit preserve user constraints. '
+    'If the target is unclear, ask. Tool prompts should be self-contained.';
+
+class AgentOptions {
+  const AgentOptions({
+    this.systemPrompt = defaultAgentPrompt,
+    this.contextMessages = 0,
+    this.maxOutputTokens,
+    this.temperature,
+    this.topP,
+  });
+  final String systemPrompt;
+  final int contextMessages;
+  final int? maxOutputTokens;
+  final double? temperature, topP;
+
+  void validate(ApiProtocol protocol) {
+    if (systemPrompt.length > 128000 ||
+        contextMessages < 0 ||
+        contextMessages > 10000 ||
+        (maxOutputTokens != null &&
+            (maxOutputTokens! < 1 || maxOutputTokens! > 1048576)) ||
+        (temperature != null &&
+            (!temperature!.isFinite ||
+                temperature! < 0 ||
+                temperature! > (protocol == ApiProtocol.anthropic ? 1 : 2))) ||
+        (topP != null && (!topP!.isFinite || topP! < 0 || topP! > 1)) ||
+        (protocol == ApiProtocol.anthropic &&
+            temperature != null &&
+            topP != null)) {
+      throw const FormatException('invalidAgentOptions');
+    }
+  }
+
+  List<ChatEntry> selectHistory(List<ChatEntry> history) {
+    if (contextMessages == 0 || history.length <= contextMessages) {
+      return history;
+    }
+    var start = history.length - contextMessages;
+    // Start with a user message so gateways that require alternating turns work.
+    while (start < history.length - 1 && history[start].role != 'user') {
+      start++;
+    }
+    return history.sublist(start);
+  }
+
+  Map<String, dynamic> toJson() => {
+    'systemPrompt': systemPrompt,
+    'contextMessages': contextMessages,
+    'maxOutputTokens': maxOutputTokens,
+    'temperature': temperature,
+    'topP': topP,
+  };
+  factory AgentOptions.fromJson(Map<String, dynamic> value) => AgentOptions(
+    systemPrompt: value['systemPrompt'] as String? ?? defaultAgentPrompt,
+    contextMessages: (value['contextMessages'] as num? ?? 0).toInt(),
+    maxOutputTokens: (value['maxOutputTokens'] as num?)?.toInt(),
+    temperature: (value['temperature'] as num?)?.toDouble(),
+    topP: (value['topP'] as num?)?.toDouble(),
+  );
 }
 
 class ImageOptions {
@@ -189,17 +288,20 @@ class Asset {
 }
 
 class ChatEntry {
-  const ChatEntry(this.role, this.text, {this.assetIds = const []});
+  const ChatEntry(this.role, this.text, {this.assetIds = const [], this.model});
   final String role, text;
+  final String? model;
   final List<String> assetIds;
   Map<String, dynamic> toJson() => {
     'role': role,
     'text': text,
     'assetIds': assetIds,
+    if (model != null) 'model': model,
   };
   factory ChatEntry.fromJson(Map<String, dynamic> j) => ChatEntry(
     j['role'] as String,
     j['text'] as String,
+    model: j['model'] as String?,
     assetIds: List<String>.from(j['assetIds'] as List? ?? []),
   );
 }
