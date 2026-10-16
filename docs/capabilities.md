@@ -1,6 +1,6 @@
 # 接口能力与降级规则
 
-本文件说明"OpenAI / Claude 兼容"到底保证什么。调研与设计过程见 [research.md](research.md)。
+本文件说明"OpenAI / Claude 兼容"到底保证什么。
 
 ## 一句话结论
 
@@ -11,12 +11,13 @@
 | 接口 | 用途 | 第一版状态 |
 | --- | --- | --- |
 | OpenAI Images `images/generations` | 文字生图 | 已实现 |
-| OpenAI Images `images/edits` | 多参考图编辑 | 已实现，`image` 字段按 multipart 重复发送 |
+| OpenAI Images `images/edits` | 多参考图编辑 | 已实现，`image[]` 字段按 multipart 重复发送 |
 | OpenAI Chat Completions + `generate_image` 工具 | Agent 对话生图 | 已实现，`parallel_tool_calls: false` |
 | OpenAI Responses + `generate_image` 工具 | Agent 对话生图 | 已实现，`/responses`，文本/参考图输入，函数调用，`store: false` |
 | Anthropic Messages + `generate_image` 工具 | Agent 对话生图 | 已实现，`input_schema` 形式 |
 | OpenAI Responses 内置 `image_generation` 工具 | 工具形式生图、连续修改 | 未实现 |
-| 流的式事件（SSE） | 增量显示 | 未实现 |
+| OpenAI Images SSE | 图片流式结果 | 已实现，可选开启 |
+| Agent SSE | 对话增量显示 | 未实现 |
 | 蒙版编辑、批量任务、云任务查询 | — | 未实现 |
 
 Claude 官方支持看图分析，但不直接生成照片或插画。因此 Anthropic 协议在本项目中承担两种角色：**图片分析**与**提示词辅助**；若要它出图，必须是该服务自己扩展的能力，并按该服务的响应格式适配。
@@ -57,13 +58,9 @@ Claude 官方支持看图分析，但不直接生成照片或插画。因此 Ant
 
 网络层只抛错误码，界面按当前语言查表：`invalidEndpoint`、`missingKey`、`missingImageModel`、`missingAgentModel`、`referenceLimit`、`visionDisabled`、`invalidImage`、`imageTooLarge`、`invalidProxy`、`invalidImageUrl`、`noImage`、`invalidResponse`、`unsupportedTool`、`invalidTool`、`multipleCalls`、`authError`、`rateLimit`、`serviceError`、`emptyPrompt`。
 
-## 待验证
-
-以上均为设计规则，尚未用真实服务逐项验证。需要确认：实际使用的兼容服务及其响应格式、多图模型是否真的让两张参考图参与（而不是只看 HTTP 200）、四平台的代理行为、密钥存储、图片保存与切后台行为。CI 构建成功不能替代这些验收。
-
 ## 画廊与 Images 接口更新
 
-本轮已增加生成参数、作品搜索与收藏、独立任务卡片、提交后清空输入、可选 Images SSE 结果与下载重试。实现与验证记录见 [image-workflow.md](image-workflow.md)。Responses 内置 `image_generation` 仍未实现；Agent 的 `/responses` + 应用 `generate_image` 工具已实现。
+本轮已增加生成参数、作品搜索与收藏、独立任务卡片、提交后清空输入、可选 Images SSE 结果与下载重试。使用说明见 [image-workflow.md](image-workflow.md)。Responses 内置 `image_generation` 仍未实现；Agent 的 `/responses` + 应用 `generate_image` 工具已实现。
 
 ## Agent 参数与会话模型
 

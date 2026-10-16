@@ -2,7 +2,7 @@
 
 一个克制的 AI 图像创作客户端：**画廊**和 **Agent** 两个入口，自带 API Key，直连任意兼容服务，作品留在你自己的设备上。跨 Android、Linux、Windows、macOS，界面支持联合国六种工作语言。
 
-> 状态：**开发中。** 代码已落地，尚未完成四平台实机验收与真实服务联调。支持范围请看[能力边界](#能力边界)，不要把它当成"接上任何兼容地址就能出图"。
+> 状态：**开发中。** 支持范围请看[能力边界](#能力边界)，不要把它当成"接上任何兼容地址就能出图"。（第一次做这类应用，请见谅）
 
 ## 两个入口
 
@@ -16,7 +16,7 @@
 ## 特性
 
 - **本地优先**：历史用 SQLite 存在应用私有目录，作品是本地文件，不依赖临时地址；API 密钥进系统安全存储，不写进数据库。
-- **自带服务**：自定义基础地址、图片模型与对话模型、协议（OpenAI / Anthropic Messages）、可选 HTTP 代理；对话模型与图片模型可以分属不同服务。
+- **自带服务**：自定义基础地址、图片模型与对话模型、协议（OpenAI Chat Completions / OpenAI Responses / Anthropic Messages）、可选 HTTP 代理；对话模型与图片模型可以分属不同服务。
 - **任务状态如实**：区分提交失败、结果未知、生成中、下载失败。提交后超时不自动重发收费请求，而是保留"状态未知"并交给你判断。
 - **六语言**：中文、English、Français、Español、Русский、العربية，含阿拉伯语从右到左布局。
 - **无 root 安卓**：生成图片经系统媒体接口另存到公共 `Pictures/Imagyn/`，相册可见；参考图走系统文件选择器多选，不依赖 Google Play 服务。
@@ -61,7 +61,7 @@ CI 分三条流水线：`check`（分析 + 单元测试）、`build`（Android A
 | Windows | `.exe` / `.msi`（仅 x64） | Inno Setup / WiX |
 | macOS | `.dmg` / `.pkg` | `hdiutil` / `pkgbuild` |
 
-桌面产物**没有签名**：Windows SmartScreen 会提示「未知发布者」，macOS 需要右键打开。消除这一点需要 Authenticode 证书和 Apple Developer ID。Windows **没有 32 位版本** —— Flutter 不提供 32 位 Windows 目标（`TargetPlatform` 只有 `windows_x64` 与 `windows_arm64`）。
+桌面产物**没有签名**：Windows SmartScreen 会提示「未知发布者」，macOS 需要右键打开。消除这一点需要 Authenticode 证书和 Apple Developer ID（但是作者没有…）。Windows **没有 32 位版本** —— Flutter 不提供 32 位 Windows 目标。所以暂时对不住 Windows 7 和其它 win32 用户。
 
 ## 结构
 
@@ -71,41 +71,109 @@ lib/ui/      shell（画廊 + Agent）、settings（设置）
 lib/l10n/    六语言文案与查表
 platform/    各平台自有原生文件，叠加到 flutter create 的产物上
 scripts/     平台脚手架、文案生成
-docs/        调研与设计
+docs/        接口与功能使用说明
 test/        协议解析、配置校验、文案一致性
 ```
 
 ## 文档
 
-- [docs/image-workflow.md](docs/image-workflow.md) — 图片接口对齐、画廊与提交行为、验证边界
-
+- [docs/image-workflow.md](docs/image-workflow.md) — 图片接口、画廊与提交行为
 - [docs/agent-settings.md](docs/agent-settings.md) — 设置分栏、对话内切换模型与自定义提示词/上下文参数
-- [docs/research.md](docs/research.md) — 技术选型调研与产品设计（画廊/Agent、存储、签名、CI 的完整设计）
 - [docs/capabilities.md](docs/capabilities.md) — 接口能力矩阵与降级规则
-
-## 待办
-
-- [ ] 四平台实机验收：首次配置、多选参考图、切后台、相册保存、分享、备份恢复
-- [ ] 真实 OpenAI / Claude 兼容服务联调，逐个确认支持范围
-- [ ] 用真实 SDK 跑一次 `dart format` 并把格式检查加进 CI
-- [ ] Windows / macOS / Linux 的代码签名证书
-- [ ] Windows 安装向导的中文界面（Inno 不自带简体中文 .isl）
-- [ ] AUR 提交（目前只提供 `.pkg.tar.zst` 与源码包）
 
 ## 许可证
 
 **GPL-3.0-or-later**，全文见 [LICENSE](LICENSE)。选用它有一个连带义务：**分发二进制时必须提供对应源码**。本仓库公开即可满足，发布页也会附带 `-source.tar.gz`。若将来想闭源分发，必须先换许可证。
 
-设计上参考了 Kelivo、Cherry Studio、NextChat、LobeHub 等项目的公开做法（见 [docs/research.md](docs/research.md)），没有复用它们的源码。
-
 ---
 
 ## English
 
-**Imagyn** is a minimalist AI image studio for Android, Linux, Windows and macOS. Two entry points — **Gallery** (prompt plus zero or more reference images) and **Agent** (conversational generation and iteration) — over any OpenAI- or Anthropic-compatible endpoint you configure yourself. History and artwork stay on your device; API keys live in the system secure storage. The interface ships in the six UN official languages, including right-to-left Arabic.
+# Imagyn
 
-Status: **work in progress.** The code is in place, but cross-platform device acceptance and live-service integration are not done yet.
+A minimalist AI image creation app with two entry points: **Gallery** and **Agent**. Bring your own API key and connect directly to a compatible service. Your artwork stays on your device. Available for Android, Linux, Windows and macOS, with an interface in the six official UN languages.
 
-Implemented: OpenAI Images (`images/generations`, `images/edits`) with multiple reference images, and the `generate_image` tool over OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages. Not implemented: the Responses built-in image_generation tool, Agent streaming, mask editing, batch jobs, cloud sync, local inference. "OpenAI/Claude compatible" describes a wire format only — it does not guarantee image output.
+> Status: **work in progress.** See [Supported features](#supported-features) for the scope of support; connecting a compatible endpoint does not automatically guarantee image generation. This is my first app of this kind—thanks for your patience.
 
-Build instructions, layout and open questions are in the sections above. Documentation lives in [`docs/`](docs/).
+### Two entry points
+
+| Entry point | What it does |
+| --- | --- |
+| **Gallery** | Generate images from a prompt, with zero or more reference images. References are numbered, so you can ask for “the person from image 1 wearing the clothes from image 2.” |
+| **Agent** | Generate and refine images through conversation. Discussion and generation have separate status indicators; ordinary chat does not silently trigger paid image generation. Each edit is saved as a separate version, and generated images also appear in the gallery. |
+
+Settings has its own page with three tabs: **Images / Agent / General**. Switch models during a conversation and customize each model’s system prompt, context message count and output parameters while keeping your history and draft. Reduced motion is also supported.
+
+### Features
+
+- **Local first:** History is stored in SQLite in the app’s private directory. Artwork is saved as local files rather than depending on temporary URLs. API keys use the system’s secure storage, not the database.
+- **Bring your own service:** Configure base URLs, image and chat models, the protocol (OpenAI Chat Completions / OpenAI Responses / Anthropic Messages), and an optional HTTP proxy. Chat and image models can use different services.
+- **Clear task states:** Submission failures, unknown results, generation in progress and download failures are shown separately. A timeout after submission never automatically resends a paid generation request; the result stays “unknown” for you to check.
+- **Six languages:** 中文, English, Français, Español, Русский and العربية, including right-to-left Arabic layout.
+- **Android without root:** Save generated images to the public `Pictures/Imagyn/` folder through the system media API, where gallery apps can see them. Select multiple reference images with the system file picker. Google Play Services is not required.
+
+### Supported features
+
+“OpenAI / Claude compatible” describes a request format. It **does not guarantee** image generation, reference image limits, transparent backgrounds, resolutions or task recovery. The current implementation includes:
+
+| API or feature | Status |
+| --- | --- |
+| OpenAI Images (`images/generations`, `images/edits`) | Implemented, including multiple reference images and URL / Base64 output |
+| OpenAI Chat Completions + `generate_image` | Implemented in Agent mode (`/chat/completions`) |
+| OpenAI Responses + `generate_image` | Implemented in Agent mode (`/responses`) |
+| Anthropic Messages + `generate_image` | Implemented in Agent mode |
+| OpenAI Images SSE results | Implemented; enable it in the image API compatibility options |
+| Responses built-in `image_generation` tool | Not implemented; Agent uses the app’s `generate_image` function to call the separate Images API |
+| Mask editing, batch jobs, cloud sync, local inference | Not implemented; possible future extensions |
+
+A model list does not prove image generation capability, and a connection check is not an image generation test. Paid generation tests are only started when you explicitly submit a request in the gallery. See [docs/capabilities.md](docs/capabilities.md) for details.
+
+### Build
+
+Requires Flutter with Dart SDK ≥ 3.12.
+
+Platform directories are generated rather than tracked in Git. The script then overlays the native files owned by this repository:
+
+```bash
+python3 scripts/scaffold_platforms.py     # Generate android/ linux/ windows/ macos/
+flutter pub get
+flutter run -d <device>
+flutter build apk --release
+```
+
+CI has three workflows: `check` (analysis and tests), `build` (Android test APK), and `release` (four-platform packaging triggered by `v*` tags).
+
+Release packages:
+
+| Platform | Packages | Packaging tools |
+| --- | --- | --- |
+| Android | APK | Signed with the release keystore |
+| Linux | `.deb` / `.rpm` / `.pkg.tar.zst` | `dpkg-deb` / `rpmbuild` / `bsdtar` |
+| Windows | `.exe` / `.msi` (x64 only) | Inno Setup / WiX |
+| macOS | `.dmg` / `.pkg` | `hdiutil` / `pkgbuild` |
+
+Desktop packages **are unsigned**: Windows SmartScreen displays an “unknown publisher” warning, and macOS requires opening the app with a right-click. Avoiding these warnings requires an Authenticode certificate and an Apple Developer ID, which I don’t have yet. There is **no 32-bit Windows build** because Flutter does not provide a 32-bit Windows target. Sorry to Windows 7 and other win32 users for now.
+
+### Project layout
+
+```text
+lib/core/    Storage, data models, API adapters and application state
+lib/ui/      Gallery / Agent shell and settings
+lib/l10n/    Six-language text and lookup tables
+platform/    App-owned native files overlaid onto flutter create output
+scripts/     Platform scaffolding and translation generation
+docs/        API and feature usage guides
+test/        Protocol parsing, configuration validation and translation checks
+```
+
+### Documentation
+
+The following guides are currently in Chinese:
+
+- [Image workflow](docs/image-workflow.md) — Image API behavior, gallery and submission behavior
+- [Agent settings](docs/agent-settings.md) — Settings tabs, model switching, custom prompts and context parameters
+- [Capabilities](docs/capabilities.md) — API support matrix and failure handling
+
+### License
+
+**GPL-3.0-or-later**. See [LICENSE](LICENSE) for the full text. Distributing binaries requires making the corresponding source available. This repository is public, and release assets also include a `-source.tar.gz` archive. Any future proprietary distribution would require a license change first.
