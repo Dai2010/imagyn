@@ -29,7 +29,13 @@ class _SettingsPageState extends State<SettingsPage> {
   late bool _vision, _motion, _imageStream, _imageResponseB64, _streamAgent;
   late int _limit;
   bool _checking = false, _saving = false;
-  int _tab = 0;
+
+  /// Null shows the list of module entries; 0..3 is the module opened from it.
+  /// The settings are columns you step into, not tabs you flip between.
+  ///
+  /// Named `_module` and not `_section`: `_section` is already the widget helper
+  /// below, and Dart members share a single namespace.
+  int? _module;
 
   /// Which secret fields are currently shown in the clear. Keys are hidden by
   /// default, but on a phone there is no way to check what was typed without
@@ -361,44 +367,58 @@ class _SettingsPageState extends State<SettingsPage> {
     ),
   );
 
-  /// A tab label, pinned to a single line on purpose: a wrapped label makes the
-  /// button taller, and the room the AppBar gives this row is fixed — the growth
-  /// then shows up as a vertical overflow instead of a cramped label.
-  Widget _tabLabel(String key) =>
-      Text(s.t(key), maxLines: 1, overflow: TextOverflow.ellipsis);
-
-  Widget _tabs() => SegmentedButton<int>(
-    segments: [
-      ButtonSegment(value: 0, label: _tabLabel('gallery')),
-      ButtonSegment(value: 1, label: _tabLabel('agent')),
-      ButtonSegment(value: 2, label: _tabLabel('generalSettings')),
-      ButtonSegment(value: 3, label: _tabLabel('about')),
+  /// The settings home: one row per module, in the order the app is used.
+  Widget _entries() => Column(
+    children: [
+      for (final entry in const [
+        (0, 'gallery'),
+        (1, 'agent'),
+        (2, 'generalSettings'),
+        (3, 'about'),
+      ])
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(s.t(entry.$2)),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => _openModule(entry.$1),
+        ),
     ],
-    selected: {_tab},
-    onSelectionChanged: (selection) {
-      final options = _agentEditor.currentState?.read();
-      if (_agentEditor.currentState != null && options == null) {
-        return;
-      }
-      if (options != null) _options = options;
-      setState(() => _tab = selection.single);
-    },
   );
+
+  /// Opens a module, keeping the Agent editor's pending edit when it is valid.
+  /// Enters a module. Named `_openModule` rather than `_open` because the class
+  /// already has `_open(String url)` for the About links, and Dart members share
+  /// a single namespace — a collision here is a compile error, not an overload.
+  void _openModule(int section) {
+    final options = _agentEditor.currentState?.read();
+    if (_agentEditor.currentState != null && options == null) return;
+    if (options != null) _options = options;
+    setState(() => _module = section);
+  }
+
+  /// Leaves a module, keeping the Agent editor's pending edit when it is valid:
+  /// the editor is disposed with the module, so what it holds has to be read out
+  /// before it closes or the next visit shows stale values.
+  void _close() {
+    final options = _agentEditor.currentState?.read();
+    if (_agentEditor.currentState != null && options == null) return;
+    if (options != null) _options = options;
+    setState(() => _module = null);
+  }
+
+  String get _title => switch (_module) {
+    0 => s.t('gallery'),
+    1 => s.t('agent'),
+    2 => s.t('generalSettings'),
+    3 => s.t('about'),
+    _ => s.t('settings'),
+  };
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: Text(s.t('settings')),
-      bottom: PreferredSize(
-        // The button plus the gap under it (60 + 12), with slack for a larger
-        // text scale: the AppBar lays this row out at a fixed height, so a
-        // short slot would overflow rather than simply look tight.
-        preferredSize: const Size.fromHeight(72),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: IgnorePointer(ignoring: _checking || _saving, child: _tabs()),
-        ),
-      ),
+      title: Text(_title),
+      leading: _module == null ? null : BackButton(onPressed: _close),
     ),
     body: Center(
       child: ConstrainedBox(
@@ -410,7 +430,17 @@ class _SettingsPageState extends State<SettingsPage> {
               ignoring: _checking || _saving,
               child: Column(
                 children: [
-                  if (_tab == 0)
+                  // Registers with the route so the system back button closes an
+                  // open module instead of leaving Settings altogether.
+                  PopScope(
+                    canPop: _module == null,
+                    onPopInvokedWithResult: (didPop, _) {
+                      if (!didPop) _close();
+                    },
+                    child: const SizedBox.shrink(),
+                  ),
+                  if (_module == null) _entries(),
+                  if (_module == 0)
                     _section('imageConnection', [
                       _field(
                         _imageBase,
@@ -459,7 +489,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         ],
                       ),
                     ]),
-                  if (_tab == 1)
+                  if (_module == 1)
                     _section('connection', [
                       DropdownButtonFormField<ApiProtocol>(
                         isExpanded: true,
@@ -526,7 +556,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         ],
                       ),
                     ]),
-                  if (_tab == 2)
+                  if (_module == 2)
                     _section('appearance', [
                       DropdownButtonFormField<String>(
                         isExpanded: true,
@@ -568,18 +598,18 @@ class _SettingsPageState extends State<SettingsPage> {
                         onChanged: (v) => setState(() => _motion = v),
                       ),
                     ]),
-                  if (_tab == 2)
+                  if (_module == 2)
                     _section('network', [
                       _field(_proxy, 'proxy', hint: 'http://127.0.0.1:8080'),
                     ]),
-                  if (_tab == 2)
+                  if (_module == 2)
                     _section('storage', [Text(s.t('storageNote'))]),
-                  if (_tab == 2)
+                  if (_module == 2)
                     Text(
                       s.t('privacy'),
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
-                  if (_tab == 3)
+                  if (_module == 3)
                     _section('about', [
                       _link(
                         'projectHome',
@@ -616,7 +646,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
-            if (_tab != 3)
+            if (_module != null && _module != 3)
               FilledButton(
                 onPressed: _checking || _saving ? null : _save,
                 child: Text(s.t('save')),

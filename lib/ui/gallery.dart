@@ -208,12 +208,24 @@ class _GalleryViewState extends State<GalleryView> {
     ),
   );
 
+  /// What was asked for, and what actually came back when the two differ. That
+  /// difference is the only way to see a service ignoring the requested size,
+  /// so it is shown rather than hidden behind the requested value.
+  String _assetSize(Asset asset) {
+    final requested = asset.parameters['size'] as String?;
+    final actual = asset.parameters['actualSize'] as String?;
+    if (requested == null) return actual ?? '';
+    if (actual == null || actual == requested) return requested;
+    return '$requested → $actual';
+  }
+
   Widget _asset(Asset asset) => _frame(
     Stack(
       fit: StackFit.expand,
       children: [
         widget.imageBuilder(asset),
-        if (asset.parameters['size'] != null)
+        if (asset.parameters['size'] != null ||
+            asset.parameters['actualSize'] != null)
           PositionedDirectional(
             start: 8,
             top: 8,
@@ -225,7 +237,7 @@ class _GalleryViewState extends State<GalleryView> {
               child: Padding(
                 padding: const EdgeInsets.all(5),
                 child: Text(
-                  '${asset.parameters['size']}',
+                  _assetSize(asset),
                   style: const TextStyle(color: Colors.white, fontSize: 11),
                 ),
               ),

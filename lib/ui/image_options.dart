@@ -21,6 +21,7 @@ class _ImageOptionsSheetState extends State<ImageOptionsSheet> {
     List<String> values,
     ValueChanged<String> update, {
     bool translate = true,
+    String Function(String value)? labelOf,
   }) => DropdownButtonFormField<String>(
     key: ValueKey('$label-$value'),
     initialValue: value,
@@ -28,12 +29,37 @@ class _ImageOptionsSheetState extends State<ImageOptionsSheet> {
     decoration: InputDecoration(labelText: s.t(label)),
     items: values
         .map(
-          (v) =>
-              DropdownMenuItem(value: v, child: Text(translate ? s.t(v) : v)),
+          (v) => DropdownMenuItem(
+            value: v,
+            child: Text(
+              labelOf != null ? labelOf(v) : (translate ? s.t(v) : v),
+            ),
+          ),
         )
         .toList(),
     onChanged: (v) => setState(() => update(v!)),
   );
+
+  /// The presets mirror the reference implementation's 1K tier: a ratio with the
+  /// exact pixels handed to the API, so what is chosen and what is sent cannot
+  /// drift apart. `auto` is kept because it is what the service resolves itself.
+  static const _sizePresets = <String, String>{
+    'auto': '',
+    '1024x1024': '1:1',
+    '1536x1024': '3:2',
+    '1024x1536': '2:3',
+    '1280x720': '16:9',
+    '720x1280': '9:16',
+    '1024x768': '4:3',
+    '768x1024': '3:4',
+    '1280x544': '21:9',
+  };
+
+  String _sizeLabel(String value) {
+    if (value == 'auto') return s.t('auto');
+    final ratio = _sizePresets[value];
+    return ratio == null || ratio.isEmpty ? value : '$ratio · $value';
+  }
 
   @override
   Widget build(BuildContext context) => ConstrainedBox(
@@ -65,19 +91,18 @@ class _ImageOptionsSheetState extends State<ImageOptionsSheet> {
                 children: [
                   SizedBox(
                     width: width,
-                    child: _select('size', options.size, [
-                      'auto',
-                      '1024x1024',
-                      '1536x1024',
-                      '1024x1536',
-                      if (![
-                        'auto',
-                        '1024x1024',
-                        '1536x1024',
-                        '1024x1536',
-                      ].contains(options.size))
-                        options.size,
-                    ], (v) => options = options.copyWith(size: v)),
+                    child: _select(
+                      'size',
+                      options.size,
+                      [
+                        ..._sizePresets.keys,
+                        // A size saved by an older build stays selectable rather
+                        // than being silently replaced.
+                        if (!_sizePresets.containsKey(options.size)) options.size,
+                      ],
+                      (v) => options = options.copyWith(size: v),
+                      labelOf: _sizeLabel,
+                    ),
                   ),
                   SizedBox(
                     width: width,
