@@ -59,7 +59,10 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
   final zip = _ZipBuilder()
     ..add(
       '[Content_Types].xml',
-      _contentTypes(media.values.map((part) => part.image.mime).toSet()),
+      _contentTypes(
+        media.values.map((part) => part.image.mime).toSet(),
+        slides.length,
+      ),
     )
     ..add('_rels/.rels', _rootRels())
     ..add('ppt/presentation.xml', _presentationXml(slides.length, size))
@@ -129,7 +132,7 @@ String _extension(String mime) => switch (mime) {
   _ => 'png',
 };
 
-String _contentTypes(Set<String> imageMimes) {
+String _contentTypes(Set<String> imageMimes, int slideCount) {
   final extensions = <String, String>{
     'rels': 'application/vnd.openxmlformats-package.relationships+xml',
     'xml': 'application/xml',
@@ -166,6 +169,14 @@ String _contentTypes(Set<String> imageMimes) {
       '<Override PartName="/ppt/theme/theme1.xml" '
       'ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>',
     );
+  // Without one Override per slide, the `xml` default type applies and Office
+  // reads a slide as a plain XML part instead of a presentation slide.
+  for (var i = 0; i < slideCount; i++) {
+    buffer.write(
+      '<Override PartName="/ppt/slides/slide${i + 1}.xml" '
+      'ContentType="$presentation.slide+xml"/>',
+    );
+  }
   return buffer.toString();
 }
 
