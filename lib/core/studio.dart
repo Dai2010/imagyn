@@ -615,10 +615,28 @@ class Studio extends ChangeNotifier {
     }
   }
 
-  String _addSlide(AgentCall call) {
+  String _addSlide(AgentCall call, List<Asset> created) {
     try {
       final deck = _deckOf(call);
-      final image = _argText(call, 'image_id');
+      // An image id is a long opaque string, so a model that just generated a
+      // picture can easily retype it wrong. "last" is resolved here, and an
+      // id that matches nothing is answered with an error instead of silently
+      // producing a page with a broken picture.
+      final known = <Asset>[...created, ...gallery]
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final requested = _argText(call, 'image_id').trim();
+      var image = requested;
+      if (requested == 'last' || requested == 'latest') {
+        if (known.isEmpty) {
+          return 'No image exists yet. Call generate_image first, then pass '
+              'its id or "last" as image_id.';
+        }
+        image = known.first.id;
+      }
+      if (image.isNotEmpty && !known.any((asset) => asset.id == image)) {
+        return 'Unknown image_id "$requested". Use the id returned by '
+            'generate_image, or "last" for the newest image.';
+      }
       deck.slides.add(
         Slide(
           title: _argText(call, 'title'),
@@ -627,7 +645,8 @@ class Studio extends ChangeNotifier {
         ),
       );
       notifyListeners();
-      return 'Slide ${deck.slides.length} added to deck ${deck.id}.';
+      return 'Slide ${deck.slides.length} added to deck ${deck.id}'
+          '${image.isEmpty ? '' : ' with image $image'}.';
     } on FormatException {
       return 'Invalid arguments for add_slide.';
     }
@@ -741,7 +760,7 @@ class Studio extends ChangeNotifier {
       case 'create_deck':
         return _createDeck(call);
       case 'add_slide':
-        return _addSlide(call);
+        return _addSlide(call, created);
       case 'update_slide':
         return _updateSlide(call);
       case 'remove_slide':
@@ -781,8 +800,9 @@ class Studio extends ChangeNotifier {
     );
     created.addAll(assets);
     if (assets.isEmpty) return 'The image service returned no image.';
-    return 'Generated ${assets.length} image(s): '
-        '${assets.map((asset) => asset.id).join(', ')}.';
+    final ids = assets.map((asset) => asset.id).join(', ');
+    return 'Generated ${assets.length} image(s). image_id: $ids. '
+        'Pass this exact id as add_slide.image_id, or "last" for the newest.';
   }
 
   /// Runs one recorded generation and files whatever it returns. A fresh

@@ -83,4 +83,150 @@ void main() {
     expect(studio.chat.last.text, '演示文稿做好了。');
     expect(requests, 4);
   });
+
+  test('a generated image is attached to the slide through "last"', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==',
+    );
+    var requests = 0;
+    String? deckId;
+    final subscription = server.listen((request) async {
+      if (request.uri.path.endsWith('/images/generations')) {
+        await request.drain<void>();
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'data': [
+              {'b64_json': base64Encode(png)},
+            ],
+          }),
+        );
+        await request.response.close();
+        return;
+      }
+      final body =
+          jsonDecode(await utf8.decoder.bind(request).join())
+              as Map<String, dynamic>;
+      for (final message in body['messages'] as List? ?? []) {
+        final content = (message as Map)['content'];
+        if (content is! String) continue;
+        final match = RegExp(r'created with id (\S+) \(').firstMatch(content);
+        if (match != null) deckId = match.group(1);
+      }
+      final message = switch (requests++) {
+        0 => toolCall('create_deck', {
+          'title': '图片演示',
+          'aspect_ratio': '16:9',
+        }),
+        1 => toolCall('generate_image', {
+          'prompt': '一只狐狸',
+          'aspect_ratio': '16:9',
+        }),
+        2 => toolCall('add_slide', {
+          'deck': deckId,
+          'title': '狐狸',
+          'bullets': ['要点'],
+          'image_id': 'last',
+        }),
+        3 => toolCall('finish_deck', {'deck': deckId}),
+        _ => {'content': '做好了。'},
+      };
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'choices': [
+            {'message': message},
+          ],
+        }),
+      );
+      await request.response.close();
+    });
+    addTearDown(subscription.cancel);
+    final store = DeckStore()
+      ..savedConfig = ServiceConfig(
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        agentModel: 'agent',
+        imageModel: 'image',
+        streamAgent: false,
+      );
+    final studio = DeckStudio(store);
+    addTearDown(studio.dispose);
+    await studio.initialize();
+
+    await studio.submit('做一份带图的演示文稿', true, const ImageOptions());
+
+    expect(studio.error, isNull);
+    final deck = studio.decks.values.single;
+    expect(studio.gallery, hasLength(1));
+    expect(deck.slides.single.imageId, studio.gallery.single.id);
+    expect(
+      studio.chat.any(
+        (entry) => entry.role == 'tool' && entry.text.contains('with image'),
+      ),
+      isTrue,
+    );
+  });
+
+  test('an unknown image_id is answered instead of making a broken slide', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    var requests = 0;
+    String? deckId;
+    final subscription = server.listen((request) async {
+      final body =
+          jsonDecode(await utf8.decoder.bind(request).join())
+              as Map<String, dynamic>;
+      for (final message in body['messages'] as List? ?? []) {
+        final content = (message as Map)['content'];
+        if (content is! String) continue;
+        final match = RegExp(r'created with id (\S+) \(').firstMatch(content);
+        if (match != null) deckId = match.group(1);
+      }
+      final message = switch (requests++) {
+        0 => toolCall('create_deck', {
+          'title': '测试',
+          'aspect_ratio': '16:9',
+        }),
+        1 => toolCall('add_slide', {
+          'deck': deckId,
+          'title': '无图',
+          'bullets': ['要点'],
+          'image_id': 'no-such-image',
+        }),
+        _ => {'content': '我再试一次。'},
+      };
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'choices': [
+            {'message': message},
+          ],
+        }),
+      );
+      await request.response.close();
+    });
+    addTearDown(subscription.cancel);
+    final store = DeckStore()
+      ..savedConfig = ServiceConfig(
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        agentModel: 'agent',
+        streamAgent: false,
+      );
+    final studio = DeckStudio(store);
+    addTearDown(studio.dispose);
+    await studio.initialize();
+
+    await studio.submit('做一份演示文稿', true, const ImageOptions());
+
+    expect(studio.error, isNull);
+    expect(studio.decks.values.single.slides, isEmpty);
+    expect(
+      studio.chat.any(
+        (entry) => entry.role == 'tool' && entry.text.contains('Unknown image_id'),
+      ),
+      isTrue,
+    );
+  });
 }
