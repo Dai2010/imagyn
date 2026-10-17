@@ -415,6 +415,17 @@ class StudioApi {
     final messages = <Map<String, dynamic>>[];
     for (var i = 0; i < history.length; i++) {
       final entry = history[i];
+      // A tool result answers a call by id; an assistant turn that called a
+      // tool carries the calls themselves. Both have to travel in the shape of
+      // whichever protocol is in use, or the next request cannot pair them up.
+      if (entry.role == 'tool') {
+        messages.add(_toolResult(entry));
+        continue;
+      }
+      if (entry.calls.isNotEmpty) {
+        messages.addAll(_assistantCalls(entry));
+        continue;
+      }
       if (i == history.length - 1 &&
           entry.role == 'user' &&
           contents.isNotEmpty) {
@@ -439,6 +450,83 @@ class StudioApi {
     }
     return _AgentRequest(settings, messages, settings.systemPrompt);
   }
+
+  Map<String, dynamic> _toolResult(ChatEntry entry) => switch (config.protocol) {
+    ApiProtocol.anthropic => {
+      'role': 'user',
+      'content': [
+        {
+          'type': 'tool_result',
+          'tool_use_id': entry.callId,
+          'content': entry.text,
+        },
+      ],
+    },
+    ApiProtocol.responses => {
+      'type': 'function_call_output',
+      'call_id': entry.callId,
+      'output': entry.text,
+    },
+    ApiProtocol.openai => {
+      'role': 'tool',
+      'tool_call_id': entry.callId,
+      'content': entry.text,
+    },
+  };
+
+  List<Map<String, dynamic>> _assistantCalls(ChatEntry entry) =>
+      switch (config.protocol) {
+        ApiProtocol.anthropic => [
+          {
+            'role': 'assistant',
+            'content': [
+              if (entry.text.isNotEmpty)
+                {'type': 'text', 'text': entry.text},
+              for (final call in entry.calls)
+                {
+                  'type': 'tool_use',
+                  'id': call.id,
+                  'name': call.name,
+                  'input': call.arguments,
+                },
+            ],
+          },
+        ],
+        ApiProtocol.responses => [
+          if (entry.text.isNotEmpty)
+            {
+              'type': 'message',
+              'role': 'assistant',
+              'content': [
+                {'type': 'output_text', 'text': entry.text},
+              ],
+            },
+          for (final call in entry.calls)
+            {
+              'type': 'function_call',
+              'call_id': call.id,
+              'name': call.name,
+              'arguments': jsonEncode(call.arguments),
+            },
+        ],
+        ApiProtocol.openai => [
+          {
+            'role': 'assistant',
+            'content': entry.text.isEmpty ? null : entry.text,
+            'tool_calls': [
+              for (final call in entry.calls)
+                {
+                  'id': call.id,
+                  'type': 'function',
+                  'function': {
+                    'name': call.name,
+                    'arguments': jsonEncode(call.arguments),
+                  },
+                },
+            ],
+          },
+        ],
+      };
 
   Map<String, dynamic> _agentBody(
     _AgentRequest request, {
