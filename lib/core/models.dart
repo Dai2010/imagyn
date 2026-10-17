@@ -131,7 +131,9 @@ const defaultAgentPrompt =
     'Never claim an image was generated yourself. For discussions reply in text. '
     'Only one generation per turn. Reference images are ordered and supplied to '
     'the image tool by the application. For an edit preserve user constraints. '
-    'If the target is unclear, ask. Tool prompts should be self-contained.';
+    'If the target is unclear, ask. Tool prompts should be self-contained. '
+    'When the user asks for a shape or aspect ratio, pass it as aspect_ratio; '
+    'never express the ratio only in the prompt text.';
 
 class AgentOptions {
   const AgentOptions({
@@ -340,6 +342,29 @@ class ChatEntry {
 
 String encodeRecord(Map<String, dynamic> value) => jsonEncode(value);
 
+/// The ratios the picker offers and the tool accepts, with the exact pixels
+/// handed to the Images API (the reference implementation's 1K tier). The wire
+/// protocol has no ratio field, so a ratio always travels as one of these pairs.
+const sizePresets = <String, String>{
+  '1:1': '1024x1024',
+  '3:2': '1536x1024',
+  '2:3': '1024x1536',
+  '16:9': '1280x720',
+  '9:16': '720x1280',
+  '4:3': '1024x768',
+  '3:4': '768x1024',
+  '21:9': '1280x544',
+};
+
+/// The ratio a stored size came from, or null for `auto` and for sizes saved by
+/// an older build that are not one of the presets.
+String? ratioOfSize(String size) {
+  for (final entry in sizePresets.entries) {
+    if (entry.value == size) return entry.key;
+  }
+  return null;
+}
+
 const imageTool = {
   'name': 'generate_image',
   'description':
@@ -349,8 +374,28 @@ const imageTool = {
     'type': 'object',
     'properties': {
       'prompt': {'type': 'string'},
+      // OpenAI strict tools require every property to be listed as required,
+      // so `auto` is an explicit choice rather than an omitted one.
+      'aspect_ratio': {
+        'type': 'string',
+        'enum': [
+          'auto',
+          '1:1',
+          '3:2',
+          '2:3',
+          '16:9',
+          '9:16',
+          '4:3',
+          '3:4',
+          '21:9',
+        ],
+        'description':
+            'The aspect ratio the user asked for. Use auto when the user did '
+            'not ask for one; the app then keeps the ratio chosen in its '
+            'options.',
+      },
     },
-    'required': ['prompt'],
+    'required': ['prompt', 'aspect_ratio'],
     'additionalProperties': false,
   },
 };

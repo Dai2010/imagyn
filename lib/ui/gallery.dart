@@ -212,11 +212,14 @@ class _GalleryViewState extends State<GalleryView> {
   /// difference is the only way to see a service ignoring the requested size,
   /// so it is shown rather than hidden behind the requested value.
   String _assetSize(Asset asset) {
+    final s = Strings.of(context);
+    String label(String value) =>
+        value == 'auto' ? s.t('auto') : ratioOfSize(value) ?? value;
     final requested = asset.parameters['size'] as String?;
     final actual = asset.parameters['actualSize'] as String?;
-    if (requested == null) return actual ?? '';
-    if (actual == null || actual == requested) return requested;
-    return '$requested → $actual';
+    if (requested == null) return actual == null ? '' : label(actual);
+    if (actual == null || actual == requested) return label(requested);
+    return '${label(requested)} → ${label(actual)}';
   }
 
   Widget _asset(Asset asset) => _frame(

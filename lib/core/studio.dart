@@ -348,6 +348,9 @@ class Studio extends ChangeNotifier {
       String? imagePrompt = prompt.trim();
       String reply = '';
       String reasoning = '';
+      // What the image service is actually asked for. The model can pick a
+      // ratio for its own call; otherwise the app's selection stands.
+      var jobOptions = options;
       if (agent) {
         await store.addMessage(
           session,
@@ -377,18 +380,22 @@ class Studio extends ChangeNotifier {
         reply = result.text;
         reasoning = result.reasoning;
         imagePrompt = result.imagePrompt;
+        final ratio = result.aspectRatio;
+        if (ratio != null) {
+          jobOptions = options.copyWith(size: sizePresets[ratio]!);
+        }
       }
       final created = <Asset>[];
       if (imagePrompt != null) {
         stage = 'working';
         notifyListeners();
-        client.validateGeneration(imagePrompt, refs, options);
+        client.validateGeneration(imagePrompt, refs, jobOptions);
         final candidateJobId = store.newId();
         record = {
           'prompt': imagePrompt,
           'references': refs.map((a) => a.id).toList(),
           'model': requestConfig.imageModel,
-          ...options.toJson(),
+          ...jobOptions.toJson(),
           'createdAt': DateTime.now().toIso8601String(),
           'session': agent ? session : null,
         };
@@ -398,7 +405,7 @@ class Studio extends ChangeNotifier {
         jobs = await store.jobs();
         notifyListeners();
         created.addAll(
-          await _runJob(client, jobId, record, imagePrompt, refs, options),
+          await _runJob(client, jobId, record, imagePrompt, refs, jobOptions),
         );
       }
       if (agent) {
