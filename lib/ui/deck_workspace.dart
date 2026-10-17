@@ -361,7 +361,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
     final curved = animation.drive(CurveTween(curve: Curves.easeOutCubic));
     return SizeTransition(
       sizeFactor: curved,
-      axisAlignment: -1,
+      alignment: Alignment.topCenter,
       child: FadeTransition(opacity: curved, child: child),
     );
   }
@@ -370,7 +370,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
     final curved = animation.drive(CurveTween(curve: Curves.easeInCubic));
     return SizeTransition(
       sizeFactor: curved,
-      axisAlignment: -1,
+      alignment: Alignment.topCenter,
       child: FadeTransition(opacity: curved, child: _placeholder()),
     );
   }
@@ -379,7 +379,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
     final curved = animation.drive(CurveTween(curve: Curves.easeInCubic));
     return SizeTransition(
       sizeFactor: curved,
-      axisAlignment: -1,
+      alignment: Alignment.topCenter,
       child: FadeTransition(
         opacity: curved,
         child: Padding(
