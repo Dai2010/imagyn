@@ -120,6 +120,18 @@ void main() {
     });
   });
 
+  test('the pre-deck prompt is upgraded but a custom prompt is kept', () {
+    expect(
+      AgentOptions.fromJson({'systemPrompt': legacyAgentPrompt}).systemPrompt,
+      defaultAgentPrompt,
+    );
+    expect(
+      AgentOptions.fromJson({'systemPrompt': 'my own prompt'}).systemPrompt,
+      'my own prompt',
+    );
+    expect(AgentOptions.fromJson(const {}).systemPrompt, defaultAgentPrompt);
+  });
+
   test('the image tool asks for a prompt and one of the offered ratios', () {
     final parameters = imageTool['parameters'] as Map;
     final properties = parameters['properties'] as Map;

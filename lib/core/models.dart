@@ -126,6 +126,24 @@ class ServiceConfig {
 }
 
 const defaultAgentPrompt =
+    'You are Imagyn, an assistant for images and slide decks. Reply in the user language. '
+    'Use generate_image only for an explicit image request or when a deck page needs a picture; '
+    'never claim an image was generated yourself. '
+    'For a presentation, deck, PPT or slides request, build it with the deck tools: '
+    'create_deck, then add_slide once per page, then finish_deck. A deck is editable text and '
+    'pictures, not a picture of a slide. generate_image returns an image_id: pass that exact id '
+    'as add_slide.image_id (or pass "last" for the newest image) so the page really carries the '
+    'picture. Never put a description or a prompt into image_id. '
+    'You may call tools repeatedly in one turn; after each result decide the next step and keep '
+    'going until the deck is finished, then answer briefly. '
+    'For discussions reply in text. Reference images are ordered and supplied by the app; '
+    'preserve user constraints on edits. If the target is unclear, ask. '
+    'When the user asks for a shape or aspect ratio, pass it as aspect_ratio; never express the '
+    'ratio only in the prompt text.';
+
+/// The prompt shipped before the deck tools. A saved profile that still holds
+/// it verbatim is upgraded on load; a prompt the user edited is kept as is.
+const legacyAgentPrompt =
     'You are Imagyn, an image creation assistant. Reply in the user language. '
     'Use generate_image only for an explicit request to create or modify an image. '
     'Never claim an image was generated yourself. For discussions reply in text. '
@@ -186,13 +204,18 @@ class AgentOptions {
     'temperature': temperature,
     'topP': topP,
   };
-  factory AgentOptions.fromJson(Map<String, dynamic> value) => AgentOptions(
-    systemPrompt: value['systemPrompt'] as String? ?? defaultAgentPrompt,
-    contextMessages: (value['contextMessages'] as num? ?? 0).toInt(),
-    maxOutputTokens: (value['maxOutputTokens'] as num?)?.toInt(),
-    temperature: (value['temperature'] as num?)?.toDouble(),
-    topP: (value['topP'] as num?)?.toDouble(),
-  );
+  factory AgentOptions.fromJson(Map<String, dynamic> value) {
+    final stored = value['systemPrompt'] as String?;
+    return AgentOptions(
+      systemPrompt: stored == null || stored == legacyAgentPrompt
+          ? defaultAgentPrompt
+          : stored,
+      contextMessages: (value['contextMessages'] as num? ?? 0).toInt(),
+      maxOutputTokens: (value['maxOutputTokens'] as num?)?.toInt(),
+      temperature: (value['temperature'] as num?)?.toDouble(),
+      topP: (value['topP'] as num?)?.toDouble(),
+    );
+  }
 }
 
 class ImageOptions {
@@ -414,8 +437,10 @@ String? ratioOfSize(String size) {
 const imageTool = {
   'name': 'generate_image',
   'description':
-      'Generate or edit an image only when the user asks for an image. '
-      'Reference images are supplied by the app. Return a detailed prompt.',
+      'Generate or edit an image only when the user asks for an image or a '
+      'deck page needs a picture. Reference images are supplied by the app. '
+      'Return a detailed prompt. The result names an image_id: pass it to '
+      'add_slide (or pass "last") so the page carries the picture.',
   'parameters': {
     'type': 'object',
     'properties': {
@@ -489,7 +514,8 @@ const createDeckTool = {
   'description':
       'Create an empty slide deck. Use this for presentations, not for a '
       'single picture: slides are text and images the user can still edit in '
-      'PowerPoint or WPS afterwards.',
+      'PowerPoint or WPS afterwards. Pages can carry a picture: generate it '
+      'with generate_image, then attach it through add_slide.image_id.',
   'parameters': {
     'type': 'object',
     'properties': {
@@ -505,7 +531,8 @@ const addSlideTool = {
   'name': 'add_slide',
   'description':
       'Append one slide to a deck. Call it once per slide so the user sees '
-      'each page arrive. Pass image_id only when an image already exists.',
+      'each page arrive. When the page should show a picture, pass the image '
+      'id returned by generate_image, or "last" for the newest image.',
   'parameters': {
     'type': 'object',
     'properties': {
@@ -517,7 +544,10 @@ const addSlideTool = {
       },
       'image_id': {
         'type': 'string',
-        'description': 'Id of an image from generate_image, or an empty string.',
+        'description':
+            'The image_id returned by generate_image, "last" for the newest '
+            'image, or an empty string for a text-only page. Never put a '
+            'description or a prompt here.',
       },
     },
     'required': ['deck', 'title', 'bullets', 'image_id'],
