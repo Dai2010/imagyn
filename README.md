@@ -2,7 +2,7 @@
 
 # 映想 · Imagyn
 
-一个克制的 AI 图像创作客户端：**画廊**和 **Agent** 两个入口，自带 API Key，直连任意兼容服务，作品留在你自己的设备上。跨 Android、Linux、Windows、macOS，界面支持联合国六种工作语言。
+一个 AI 图像创作客户端：**画廊**和 **Agent** 两个入口，需要 API Key，直连任意兼容服务，作品留在你自己的设备上。跨 Android、Linux、Windows、macOS，界面支持六种语言。
 
 > 状态：**开发中。** 支持范围请看[能力边界](#能力边界)，不要把它当成"接上任何兼容地址就能出图"。（第一次做这类应用，请见谅）
 
@@ -21,7 +21,7 @@
 - **自带服务**：自定义基础地址、图片模型与对话模型、协议（OpenAI Chat Completions / OpenAI Responses / Anthropic Messages）、可选 HTTP 代理；对话模型与图片模型可以分属不同服务。
 - **任务状态如实**：区分提交失败、结果未知、生成中、下载失败。提交后超时不自动重发收费请求，而是保留"状态未知"并交给你判断。
 - **六语言**：中文、English、Français、Español、Русский、العربية，含阿拉伯语从右到左布局。
-- **无 root 安卓**：生成图片经系统媒体接口另存到公共 `Pictures/Imagyn/`，相册可见；参考图走系统文件选择器多选，不依赖 Google Play 服务。
+- **无 root 安卓支持**：生成图片经系统媒体接口另存到公共 `Pictures/Imagyn/`，相册可见；参考图走系统文件选择器多选，不依赖 Google Play 服务。
 
 ## 能力边界
 
@@ -37,7 +37,7 @@
 | OpenAI Responses 内置 `image_generation` 工具 | 未实现；Agent 使用应用的 `generate_image` 调用独立 Images 接口 |
 | 蒙版编辑、批量任务、云同步、本地推理 | 未实现，属后续扩展 |
 
-模型列表本身不能证明生图能力，连接检查也不等于生图测试。付费的生成测试由你在画廊主动触发。细节见 [docs/capabilities.md](docs/capabilities.md)。
+模型列表本身不能证明生图能力，连接检查也不等于生图测试。付费的生成测试需要在画廊主动触发。细节见 [docs/capabilities.md](docs/capabilities.md)。
 
 ## 构建
 
@@ -63,7 +63,7 @@ CI 分三条流水线：`check`（分析 + 单元测试）、`build`（Android A
 | Windows | `.exe` / `.msi`（仅 x64） | Inno Setup / WiX |
 | macOS | `.dmg` / `.pkg` | `hdiutil` / `pkgbuild` |
 
-桌面产物**没有签名**：Windows SmartScreen 会提示「未知发布者」，macOS 需要右键打开。消除这一点需要 Authenticode 证书和 Apple Developer ID（但是作者没有…）。Windows **没有 32 位版本** —— Flutter 不提供 32 位 Windows 目标。所以暂时对不住 Windows 7 和其它 win32 用户。
+桌面产物**暂时没有签名**：Windows SmartScreen 会提示「未知发布者」，macOS 需要右键打开。消除这一点需要 Authenticode 证书和 Apple Developer ID（但是作者没有…）。Windows **没有 32 位版本** —— Flutter 不提供 32 位 Windows 目标。所以暂时对不住 Windows 7 和其它 win32 用户。
 
 ## 结构
 
@@ -85,4 +85,4 @@ test/        协议解析、配置校验、文案一致性
 
 ## 许可证
 
-**GPL-3.0-or-later**，全文见 [LICENSE](LICENSE)。选用它有一个连带义务：**分发二进制时必须提供对应源码**。本仓库公开即可满足，发布页也会附带 `-source.tar.gz`。若将来想闭源分发，必须先换许可证。
+**GPL-3.0-or-later**，全文见 [LICENSE](LICENSE)。
