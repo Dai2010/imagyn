@@ -169,7 +169,8 @@ const translations = <String, Map<String, String>>{
   "deckIllustrating": "Generating an illustration…",
   "deckEmpty": "Planning the first slide…",
   "deckFinished": "Deck finished",
-  "deckImage": "Illustration"
+  "deckImage": "Illustration",
+  "exportDeck": "Export .pptx"
 },
 "zh": {
   "gallery": "画廊",
@@ -340,7 +341,8 @@ const translations = <String, Map<String, String>>{
   "deckIllustrating": "正在生成配图……",
   "deckEmpty": "正在构思第一页……",
   "deckFinished": "已完成",
-  "deckImage": "配图"
+  "deckImage": "配图",
+  "exportDeck": "导出 .pptx"
 },
 "fr": {
   "gallery": "Galerie",
@@ -511,7 +513,8 @@ const translations = <String, Map<String, String>>{
   "deckIllustrating": "Génération d’une illustration…",
   "deckEmpty": "Préparation de la première diapositive…",
   "deckFinished": "Diaporama terminé",
-  "deckImage": "Illustration"
+  "deckImage": "Illustration",
+  "exportDeck": "Exporter en .pptx"
 },
 "es": {
   "gallery": "Galería",
@@ -682,7 +685,8 @@ const translations = <String, Map<String, String>>{
   "deckIllustrating": "Generando una ilustración…",
   "deckEmpty": "Preparando la primera diapositiva…",
   "deckFinished": "Presentación terminada",
-  "deckImage": "Ilustración"
+  "deckImage": "Ilustración",
+  "exportDeck": "Exportar a .pptx"
 },
 "ru": {
   "gallery": "Галерея",
@@ -853,7 +857,8 @@ const translations = <String, Map<String, String>>{
   "deckIllustrating": "Генерируем иллюстрацию…",
   "deckEmpty": "Готовим первый слайд…",
   "deckFinished": "Презентация готова",
-  "deckImage": "Иллюстрация"
+  "deckImage": "Иллюстрация",
+  "exportDeck": "Экспорт в .pptx"
 },
 "ar": {
   "gallery": "المعرض",
@@ -1024,6 +1029,7 @@ const translations = <String, Map<String, String>>{
   "deckIllustrating": "جارٍ توليد صورة…",
   "deckEmpty": "جارٍ إعداد الشريحة الأولى…",
   "deckFinished": "اكتمل العرض",
-  "deckImage": "صورة"
+  "deckImage": "صورة",
+  "exportDeck": "تصدير .pptx"
 },
 };
