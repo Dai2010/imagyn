@@ -95,39 +95,51 @@ void main() {
       expect(responses.aspectRatio, '1:1');
     });
 
-    test('rejects a tool other than the image tool', () {
-      expect(
-        () => parseAgentReply({
-          'choices': [
-            {
-              'message': {
-                'tool_calls': [
-                  {'function': {'name': 'run_shell', 'arguments': '{"cmd":"ls"}'}},
-                ],
-              },
+    test('records a tool this build does not know', () {
+      final reply = parseAgentReply({
+        'choices': [
+          {
+            'message': {
+              'tool_calls': [
+                {
+                  'function': {
+                    'name': 'run_shell',
+                    'arguments': '{"cmd":"ls"}',
+                  },
+                },
+              ],
             },
-          ],
-        }, ApiProtocol.openai),
-        throwsA(_formatError('unsupportedTool')),
-      );
+          },
+        ],
+      }, ApiProtocol.openai);
+      expect(reply.calls.single.name, 'run_shell');
+      expect(reply.calls.single.arguments['cmd'], 'ls');
+      // An unknown tool must not be mistaken for an image request.
+      expect(reply.imagePrompt, isNull);
     });
 
-    test('rejects two generation requests in one turn', () {
+    test('keeps both calls when the model asks for two images', () {
       Map<String, dynamic> call(String prompt) => {
-        'function': {'name': 'generate_image', 'arguments': '{"prompt":"$prompt"}'},
+        'id': 'call_$prompt',
+        'function': {
+          'name': 'generate_image',
+          'arguments': '{"prompt":"$prompt"}',
+        },
       };
-      expect(
-        () => parseAgentReply({
-          'choices': [
-            {
-              'message': {
-                'tool_calls': [call('a'), call('b')],
-              },
+      final reply = parseAgentReply({
+        'choices': [
+          {
+            'message': {
+              'tool_calls': [call('a'), call('b')],
             },
-          ],
-        }, ApiProtocol.openai),
-        throwsA(_formatError('multipleCalls')),
-      );
+          },
+        ],
+      }, ApiProtocol.openai);
+      expect(reply.calls.map((call) => call.name), [
+        'generate_image',
+        'generate_image',
+      ]);
+      expect(reply.imagePrompt, 'a');
     });
 
     test('rejects an empty reply', () {

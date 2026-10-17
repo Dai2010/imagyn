@@ -15,9 +15,14 @@ class AgentReply {
     this.imagePrompt, {
     this.reasoning = '',
     this.aspectRatio,
+    this.calls = const [],
   });
   final String text;
   final String? imagePrompt;
+
+  /// Every call the turn asked for, in order, exactly as it sent them. Empty
+  /// when the turn only spoke.
+  final List<AgentCall> calls;
 
   /// The ratio the model asked the image tool to use. Null when it asked for
   /// none (`auto`), in which case the app keeps the ratio chosen in its own
@@ -906,7 +911,7 @@ AgentReply parseAgentReply(
   ApiProtocol protocol,
 ) {
   final texts = <String>[];
-  final calls = <ToolCall>[];
+  final calls = <AgentCall>[];
   final reasons = <String>[];
   if (protocol == ApiProtocol.responses) {
     if (response['error'] != null ||
@@ -940,10 +945,8 @@ AgentReply parseAgentReply(
         if (item['status'] != null && item['status'] != 'completed') {
           throw const FormatException('invalidTool');
         }
-        if (item['name'] != 'generate_image') {
-          throw const FormatException('unsupportedTool');
-        }
-        if (item['arguments'] is! String) {
+        final id = item['call_id'] ?? item['id'];
+        if (item['name'] is! String || item['arguments'] is! String) {
           throw const FormatException('invalidTool');
         }
         Object? arguments;
@@ -952,7 +955,16 @@ AgentReply parseAgentReply(
         } on FormatException {
           throw const FormatException('invalidTool');
         }
-        calls.add(validateToolCall(arguments));
+        if (arguments is! Map) throw const FormatException('invalidTool');
+        calls.add(
+          AgentCall(
+            // Some gateways drop the id. The loop only needs a stable handle
+            // to pair a result with its call, so a local one is enough.
+            id is String && id.isNotEmpty ? id : 'call_${calls.length}',
+            item['name'] as String,
+            Map<String, dynamic>.from(arguments),
+          ),
+        );
       } else if (item['type'] == 'reasoning') {
         // A reasoning summary is display material, never an instruction.
         final summary = item['summary'];
@@ -982,10 +994,17 @@ AgentReply parseAgentReply(
             response['stop_reason'] != 'tool_use') {
           throw const FormatException('invalidTool');
         }
-        if (block['name'] != 'generate_image') {
-          throw const FormatException('unsupportedTool');
+        if (block['name'] is! String || block['input'] is! Map) {
+          throw const FormatException('invalidTool');
         }
-        calls.add(validateToolCall(block['input']));
+        final id = block['id'];
+        calls.add(
+          AgentCall(
+            id is String && id.isNotEmpty ? id : 'call_${calls.length}',
+            block['name'] as String,
+            Map<String, dynamic>.from(block['input'] as Map),
+          ),
+        );
       }
     }
   } else {
@@ -1020,10 +1039,7 @@ AgentReply parseAgentReply(
         throw const FormatException('invalidTool');
       }
       final fn = tool['function'] as Map;
-      if (fn['name'] != 'generate_image') {
-        throw const FormatException('unsupportedTool');
-      }
-      if (fn['arguments'] is! String) {
+      if (fn['name'] is! String || fn['arguments'] is! String) {
         throw const FormatException('invalidTool');
       }
       Object? arguments;
@@ -1032,19 +1048,35 @@ AgentReply parseAgentReply(
       } on FormatException {
         throw const FormatException('invalidTool');
       }
-      calls.add(validateToolCall(arguments));
+      if (arguments is! Map) throw const FormatException('invalidTool');
+      final id = tool['id'];
+      calls.add(
+        AgentCall(
+          id is String && id.isNotEmpty ? id : 'call_${calls.length}',
+          fn['name'] as String,
+          Map<String, dynamic>.from(arguments),
+        ),
+      );
     }
   }
-  if (calls.length > 1) throw const FormatException('multipleCalls');
   if (texts.isEmpty && calls.isEmpty) {
     throw const FormatException('invalidResponse');
   }
-  final call = calls.isEmpty ? null : calls.single;
+  // The image prompt is still derived here so a single-call turn keeps working
+  // until the executor takes over. Every image call is validated, so a bad
+  // ratio fails the turn instead of being silently dropped.
+  ToolCall? image;
+  for (final call in calls) {
+    if (call.name != imageTool['name']) continue;
+    final parsed = validateToolCall(call.arguments);
+    image ??= parsed;
+  }
   return AgentReply(
     texts.join('\n'),
-    call?.prompt,
+    image?.prompt,
     reasoning: reasons.join('\n'),
-    aspectRatio: call?.aspectRatio,
+    aspectRatio: image?.aspectRatio,
+    calls: calls,
   );
 }
 

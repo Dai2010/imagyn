@@ -88,7 +88,7 @@ void main() {
   });
 
   test(
-    'Responses rejects incomplete output, errors and malformed or repeated calls',
+    'Responses rejects incomplete output, errors and malformed calls',
     () {
       final invalid = <Map<String, dynamic>>[
         {
@@ -107,16 +107,10 @@ void main() {
           'output': [call(status: 'incomplete')],
         },
         {
-          'output': [call(name: 'other_tool')],
-        },
-        {
           'output': [call(arguments: '{')],
         },
         {
           'output': [call(arguments: '{"prompt":""}')],
-        },
-        {
-          'output': [call(), call()],
         },
         {
           'output': [
@@ -140,6 +134,19 @@ void main() {
       }
     },
   );
+
+  test('Responses keeps unknown tools and repeated calls', () {
+    final other = parseAgentReply({
+      'output': [call(name: 'other_tool')],
+    }, ApiProtocol.responses);
+    expect(other.calls.single.name, 'other_tool');
+    expect(other.imagePrompt, isNull);
+
+    final repeated = parseAgentReply({
+      'output': [call(), call()],
+    }, ApiProtocol.responses);
+    expect(repeated.calls, hasLength(2));
+  });
 
   test(
     'Responses sends input_image, flat function schema, stateless history and optional parameters',
