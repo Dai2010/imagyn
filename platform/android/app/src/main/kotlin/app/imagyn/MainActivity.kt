@@ -16,6 +16,10 @@ import io.flutter.plugin.common.MethodChannel
  * folder through MediaStore, so the file shows up in the system gallery. That
  * needs neither a storage permission nor root on API 29 and above, and it never
  * touches the private copy the app keeps for its own history.
+ *
+ * `saveFile` does the same for a generated deck in `Downloads/Imagyn`: a
+ * presentation is not an image, and putting it in the gallery would hide it
+ * from the file managers that know how to open a `.pptx`.
  */
 class MainActivity : FlutterActivity() {
     private companion object {
@@ -30,6 +34,7 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "saveImage" -> saveImage(call, result)
+                    "saveFile" -> saveFile(call, result)
                     else -> result.notImplemented()
                 }
             }
@@ -86,6 +91,63 @@ class MainActivity : FlutterActivity() {
         val published = ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }
         resolver.update(uri, published, null, null)
         return uri
+    }
+
+    private fun saveFile(call: MethodCall, result: MethodChannel.Result) {
+        val bytes = call.argument<ByteArray>("bytes")
+        val mime = call.argument<String>("mime") ?: "application/octet-stream"
+        if (bytes == null || bytes.isEmpty()) {
+            result.error("invalidFile", "The file payload is empty.", null)
+            return
+        }
+        val name = safeFileName(call.argument<String>("name"))
+        Thread {
+            try {
+                val uri = insertDownload(bytes, name, mime)
+                runOnUiThread { result.success(uri.toString()) }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    result.error("saveFailed", error.message ?: "Could not save the file.", null)
+                }
+            }
+        }.start()
+    }
+
+    private fun insertDownload(bytes: ByteArray, name: String, mime: String): Uri {
+        val resolver = applicationContext.contentResolver
+        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        val pending = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, name)
+            put(MediaStore.Downloads.MIME_TYPE, mime)
+            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$ALBUM")
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(collection, pending)
+            ?: throw IllegalStateException("The download library refused a new entry.")
+        try {
+            resolver.openOutputStream(uri).use { stream ->
+                if (stream == null) throw IllegalStateException("The download library returned no stream.")
+                stream.write(bytes)
+            }
+        } catch (error: Exception) {
+            resolver.delete(uri, null, null)
+            throw error
+        }
+        val published = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
+        resolver.update(uri, published, null, null)
+        return uri
+    }
+
+    private fun safeFileName(requested: String?): String {
+        val base = (requested ?: "")
+            .substringAfterLast('/')
+            .substringAfterLast('\\')
+            .substringBeforeLast('.')
+            .filter { it.code >= 0x20 && it.code != 0x7F && it !in "\\/:*?\"<>|" }
+            .trim()
+            .take(70)
+            .trim()
+        return if (base.isEmpty()) "Imagyn-${System.currentTimeMillis()}.pptx" else "$base.pptx"
     }
 
     private fun fileName(requested: String?, mime: String): String {

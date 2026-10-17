@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import '../l10n/strings.dart';
 import 'api.dart';
 import 'models.dart';
+import 'pptx.dart';
 import 'store.dart';
 
 class Studio extends ChangeNotifier {
@@ -955,12 +956,74 @@ class Studio extends ChangeNotifier {
     }
   }
 
+  /// Exports the deck as a real `.pptx`, not a picture of the slides: each
+  /// page becomes a text frame and, when it has one, an embedded picture, so
+  /// PowerPoint or WPS can keep editing it.
+  Future<void> exportDeck(Deck deck) async {
+    // Snapshot first: the Agent may still be adding or removing slides, and
+    // iterating the live list across the awaits below can throw
+    // ConcurrentModificationError or pair pictures from one revision with the
+    // slides of another.
+    final slides = List<Slide>.of(deck.slides);
+    final images = <String, PptxImage>{};
+    for (final slide in slides) {
+      final id = slide.imageId;
+      if (id == null || images.containsKey(id)) continue;
+      final asset = await store.asset(id);
+      if (asset == null) continue;
+      final bytes = await store.file(asset).readAsBytes();
+      final size = imageSizeOf(bytes)?.split('x') ?? const <String>[];
+      images[id] = PptxImage(
+        bytes: bytes,
+        mime: asset.mime,
+        width: size.isEmpty ? 16 : int.tryParse(size.first) ?? 16,
+        height: size.length < 2 ? 9 : int.tryParse(size.last) ?? 9,
+      );
+    }
+    final snapshot = Deck(
+      id: deck.id,
+      title: deck.title,
+      aspectRatio: deck.aspectRatio,
+      finished: deck.finished,
+      slides: slides,
+    );
+    final bytes = buildPptx(snapshot, images);
+    final name = '${_deckFileName(deck.title)}.pptx';
+    const mime =
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    if (Platform.isAndroid) {
+      await const MethodChannel(
+        'app.imagyn/media',
+      ).invokeMethod<String>('saveFile', {
+        'bytes': bytes,
+        'name': name,
+        'mime': mime,
+      });
+    } else {
+      final target = await getSaveLocation(suggestedName: name);
+      if (target != null) {
+        await XFile.fromData(bytes, mimeType: mime).saveTo(target.path);
+      }
+    }
+  }
+
   @override
   void dispose() {
     _cancel?.cancel();
     _api?.close();
     super.dispose();
   }
+}
+
+/// A filename every platform accepts. Windows rejects `\ / : * ? " < > |`
+/// and control characters, and a deck title may contain any of them.
+String _deckFileName(String title) {
+  final cleaned = title
+      .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F\x7F]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (cleaned.isEmpty) return 'Imagyn deck';
+  return cleaned.length <= 80 ? cleaned : cleaned.substring(0, 80).trim();
 }
 
 String errorCode(Object error, {bool submitted = false}) {

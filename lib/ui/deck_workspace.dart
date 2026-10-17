@@ -11,7 +11,7 @@ import '../l10n/strings.dart';
 /// The tools mutate one [Deck] in memory and call `notifyListeners`; this page
 /// diffs that list on every notification so a page that arrives slides in and
 /// one the model drops slides out, instead of the whole deck repainting.
-class DeckWorkspacePage extends StatelessWidget {
+class DeckWorkspacePage extends StatefulWidget {
   const DeckWorkspacePage({
     super.key,
     required this.studio,
@@ -19,6 +19,31 @@ class DeckWorkspacePage extends StatelessWidget {
   });
   final Studio studio;
   final Deck deck;
+
+  @override
+  State<DeckWorkspacePage> createState() => _DeckWorkspacePageState();
+}
+
+class _DeckWorkspacePageState extends State<DeckWorkspacePage> {
+  var _exporting = false;
+
+  Studio get studio => widget.studio;
+  Deck get deck => widget.deck;
+
+  Future<void> _export() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final s = Strings.of(context);
+    try {
+      await studio.exportDeck(deck);
+      messenger.showSnackBar(SnackBar(content: Text(s.t('saved'))));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(s.t(errorCode(e)))));
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +73,25 @@ class DeckWorkspacePage extends StatelessWidget {
               ),
             ],
           ),
+          actions: [
+            if (_exporting)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Center(
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              )
+            else
+              IconButton(
+                tooltip: s.t('exportDeck'),
+                onPressed: deck.slides.isEmpty ? null : _export,
+                icon: const Icon(Icons.download_outlined),
+              ),
+          ],
         ),
         body: SafeArea(
           top: false,
