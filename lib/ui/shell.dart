@@ -11,6 +11,7 @@ import 'gallery.dart';
 import 'image_options.dart';
 import 'agent_options.dart';
 import 'model_picker.dart';
+import 'deck_workspace.dart';
 
 class StudioShell extends StatefulWidget {
   const StudioShell({super.key, required this.studio});
@@ -172,6 +173,12 @@ class _StudioShellState extends State<StudioShell> {
       appBar: AppBar(
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
         actions: [
+          if (studio.activeDeck != null)
+            IconButton(
+              tooltip: s.t('openDeck'),
+              onPressed: () => _deck(studio.activeDeck!),
+              icon: const Icon(Icons.slideshow_rounded),
+            ),
           if (_page == 1) ...[
             IconButton(
               tooltip: s.t('history'),
@@ -387,6 +394,7 @@ class _StudioShellState extends State<StudioShell> {
   }
 
   Widget _entry(ChatEntry entry, {bool streaming = false}) {
+    if (entry.role == 'tool') return _toolEntry(entry);
     final user = entry.role == 'user';
     final body = <Widget>[
       if (entry.reasoning.isNotEmpty) _thinking(entry.reasoning),
@@ -414,6 +422,9 @@ class _StudioShellState extends State<StudioShell> {
           },
         ),
     ];
+    // A turn that only asked for tools has no prose of its own; its calls show
+    // up as the result rows that follow it.
+    if (!user && body.isEmpty) return const SizedBox.shrink();
     if (!user) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 20),
@@ -446,6 +457,88 @@ class _StudioShellState extends State<StudioShell> {
       ),
     );
   }
+
+  static const _deckTools = {
+    'create_deck',
+    'add_slide',
+    'update_slide',
+    'remove_slide',
+    'finish_deck',
+  };
+
+  /// A tool result is one line, not a message: the model called something and
+  /// got an answer, and the transcript should read as the log of that work.
+  /// A deck row opens the workspace, where the result actually matters.
+  Widget _toolEntry(ChatEntry entry) {
+    final name = entry.name ?? '';
+    final deckTool = _deckTools.contains(name);
+    final deck = deckTool ? studio.activeDeck : null;
+    final label = name.isEmpty ? s.t('agent') : name;
+    final detail = deck != null
+        ? deck.title
+        : name == 'generate_image'
+        ? ''
+        : entry.text.trim();
+    final theme = Theme.of(context);
+    final row = Row(
+      children: [
+        Icon(
+          name == 'generate_image'
+              ? Icons.image_outlined
+              : deckTool
+              ? Icons.slideshow_outlined
+              : Icons.build_outlined,
+          size: 15,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        if (detail.isNotEmpty) ...[
+          Text(' · ', style: theme.textTheme.labelSmall),
+          Expanded(
+            child: Text(
+              detail,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ] else
+          const Spacer(),
+        if (deck != null)
+          Icon(
+            Icons.chevron_right_rounded,
+            size: 16,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+      ],
+    );
+    if (deck == null) {
+      return Padding(padding: const EdgeInsets.only(bottom: 10), child: row);
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: InkWell(
+        onTap: () => _deck(deck),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: row,
+        ),
+      ),
+    );
+  }
+
+  void _deck(Deck deck) => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => DeckWorkspacePage(studio: studio, deck: deck),
+    ),
+  );
 
   /// A finished turn is Markdown; one still arriving is plain text, because
   /// half a table, a formula without its closing `$` or an unfinished code
