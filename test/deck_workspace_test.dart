@@ -24,20 +24,21 @@ void main() {
     deck.slides.add(const Slide(title: '第一页', bullets: ['要点一', '要点二']));
     studio.notifyListeners();
     await tester.pump();
-    expect(find.text('第一页'), findsOneWidget);
+    expect(tester.hasRunningAnimations, isTrue);
     await tester.pumpAndSettle();
+    expect(find.text('第一页'), findsOneWidget);
     expect(find.text('Planning the first slide…'), findsNothing);
 
     deck.slides.add(const Slide(title: '第二页', bullets: ['另一要点']));
     studio.notifyListeners();
     await tester.pumpAndSettle();
+    expect(find.text('第一页'), findsOneWidget);
     expect(find.text('第二页'), findsOneWidget);
 
     deck.slides.removeAt(0);
     studio.notifyListeners();
     await tester.pump();
-    // The old page stays in the tree while it shrinks away.
-    expect(find.text('第一页'), findsOneWidget);
+    expect(tester.hasRunningAnimations, isTrue);
     await tester.pumpAndSettle();
     expect(find.text('第一页'), findsNothing);
     expect(find.text('第二页'), findsOneWidget);
