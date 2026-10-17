@@ -18,7 +18,8 @@ void main() {
     await server.close(force: true);
   });
 
-  Future<void> allowAll(Uri _) async {}
+  Future<InternetAddress> allowAll(Uri _) async =>
+      InternetAddress.loopbackIPv4;
 
   test('refuses schemes and literal hosts that are not public', () async {
     for (final url in [
@@ -52,6 +53,7 @@ void main() {
         policy: (uri) async {
           hops++;
           if (hops > 1) throw const FormatException('fetchPrivate');
+          return InternetAddress.loopbackIPv4;
         },
       ),
       throwsA(isA<FormatException>()),

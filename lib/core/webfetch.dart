@@ -43,7 +43,7 @@ class FetchResult {
 
 /// Refuses a host that is not public. Exposed separately so the rule can be
 /// tested without a network and injected by callers that already resolved it.
-typedef HostPolicy = Future<void> Function(Uri uri);
+typedef HostPolicy = Future<InternetAddress> Function(Uri uri);
 
 /// Fetches one public HTTP(S) page and returns readable text.
 ///
@@ -59,6 +59,18 @@ Future<FetchResult> fetchUrl(
   final owned = client == null;
   final http = client ?? HttpClient();
   if (owned) http.connectionTimeout = fetchTimeout;
+  // The address the policy approved, pinned for the connection that follows.
+  // Without this, HttpClient resolves the name a second time and a DNS answer
+  // that changed in between can point the request at a private address.
+  final pinned = <String, InternetAddress>{};
+  if (owned) {
+    http.connectionFactory = (url, proxyHost, proxyPort) {
+      if (proxyHost != null) throw const FormatException('fetchProxy');
+      final address = pinned[url.host];
+      if (address == null) throw const FormatException('fetchPrivate');
+      return Socket.startConnect(address, url.port);
+    };
+  }
   // One deadline for the whole operation: `Stream.timeout` only fires when the
   // gap between chunks is too long, so a server dripping one byte every few
   // seconds could otherwise keep the fetch alive forever.
@@ -71,7 +83,7 @@ Future<FetchResult> fetchUrl(
 
   try {
     for (var hop = 0; hop <= maxFetchRedirects; hop++) {
-      await policy(uri);
+      pinned[uri.host] = await policy(uri);
       final request = await http.getUrl(uri).timeout(remaining());
       request
         ..followRedirects = false
@@ -160,7 +172,7 @@ bool _readable(String mime) =>
     mime == 'text/xml' ||
     mime == 'application/xml';
 
-Future<void> ensurePublicHost(Uri uri) async {
+Future<InternetAddress> ensurePublicHost(Uri uri) async {
   if (!_isHttp(uri)) throw const FormatException('fetchScheme');
   final host = uri.host.toLowerCase();
   if (host.isEmpty ||
@@ -178,6 +190,7 @@ Future<void> ensurePublicHost(Uri uri) async {
   for (final address in addresses) {
     if (_isPrivate(address)) throw const FormatException('fetchPrivate');
   }
+  return addresses.first;
 }
 
 bool _isPrivate(InternetAddress address) {
