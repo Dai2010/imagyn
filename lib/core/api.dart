@@ -549,7 +549,8 @@ class StudioApi {
             'parallel_tool_calls': false,
             if (stream) 'stream': true,
             'tools': [
-              {'type': 'function', ...imageTool, 'strict': true},
+              for (final tool in agentTools)
+                {'type': 'function', ...tool, 'strict': true},
             ],
           }
         : <String, dynamic>{
@@ -568,13 +569,14 @@ class StudioApi {
             if (settings.topP != null) 'top_p': settings.topP,
             if (stream) 'stream': true,
             'tools': [
-              anthropic
-                  ? {
-                      'name': imageTool['name'],
-                      'description': imageTool['description'],
-                      'input_schema': imageTool['parameters'],
-                    }
-                  : {'type': 'function', 'function': imageTool},
+              for (final tool in agentTools)
+                anthropic
+                    ? {
+                        'name': tool['name'],
+                        'description': tool['description'],
+                        'input_schema': tool['parameters'],
+                      }
+                    : {'type': 'function', 'function': tool},
             ],
             if (!anthropic) 'parallel_tool_calls': false,
           };
