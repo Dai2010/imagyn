@@ -126,6 +126,18 @@ class LocalStore {
           );
   }
 
+  /// Removes one saved image: the row the Gallery reads and the file on disk.
+  /// A file that is already missing is not an error.
+  Future<void> deleteAsset(String id) async {
+    final saved = await asset(id);
+    if (saved != null) {
+      final target = file(saved);
+      // A missing file is not an error; deleting the row is what matters.
+      await target.delete().catchError((Object _) => target);
+    }
+    await db.delete('assets', where: 'id = ?', whereArgs: [id]);
+  }
+
   Future<void> addMessage(String session, ChatEntry entry) => db
       .insert('messages', {
         'session': session,

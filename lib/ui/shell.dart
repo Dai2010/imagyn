@@ -718,18 +718,38 @@ class _StudioShellState extends State<StudioShell> {
     ),
   );
 
-  void _assetAction(String action, Asset asset) {
+  Future<void> _assetAction(String action, Asset asset) async {
     if (action == 'reuse') {
       _galleryPrompt.text = asset.prompt;
       _switch(0);
-      _guard(
+      await _guard(
         () => studio.setImageOptions(ImageOptions.fromJson(asset.parameters)),
       );
     } else if (action == 'save') {
-      _guard(() async {
+      await _guard(() async {
         await studio.export(asset);
         if (mounted) _notice(s.t('saved'));
       });
+    } else if (action == 'delete') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(s.t('deleteImage')),
+          content: Text(s.t('deleteImageConfirm')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(s.t('cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(s.t('delete')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      await _guard(() => studio.deleteAsset(asset));
     } else {
       studio.useReference(asset, action == 'agent');
       _switch(action == 'agent' ? 1 : 0);

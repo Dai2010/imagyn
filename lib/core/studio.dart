@@ -299,6 +299,20 @@ class Studio extends ChangeNotifier {
     return update;
   }
 
+  /// Removes the image from the Gallery and from anything still naming it. The
+  /// file goes with the row; a chat bubble that mentioned it shows the
+  /// broken-image placeholder instead of bringing the asset back.
+  Future<void> deleteAsset(Asset asset) async {
+    await store.deleteAsset(asset.id);
+    gallery.removeWhere((item) => item.id == asset.id);
+    galleryRefs.removeWhere((item) => item.id == asset.id);
+    agentRefs.removeWhere((item) => item.id == asset.id);
+    if (favorites.remove(asset.id)) {
+      await store.setSetting('favorites', jsonEncode(favorites.toList()));
+    }
+    notifyListeners();
+  }
+
   Future<void> dismissJob(ImageJob job) async {
     await store.dismissJob(job.id);
     await refresh();
