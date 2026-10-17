@@ -621,7 +621,7 @@ class _StudioShellState extends State<StudioShell> {
                             onPressed: () => _options(),
                             icon: const Icon(Icons.tune_rounded, size: 18),
                             label: Text(
-                              '${studio.imageOptions.size == 'auto' ? s.t('auto') : studio.imageOptions.size} · ${studio.imageOptions.count}',
+                              '${studio.imageOptions.size == 'auto' ? s.t('auto') : ratioOfSize(studio.imageOptions.size) ?? studio.imageOptions.size} · ${studio.imageOptions.count}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
