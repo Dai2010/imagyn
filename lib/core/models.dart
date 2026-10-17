@@ -365,6 +365,31 @@ String? ratioOfSize(String size) {
   return null;
 }
 
+/// One tool the model asked the app to run. `arguments` is the already-decoded
+/// JSON object, so a tool result can be matched to its call by [id].
+class AgentCall {
+  const AgentCall(this.id, this.name, this.arguments);
+  final String id, name;
+  final Map<String, dynamic> arguments;
+}
+
+/// One message in the agent's protocol history. `role` is `user`, `assistant`
+/// or `tool`; a tool result carries the [callId] it answers.
+class AgentTurn {
+  const AgentTurn(
+    this.role,
+    this.text, {
+    this.calls = const [],
+    this.callId,
+    this.name,
+  });
+  final String role;
+  final String text;
+  final List<AgentCall> calls;
+  final String? callId;
+  final String? name;
+}
+
 const imageTool = {
   'name': 'generate_image',
   'description':
@@ -399,3 +424,28 @@ const imageTool = {
     'additionalProperties': false,
   },
 };
+
+/// The web tool. It is declared here so the three protocols send one schema;
+/// the executor (`webfetch.dart`) enforces the address rules the model cannot
+/// be trusted to follow.
+const fetchTool = {
+  'name': 'fetch_url',
+  'description':
+      'Fetch one public http or https page and return its readable text. Use '
+      'it only when the user asks about a page or needs information that is '
+      'not in the conversation. Loopback, private and link-local addresses are '
+      'refused by the app.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'url': {
+        'type': 'string',
+        'description': 'Absolute http or https URL, including the scheme.',
+      },
+    },
+    'required': ['url'],
+    'additionalProperties': false,
+  },
+};
+
+const agentTools = [imageTool, fetchTool];
