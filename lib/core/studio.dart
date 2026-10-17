@@ -443,26 +443,38 @@ class Studio extends ChangeNotifier {
         // belongs to the gallery.
         imagePrompt = null;
       }
-      if (imagePrompt != null) {
+      final galleryPrompt = imagePrompt;
+      if (galleryPrompt != null) {
         stage = 'working';
         notifyListeners();
-        client.validateGeneration(imagePrompt, refs, jobOptions);
+        client.validateGeneration(galleryPrompt, refs, jobOptions);
         final candidateJobId = store.newId();
-        record = {
-          'prompt': imagePrompt,
+        // `jobId` and `record` are written from inside the loop's callback, so
+        // Dart never promotes them to non-null. The row and its id stay local
+        // here and are only copied out for the catch block.
+        final row = <String, dynamic>{
+          'prompt': galleryPrompt,
           'references': refs.map((a) => a.id).toList(),
           'model': requestConfig.imageModel,
           ...jobOptions.toJson(),
           'createdAt': DateTime.now().toIso8601String(),
           'session': agent ? session : null,
         };
-        await store.job(candidateJobId, 'submitting', record);
+        record = row;
+        await store.job(candidateJobId, 'submitting', row);
         jobId = candidateJobId;
         if (!agent) onAccepted?.call();
         jobs = await store.jobs();
         notifyListeners();
         created.addAll(
-          await _runJob(client, jobId, record, imagePrompt, refs, jobOptions),
+          await _runJob(
+            client,
+            candidateJobId,
+            row,
+            galleryPrompt,
+            refs,
+            jobOptions,
+          ),
         );
       }
       if (agent) {
@@ -485,12 +497,13 @@ class Studio extends ChangeNotifier {
     } catch (e) {
       error = errorCode(e, submitted: jobId != null);
       errorDetail = errorDetailOf(e, secrets: [key, imageKey]);
-      if (jobId != null) {
+      final failedJob = jobId;
+      if (failedJob != null) {
         final uncertain =
             error == 'unknown' ||
             error == 'cancelled' ||
             error == 'incompleteImageStream';
-        await store.job(jobId, uncertain ? 'unknown' : 'failed', {
+        await store.job(failedJob, uncertain ? 'unknown' : 'failed', {
           ...record!,
           'error': error,
           'detail': errorDetail,
