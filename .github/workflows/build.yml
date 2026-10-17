@@ -210,7 +210,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: android
           path: dist
@@ -260,7 +260,7 @@ jobs:
 
       # Every artifact is fetched from GitHub's own storage, so nothing here
       # depends on the machine that will end up downloading the release.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
