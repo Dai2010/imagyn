@@ -126,6 +126,23 @@ class LocalStore {
           );
   }
 
+  /// Removes one saved image: the row the Gallery reads and the file on disk.
+  /// A file that is already missing is not an error.
+  Future<void> deleteAsset(String id) async {
+    final saved = await asset(id);
+    if (saved != null) {
+      final target = file(saved);
+      try {
+        await target.delete();
+      } on FileSystemException catch (error) {
+        // Only "already gone" is acceptable; a permission or lock failure must
+        // reach the caller instead of leaving a row pointing at an orphan.
+        if (error.osError?.errorCode != 2) rethrow;
+      }
+    }
+    await db.delete('assets', where: 'id = ?', whereArgs: [id]);
+  }
+
   Future<void> addMessage(String session, ChatEntry entry) => db
       .insert('messages', {
         'session': session,

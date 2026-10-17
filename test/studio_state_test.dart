@@ -21,6 +21,11 @@ class StateStore extends MemoryStore {
   Future<Asset?> asset(String id) async => savedAssets[id];
 
   @override
+  Future<void> deleteAsset(String id) async {
+    savedAssets.remove(id);
+  }
+
+  @override
   Future<Asset> saveAsset(
     Uint8List bytes, {
     String prompt = '',
@@ -328,5 +333,26 @@ void main() {
 
     expect(studio.favorites, {'b'});
     expect(jsonDecode(store.settings['favorites']!), ['b']);
+  });
+
+  test('deleting an image removes it from the gallery and favorites', () async {
+    final store = StateStore();
+    final gone = image('gone');
+    final kept = image('kept');
+    store.savedAssets.addAll({gone.id: gone, kept.id: kept});
+    store.settings['favorites'] = jsonEncode([gone.id, kept.id]);
+    final studio = Studio(store);
+    addTearDown(studio.dispose);
+    await studio.initialize();
+
+    expect(
+      studio.gallery.map((asset) => asset.id),
+      containsAll([gone.id, kept.id]),
+    );
+    await studio.deleteAsset(gone);
+
+    expect(studio.gallery.map((asset) => asset.id), [kept.id]);
+    expect(studio.favorites, {kept.id});
+    expect(store.savedAssets.containsKey(gone.id), isFalse);
   });
 }

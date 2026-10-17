@@ -290,6 +290,7 @@ class _GalleryViewState extends State<GalleryView> {
                   value: 'agent',
                   child: Text(s.t('continueAgent')),
                 ),
+                PopupMenuItem(value: 'delete', child: Text(s.t('delete'))),
               ],
             ),
           ],
