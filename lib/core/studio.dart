@@ -960,8 +960,13 @@ class Studio extends ChangeNotifier {
   /// page becomes a text frame and, when it has one, an embedded picture, so
   /// PowerPoint or WPS can keep editing it.
   Future<void> exportDeck(Deck deck) async {
+    // Snapshot first: the Agent may still be adding or removing slides, and
+    // iterating the live list across the awaits below can throw
+    // ConcurrentModificationError or pair pictures from one revision with the
+    // slides of another.
+    final slides = List<Slide>.of(deck.slides);
     final images = <String, PptxImage>{};
-    for (final slide in deck.slides) {
+    for (final slide in slides) {
       final id = slide.imageId;
       if (id == null || images.containsKey(id)) continue;
       final asset = await store.asset(id);
@@ -975,7 +980,14 @@ class Studio extends ChangeNotifier {
         height: size.length < 2 ? 9 : int.tryParse(size.last) ?? 9,
       );
     }
-    final bytes = buildPptx(deck, images);
+    final snapshot = Deck(
+      id: deck.id,
+      title: deck.title,
+      aspectRatio: deck.aspectRatio,
+      finished: deck.finished,
+      slides: slides,
+    );
+    final bytes = buildPptx(snapshot, images);
     final name = '${_deckFileName(deck.title)}.pptx';
     const mime =
         'application/vnd.openxmlformats-officedocument.presentationml.presentation';

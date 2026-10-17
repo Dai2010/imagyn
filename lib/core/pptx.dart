@@ -177,6 +177,7 @@ String _contentTypes(Set<String> imageMimes, int slideCount) {
       'ContentType="$presentation.slide+xml"/>',
     );
   }
+  buffer.write('</Types>');
   return buffer.toString();
 }
 

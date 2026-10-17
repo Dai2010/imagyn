@@ -127,6 +127,9 @@ void main() {
     expect(presentation, contains('r:id="rId4"'));
 
     final types = utf8.decode(files['[Content_Types].xml']!);
+    expect(types, startsWith('<?xml'));
+    expect(types, endsWith('</Types>'));
+    expect(types, contains('PartName="/ppt/slides/slide1.xml"'));
     expect(types, contains('PartName="/ppt/slides/slide2.xml"'));
     expect(types, contains('Extension="png" ContentType="image/png"'));
 
