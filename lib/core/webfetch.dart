@@ -59,20 +59,30 @@ Future<FetchResult> fetchUrl(
   final owned = client == null;
   final http = client ?? HttpClient();
   if (owned) http.connectionTimeout = fetchTimeout;
+  // One deadline for the whole operation: `Stream.timeout` only fires when the
+  // gap between chunks is too long, so a server dripping one byte every few
+  // seconds could otherwise keep the fetch alive forever.
+  final deadline = DateTime.now().add(fetchTimeout);
+  Duration remaining() {
+    final left = deadline.difference(DateTime.now());
+    if (left <= Duration.zero) throw const FormatException('fetchTimeout');
+    return left;
+  }
+
   try {
     for (var hop = 0; hop <= maxFetchRedirects; hop++) {
       await policy(uri);
-      final request = await http.getUrl(uri);
+      final request = await http.getUrl(uri).timeout(remaining());
       request
         ..followRedirects = false
         ..headers.set(
           HttpHeaders.userAgentHeader,
           'Imagyn/0.1 (+https://github.com/Dai2010/imagyn)',
         );
-      final response = await request.close().timeout(fetchTimeout);
+      final response = await request.close().timeout(remaining());
       if (response.isRedirect) {
         final location = response.headers.value(HttpHeaders.locationHeader);
-        await response.drain<void>();
+        await _discard(response);
         if (location == null) {
           throw const FormatException('fetchRedirect');
         }
@@ -80,17 +90,18 @@ Future<FetchResult> fetchUrl(
         continue;
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        await response.drain<void>();
+        await _discard(response);
         throw FormatException('fetchStatus ${response.statusCode}');
       }
       final type = response.headers.contentType?.mimeType.toLowerCase() ?? '';
       if (!_readable(type)) {
-        await response.drain<void>();
+        await _discard(response);
         throw const FormatException('fetchContentType');
       }
       final bytes = <int>[];
       var truncated = false;
-      await for (final chunk in response.timeout(fetchTimeout)) {
+      await for (final chunk in response.timeout(remaining())) {
+        remaining();
         final room = maxFetchBytes - bytes.length;
         if (chunk.length > room) {
           bytes.addAll(chunk.take(room));
@@ -115,6 +126,18 @@ Future<FetchResult> fetchUrl(
     throw const FormatException('fetchRedirects');
   } finally {
     if (owned) http.close(force: true);
+  }
+}
+
+/// Reads at most a small amount before letting the connection go. A redirect or
+/// an error page can be arbitrarily large, and draining it fully is how a
+/// rejected response turns into a hang.
+Future<void> _discard(HttpClientResponse response) async {
+  try {
+    await response.take(64 * 1024).drain<void>();
+  } on Object {
+    // The connection is closed either way.
+    return;
   }
 }
 

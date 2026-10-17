@@ -94,6 +94,7 @@ void main() {
         await request.response.close();
       } on Object {
         // The client stops reading at the cap; a broken pipe here is expected.
+        return;
       }
     };
     final result = await fetchUrl(
