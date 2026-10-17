@@ -731,6 +731,10 @@ class _StudioShellState extends State<StudioShell> {
         if (mounted) _notice(s.t('saved'));
       });
     } else if (action == 'delete') {
+      if (studio.busy) {
+        _notice(s.t('deleteWhileBusy'));
+        return;
+      }
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(

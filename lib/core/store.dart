@@ -132,8 +132,13 @@ class LocalStore {
     final saved = await asset(id);
     if (saved != null) {
       final target = file(saved);
-      // A missing file is not an error; deleting the row is what matters.
-      await target.delete().catchError((Object _) => target);
+      try {
+        await target.delete();
+      } on FileSystemException catch (error) {
+        // Only "already gone" is acceptable; a permission or lock failure must
+        // reach the caller instead of leaving a row pointing at an orphan.
+        if (error.osError?.errorCode != 2) rethrow;
+      }
     }
     await db.delete('assets', where: 'id = ?', whereArgs: [id]);
   }

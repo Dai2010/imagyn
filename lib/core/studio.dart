@@ -303,14 +303,21 @@ class Studio extends ChangeNotifier {
   /// file goes with the row; a chat bubble that mentioned it shows the
   /// broken-image placeholder instead of bringing the asset back.
   Future<void> deleteAsset(Asset asset) async {
+    if (busy) throw const FormatException('deleteWhileBusy');
     await store.deleteAsset(asset.id);
     gallery.removeWhere((item) => item.id == asset.id);
     galleryRefs.removeWhere((item) => item.id == asset.id);
     agentRefs.removeWhere((item) => item.id == asset.id);
-    if (favorites.remove(asset.id)) {
-      await store.setSetting('favorites', jsonEncode(favorites.toList()));
-    }
+    // Removal goes through the same queue as a favorite toggle; otherwise a
+    // toggle that started earlier can write the deleted id back afterwards.
+    final update = _favoriteUpdates.then((_) async {
+      if (favorites.remove(asset.id)) {
+        await store.setSetting('favorites', jsonEncode(favorites.toList()));
+      }
+    });
+    _favoriteUpdates = update.catchError((Object _) {});
     notifyListeners();
+    await update;
   }
 
   Future<void> dismissJob(ImageJob job) async {
