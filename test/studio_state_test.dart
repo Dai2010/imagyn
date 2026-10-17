@@ -212,7 +212,9 @@ void main() {
       expect(studio.agentRefs, isEmpty);
       await studio.submit('thanks', true, const ImageOptions());
       expect(studio.error, isNull);
-      expect(agentRequests, 2);
+      // One request for the call, one continuation after its result, and one
+      // for the follow-up turn.
+      expect(agentRequests, 3);
       expect(studio.chat.last.text, 'you are welcome');
     },
   );

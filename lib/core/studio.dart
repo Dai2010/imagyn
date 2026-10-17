@@ -364,14 +364,15 @@ class Studio extends ChangeNotifier {
     _api = client;
     String? jobId;
     Map<String, dynamic>? record;
+    final created = <Asset>[];
     notifyListeners();
     try {
       String? imagePrompt = prompt.trim();
       String reply = '';
       String reasoning = '';
-      // What the image service is actually asked for. The model can pick a
-      // ratio for its own call; otherwise the app's selection stands.
-      var jobOptions = options;
+      // What the gallery path asks the image service for. The Agent derives
+      // its options per call, from the ratio that call carries.
+      final jobOptions = options;
       if (agent) {
         await store.addMessage(
           session,
@@ -384,49 +385,96 @@ class Studio extends ChangeNotifier {
         onAccepted?.call();
         chat = await store.messages(session);
         notifyListeners();
-        final result = requestConfig.streamAgent
-            ? await client.converseStream(
-                chat,
-                refs,
-                _cancel!,
-                options: requestAgentOptions,
-                onDelta: _stream,
-              )
-            : await client.converse(
-                chat,
-                refs,
-                _cancel!,
-                options: requestAgentOptions,
-              );
-        reply = result.text;
-        reasoning = result.reasoning;
-        imagePrompt = result.imagePrompt;
-        final ratio = result.aspectRatio;
-        if (ratio != null) {
-          jobOptions = options.copyWith(size: sizePresets[ratio]!);
+        // One turn is not one request: the model may call a tool, read the
+        // result and decide to call another. The cap keeps a loop that never
+        // settles from spending the whole session; the last text stands as the
+        // answer when it is reached.
+        const maxSteps = 8;
+        for (var step = 0; step < maxSteps; step++) {
+          final result = requestConfig.streamAgent
+              ? await client.converseStream(
+                  chat,
+                  refs,
+                  _cancel!,
+                  options: requestAgentOptions,
+                  onDelta: _stream,
+                )
+              : await client.converse(
+                  chat,
+                  refs,
+                  _cancel!,
+                  options: requestAgentOptions,
+                );
+          reply = result.text;
+          reasoning = result.reasoning;
+          if (result.calls.isEmpty) break;
+          await store.addMessage(
+            session,
+            ChatEntry(
+              'assistant',
+              result.text,
+              model: requestConfig.agentModel,
+              reasoning: result.reasoning,
+              calls: result.calls,
+            ),
+          );
+          chat = await store.messages(session);
+          _clearStream();
+          for (final call in result.calls) {
+            final output = await _runCall(
+              client,
+              call,
+              refs,
+              options,
+              created,
+              onJob: (id, row) {
+                jobId = id;
+                record = row;
+              },
+            );
+            await store.addMessage(
+              session,
+              ChatEntry('tool', output, callId: call.id, name: call.name),
+            );
+            chat = await store.messages(session);
+          }
         }
+        // Every image above was produced by a call; the single-shot path below
+        // belongs to the gallery.
+        imagePrompt = null;
       }
-      final created = <Asset>[];
-      if (imagePrompt != null) {
+      final galleryPrompt = imagePrompt;
+      if (galleryPrompt != null) {
         stage = 'working';
         notifyListeners();
-        client.validateGeneration(imagePrompt, refs, jobOptions);
+        client.validateGeneration(galleryPrompt, refs, jobOptions);
         final candidateJobId = store.newId();
-        record = {
-          'prompt': imagePrompt,
+        // `jobId` and `record` are written from inside the loop's callback, so
+        // Dart never promotes them to non-null. The row and its id stay local
+        // here and are only copied out for the catch block.
+        final row = <String, dynamic>{
+          'prompt': galleryPrompt,
           'references': refs.map((a) => a.id).toList(),
           'model': requestConfig.imageModel,
           ...jobOptions.toJson(),
           'createdAt': DateTime.now().toIso8601String(),
           'session': agent ? session : null,
         };
-        await store.job(candidateJobId, 'submitting', record);
+        record = row;
+        await store.job(candidateJobId, 'submitting', row);
         jobId = candidateJobId;
         if (!agent) onAccepted?.call();
         jobs = await store.jobs();
         notifyListeners();
         created.addAll(
-          await _runJob(client, jobId, record, imagePrompt, refs, jobOptions),
+          await _runJob(
+            client,
+            candidateJobId,
+            row,
+            galleryPrompt,
+            refs,
+            jobOptions,
+          ),
         );
       }
       if (agent) {
@@ -449,12 +497,13 @@ class Studio extends ChangeNotifier {
     } catch (e) {
       error = errorCode(e, submitted: jobId != null);
       errorDetail = errorDetailOf(e, secrets: [key, imageKey]);
-      if (jobId != null) {
+      final failedJob = jobId;
+      if (failedJob != null) {
         final uncertain =
             error == 'unknown' ||
             error == 'cancelled' ||
             error == 'incompleteImageStream';
-        await store.job(jobId, uncertain ? 'unknown' : 'failed', {
+        await store.job(failedJob, uncertain ? 'unknown' : 'failed', {
           ...record!,
           'error': error,
           'detail': errorDetail,
@@ -531,6 +580,55 @@ class Studio extends ChangeNotifier {
       busy = false;
       notifyListeners();
     }
+  }
+
+  /// Runs one tool call and returns the text the model sees as its result.
+  ///
+  /// An unknown name is answered as an error result instead of thrown: being
+  /// told "no such tool" lets the model try something else, which is the whole
+  /// point of a multi-step turn. Only the image tool exists today.
+  Future<String> _runCall(
+    StudioApi client,
+    AgentCall call,
+    List<Asset> refs,
+    ImageOptions options,
+    List<Asset> created, {
+    required void Function(String id, Map<String, dynamic> record) onJob,
+  }) async {
+    if (call.name != imageTool['name']) {
+      return 'Unknown tool "${call.name}": this build has no such tool.';
+    }
+    final parsed = validateToolCall(call.arguments);
+    final jobOptions = parsed.aspectRatio == null
+        ? options
+        : options.copyWith(size: sizePresets[parsed.aspectRatio]!);
+    stage = 'working';
+    notifyListeners();
+    final id = store.newId();
+    final record = <String, dynamic>{
+      'prompt': parsed.prompt,
+      'references': refs.map((asset) => asset.id).toList(),
+      'model': client.config.imageModel,
+      ...jobOptions.toJson(),
+      'createdAt': DateTime.now().toIso8601String(),
+      'session': session,
+    };
+    await store.job(id, 'submitting', record);
+    onJob(id, record);
+    jobs = await store.jobs();
+    notifyListeners();
+    final assets = await _runJob(
+      client,
+      id,
+      record,
+      parsed.prompt,
+      refs,
+      jobOptions,
+    );
+    created.addAll(assets);
+    if (assets.isEmpty) return 'The image service returned no image.';
+    return 'Generated ${assets.length} image(s): '
+        '${assets.map((asset) => asset.id).join(', ')}.';
   }
 
   /// Runs one recorded generation and files whatever it returns. A fresh
