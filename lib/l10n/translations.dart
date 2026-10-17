@@ -161,7 +161,15 @@ const translations = <String, Map<String, String>>{
   "showSecret": "Show",
   "hideSecret": "Hide",
   "incompleteStream": "The connection ended before the turn finished; nothing was generated.",
-  "responseTooLarge": "The reply is too large to read."
+  "responseTooLarge": "The reply is too large to read.",
+  "deck": "Deck",
+  "openDeck": "Open deck",
+  "slidesUnit": "slides",
+  "deckBuilding": "Building slides…",
+  "deckIllustrating": "Generating an illustration…",
+  "deckEmpty": "Planning the first slide…",
+  "deckFinished": "Deck finished",
+  "deckImage": "Illustration"
 },
 "zh": {
   "gallery": "画廊",
@@ -324,7 +332,15 @@ const translations = <String, Map<String, String>>{
   "showSecret": "显示明文",
   "hideSecret": "隐藏明文",
   "incompleteStream": "连接在回合结束前中断，本次没有执行生成。",
-  "responseTooLarge": "回复内容过大，已中止接收。"
+  "responseTooLarge": "回复内容过大，已中止接收。",
+  "deck": "演示文稿",
+  "openDeck": "打开演示文稿",
+  "slidesUnit": "页",
+  "deckBuilding": "正在编排页面……",
+  "deckIllustrating": "正在生成配图……",
+  "deckEmpty": "正在构思第一页……",
+  "deckFinished": "已完成",
+  "deckImage": "配图"
 },
 "fr": {
   "gallery": "Galerie",
@@ -487,7 +503,15 @@ const translations = <String, Map<String, String>>{
   "showSecret": "Afficher",
   "hideSecret": "Masquer",
   "incompleteStream": "La connexion s’est interrompue avant la fin du tour ; rien n’a été généré.",
-  "responseTooLarge": "La réponse est trop volumineuse."
+  "responseTooLarge": "La réponse est trop volumineuse.",
+  "deck": "Diaporama",
+  "openDeck": "Ouvrir le diaporama",
+  "slidesUnit": "diapositives",
+  "deckBuilding": "Composition des diapositives…",
+  "deckIllustrating": "Génération d’une illustration…",
+  "deckEmpty": "Préparation de la première diapositive…",
+  "deckFinished": "Diaporama terminé",
+  "deckImage": "Illustration"
 },
 "es": {
   "gallery": "Galería",
@@ -650,7 +674,15 @@ const translations = <String, Map<String, String>>{
   "showSecret": "Mostrar",
   "hideSecret": "Ocultar",
   "incompleteStream": "La conexión terminó antes de completar el turno; no se generó nada.",
-  "responseTooLarge": "La respuesta es demasiado grande."
+  "responseTooLarge": "La respuesta es demasiado grande.",
+  "deck": "Presentación",
+  "openDeck": "Abrir la presentación",
+  "slidesUnit": "diapositivas",
+  "deckBuilding": "Creando diapositivas…",
+  "deckIllustrating": "Generando una ilustración…",
+  "deckEmpty": "Preparando la primera diapositiva…",
+  "deckFinished": "Presentación terminada",
+  "deckImage": "Ilustración"
 },
 "ru": {
   "gallery": "Галерея",
@@ -813,7 +845,15 @@ const translations = <String, Map<String, String>>{
   "showSecret": "Показать",
   "hideSecret": "Скрыть",
   "incompleteStream": "Соединение оборвалось до конца хода; генерация не выполнялась.",
-  "responseTooLarge": "Ответ слишком большой."
+  "responseTooLarge": "Ответ слишком большой.",
+  "deck": "Презентация",
+  "openDeck": "Открыть презентацию",
+  "slidesUnit": "слайдов",
+  "deckBuilding": "Собираем слайды…",
+  "deckIllustrating": "Генерируем иллюстрацию…",
+  "deckEmpty": "Готовим первый слайд…",
+  "deckFinished": "Презентация готова",
+  "deckImage": "Иллюстрация"
 },
 "ar": {
   "gallery": "المعرض",
@@ -976,6 +1016,14 @@ const translations = <String, Map<String, String>>{
   "showSecret": "إظهار",
   "hideSecret": "إخفاء",
   "incompleteStream": "انقطع الاتصال قبل انتهاء الدور؛ لم يُنفَّذ أي إنشاء.",
-  "responseTooLarge": "الرد كبير جدًا."
+  "responseTooLarge": "الرد كبير جدًا.",
+  "deck": "عرض تقديمي",
+  "openDeck": "فتح العرض",
+  "slidesUnit": "شرائح",
+  "deckBuilding": "جارٍ إنشاء الشرائح…",
+  "deckIllustrating": "جارٍ توليد صورة…",
+  "deckEmpty": "جارٍ إعداد الشريحة الأولى…",
+  "deckFinished": "اكتمل العرض",
+  "deckImage": "صورة"
 },
 };

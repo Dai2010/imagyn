@@ -471,12 +471,17 @@ class Deck {
     required this.id,
     required this.title,
     this.aspectRatio = '16:9',
+    this.finished = false,
     List<Slide>? slides,
   }) : slides = slides ?? [];
   final String id;
   String title;
   final String aspectRatio;
   final List<Slide> slides;
+
+  /// Set once the model says the deck is complete, so the workspace can tell
+  /// a deck still being written from one that will not change again.
+  bool finished;
 }
 
 const createDeckTool = {

@@ -29,6 +29,10 @@ class Studio extends ChangeNotifier {
   /// a secondary line under the localized message.
   String? errorDetail;
   String stage = 'working';
+
+  /// The tool running right now, so a screen that watches the Agent build
+  /// something can say what it is waiting for instead of a generic spinner.
+  String? runningTool;
   List<Asset> gallery = [], galleryRefs = [], agentRefs = [];
   List<ChatEntry> chat = [];
   List<ImageJob> jobs = [];
@@ -248,6 +252,10 @@ class Studio extends ChangeNotifier {
     _conversationSettings = {};
     chat = [];
     agentRefs = [];
+    // Decks live in memory only, so one left over from another conversation
+    // would be a deck the transcript cannot account for.
+    decks.clear();
+    activeDeck = null;
     notifyListeners();
   }
 
@@ -262,6 +270,8 @@ class Studio extends ChangeNotifier {
     await _loadConversationSettings();
     chat = await store.messages(session);
     await _restoreAgentReferences();
+    decks.clear();
+    activeDeck = null;
     notifyListeners();
   }
 
@@ -654,6 +664,8 @@ class Studio extends ChangeNotifier {
   String _finishDeck(AgentCall call) {
     try {
       final deck = _deckOf(call);
+      deck.finished = true;
+      notifyListeners();
       return 'Deck ${deck.id} finished: ${deck.slides.length} slides.';
     } on FormatException {
       return 'Invalid arguments for finish_deck.';
@@ -692,6 +704,31 @@ class Studio extends ChangeNotifier {
   /// told "no such tool" lets the model try something else, which is the whole
   /// point of a multi-step turn.
   Future<String> _runCall(
+    StudioApi client,
+    AgentCall call,
+    List<Asset> refs,
+    ImageOptions options,
+    List<Asset> created, {
+    required void Function(String id, Map<String, dynamic> record) onJob,
+  }) async {
+    runningTool = call.name;
+    notifyListeners();
+    try {
+      return await _executeCall(
+        client,
+        call,
+        refs,
+        options,
+        created,
+        onJob: onJob,
+      );
+    } finally {
+      runningTool = null;
+      notifyListeners();
+    }
+  }
+
+  Future<String> _executeCall(
     StudioApi client,
     AgentCall call,
     List<Asset> refs,
