@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:imagyn/core/models.dart';
 import 'package:imagyn/core/store.dart';
 
 Uint8List bytes(List<int> head, {int pad = 0}) {
@@ -85,5 +86,21 @@ void main() {
       ),
       isNull,
     );
+  });
+
+  test('every ratio maps to one pixel pair, and back', () {
+    expect(sizePresets['16:9'], '1280x720');
+    expect(sizePresets['21:9'], '1280x544');
+    expect(ratioOfSize('1280x720'), '16:9');
+    expect(ratioOfSize('1024x1024'), '1:1');
+    expect(ratioOfSize('auto'), isNull);
+    expect(ratioOfSize('999x999'), isNull);
+    for (final entry in sizePresets.entries) {
+      expect(
+        RegExp(r'^[1-9]\d{1,4}x[1-9]\d{1,4}$').hasMatch(entry.value),
+        isTrue,
+        reason: '${entry.key} -> ${entry.value} must be a valid size',
+      );
+    }
   });
 }

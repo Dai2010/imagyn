@@ -10,9 +10,19 @@ import 'models.dart';
 import 'store.dart';
 
 class AgentReply {
-  const AgentReply(this.text, this.imagePrompt, {this.reasoning = ''});
+  const AgentReply(
+    this.text,
+    this.imagePrompt, {
+    this.reasoning = '',
+    this.aspectRatio,
+  });
   final String text;
   final String? imagePrompt;
+
+  /// The ratio the model asked the image tool to use. Null when it asked for
+  /// none (`auto`), in which case the app keeps the ratio chosen in its own
+  /// options.
+  final String? aspectRatio;
 
   /// The model's own thinking when the service exposes it: DeepSeek's
   /// `reasoning_content`, an Anthropic `thinking` block, or a Responses
@@ -896,7 +906,7 @@ AgentReply parseAgentReply(
   ApiProtocol protocol,
 ) {
   final texts = <String>[];
-  final prompts = <String>[];
+  final calls = <ToolCall>[];
   final reasons = <String>[];
   if (protocol == ApiProtocol.responses) {
     if (response['error'] != null ||
@@ -942,7 +952,7 @@ AgentReply parseAgentReply(
         } on FormatException {
           throw const FormatException('invalidTool');
         }
-        prompts.add(validatePrompt(arguments));
+        calls.add(validateToolCall(arguments));
       } else if (item['type'] == 'reasoning') {
         // A reasoning summary is display material, never an instruction.
         final summary = item['summary'];
@@ -975,7 +985,7 @@ AgentReply parseAgentReply(
         if (block['name'] != 'generate_image') {
           throw const FormatException('unsupportedTool');
         }
-        prompts.add(validatePrompt(block['input']));
+        calls.add(validateToolCall(block['input']));
       }
     }
   } else {
@@ -1022,21 +1032,27 @@ AgentReply parseAgentReply(
       } on FormatException {
         throw const FormatException('invalidTool');
       }
-      prompts.add(validatePrompt(arguments));
+      calls.add(validateToolCall(arguments));
     }
   }
-  if (prompts.length > 1) throw const FormatException('multipleCalls');
-  if (texts.isEmpty && prompts.isEmpty) {
+  if (calls.length > 1) throw const FormatException('multipleCalls');
+  if (texts.isEmpty && calls.isEmpty) {
     throw const FormatException('invalidResponse');
   }
+  final call = calls.isEmpty ? null : calls.single;
   return AgentReply(
     texts.join('\n'),
-    prompts.isEmpty ? null : prompts.single,
+    call?.prompt,
     reasoning: reasons.join('\n'),
+    aspectRatio: call?.aspectRatio,
   );
 }
 
-String validatePrompt(Object? input) {
+/// A validated `generate_image` call: the prompt the image service receives and
+/// the ratio the model chose for it, if any.
+typedef ToolCall = ({String prompt, String? aspectRatio});
+
+ToolCall validateToolCall(Object? input) {
   if (input is! Map || input['prompt'] is! String) {
     throw const FormatException('invalidTool');
   }
@@ -1044,7 +1060,12 @@ String validatePrompt(Object? input) {
   if (prompt.isEmpty || prompt.length > 32000) {
     throw const FormatException('invalidTool');
   }
-  return prompt;
+  final ratio = input['aspect_ratio'];
+  if (ratio == null) return (prompt: prompt, aspectRatio: null);
+  if (ratio is! String || (ratio != 'auto' && !sizePresets.containsKey(ratio))) {
+    throw const FormatException('invalidTool');
+  }
+  return (prompt: prompt, aspectRatio: ratio == 'auto' ? null : ratio);
 }
 
 /// The parts of an Agent turn that are the same whether it is streamed or not:

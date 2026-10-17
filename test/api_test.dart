@@ -51,6 +51,50 @@ void main() {
       expect(reply.imagePrompt, 'a blue fox');
     });
 
+    test('carries the aspect ratio each protocol puts on the call', () {
+      final openai = parseAgentReply({
+        'choices': [
+          {
+            'message': {
+              'tool_calls': [
+                {
+                  'function': {
+                    'name': 'generate_image',
+                    'arguments':
+                        '{"prompt":"a poster","aspect_ratio":"16:9"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }, ApiProtocol.openai);
+      expect(openai.aspectRatio, '16:9');
+
+      final anthropic = parseAgentReply({
+        'content': [
+          {
+            'type': 'tool_use',
+            'name': 'generate_image',
+            'input': {'prompt': 'a poster', 'aspect_ratio': '2:3'},
+          },
+        ],
+      }, ApiProtocol.anthropic);
+      expect(anthropic.aspectRatio, '2:3');
+
+      final responses = parseAgentReply({
+        'status': 'completed',
+        'output': [
+          {
+            'type': 'function_call',
+            'name': 'generate_image',
+            'arguments': '{"prompt":"a poster","aspect_ratio":"1:1"}',
+          },
+        ],
+      }, ApiProtocol.responses);
+      expect(responses.aspectRatio, '1:1');
+    });
+
     test('rejects a tool other than the image tool', () {
       expect(
         () => parseAgentReply({
@@ -150,16 +194,41 @@ void main() {
     });
   });
 
-  group('validatePrompt', () {
+  group('validateToolCall', () {
     test('trims and accepts a usable prompt', () {
-      expect(validatePrompt({'prompt': '  a cat  '}), 'a cat');
+      expect(
+        validateToolCall({'prompt': '  a cat  '}),
+        (prompt: 'a cat', aspectRatio: null),
+      );
+    });
+
+    test('keeps a known aspect ratio and reads auto as no choice', () {
+      expect(
+        validateToolCall({'prompt': 'a cat', 'aspect_ratio': '16:9'}).aspectRatio,
+        '16:9',
+      );
+      expect(
+        validateToolCall({'prompt': 'a cat', 'aspect_ratio': 'auto'}).aspectRatio,
+        isNull,
+      );
     });
 
     test('rejects a missing, empty or oversized prompt', () {
-      expect(() => validatePrompt('a cat'), throwsA(_formatError('invalidTool')));
-      expect(() => validatePrompt({'prompt': '   '}), throwsA(_formatError('invalidTool')));
-      expect(() => validatePrompt({'prompt': 5}), throwsA(_formatError('invalidTool')));
-      expect(() => validatePrompt({'prompt': 'x' * 32001}),
+      expect(() => validateToolCall('a cat'), throwsA(_formatError('invalidTool')));
+      expect(() => validateToolCall({'prompt': '   '}),
+          throwsA(_formatError('invalidTool')));
+      expect(() => validateToolCall({'prompt': 5}),
+          throwsA(_formatError('invalidTool')));
+      expect(() => validateToolCall({'prompt': 'x' * 32001}),
+          throwsA(_formatError('invalidTool')));
+    });
+
+    test('rejects a ratio the app cannot send', () {
+      expect(
+        () => validateToolCall({'prompt': 'a cat', 'aspect_ratio': '7:5'}),
+        throwsA(_formatError('invalidTool')),
+      );
+      expect(() => validateToolCall({'prompt': 'a cat', 'aspect_ratio': 16}),
           throwsA(_formatError('invalidTool')));
     });
   });
