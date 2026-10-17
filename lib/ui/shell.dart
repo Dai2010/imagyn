@@ -344,6 +344,12 @@ class _StudioShellState extends State<StudioShell> {
   );
 
   /// The conversation, plus the reply being written while a turn is arriving.
+  ///
+  /// Laid out as a transcript rather than a chat: the model's answer is plain
+  /// text on the page, with no surface of its own, so a long answer reads as
+  /// one document instead of a stack of boxes. Only what the user typed keeps
+  /// a surface, because that is the one thing here which is not part of the
+  /// running document.
   Widget _conversation() {
     final streaming =
         studio.streamingText.isNotEmpty || studio.streamingReasoning.isNotEmpty;
@@ -353,10 +359,10 @@ class _StudioShellState extends State<StudioShell> {
         child: _empty(Icons.auto_awesome_outlined, 'emptyAgent'),
       );
     }
-    final bubbles = <Widget>[
-      for (final entry in studio.chat) _bubble(entry),
+    final entries = <Widget>[
+      for (final entry in studio.chat) _entry(entry),
       if (streaming)
-        _bubble(
+        _entry(
           ChatEntry(
             'assistant',
             studio.streamingText,
@@ -365,86 +371,101 @@ class _StudioShellState extends State<StudioShell> {
           streaming: true,
         ),
     ];
-    return ListView.builder(
-      key: ValueKey('agent-${studio.session}'),
-      reverse: true,
-      padding: const EdgeInsets.all(20),
-      itemCount: bubbles.length,
-      itemBuilder: (context, index) => bubbles[bubbles.length - index - 1],
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 780),
+        child: ListView.builder(
+          key: ValueKey('agent-${studio.session}'),
+          reverse: true,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+          itemCount: entries.length,
+          itemBuilder: (context, index) => entries[entries.length - index - 1],
+        ),
+      ),
     );
   }
 
-  Widget _bubble(ChatEntry entry, {bool streaming = false}) {
+  Widget _entry(ChatEntry entry, {bool streaming = false}) {
     final user = entry.role == 'user';
-    return Align(
-      alignment: user
-          ? AlignmentDirectional.centerEnd
-          : AlignmentDirectional.centerStart,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(16),
-        constraints: const BoxConstraints(maxWidth: 680),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          color: user
-              ? Theme.of(context).colorScheme.secondaryContainer
-              : Theme.of(context).colorScheme.surfaceContainerLow,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (!user && entry.model != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  entry.model!,
-                  style: Theme.of(context).textTheme.labelSmall,
+    final body = <Widget>[
+      if (entry.reasoning.isNotEmpty) _thinking(entry.reasoning),
+      if (entry.text.isNotEmpty)
+        _text(entry.text, user: user, streaming: streaming),
+      for (final id in entry.assetIds)
+        FutureBuilder<Asset?>(
+          future: studio.store.asset(id),
+          builder: (context, snapshot) {
+            final asset = snapshot.data;
+            if (asset == null) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: GestureDetector(
+                onTap: () => _preview(asset),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: user ? 120 : 400),
+                    child: _image(asset),
+                  ),
                 ),
               ),
-            if (entry.reasoning.isNotEmpty) _thinking(entry.reasoning),
-            if (entry.text.isNotEmpty)
-              user || streaming
-                  // A turn is shown as plain text while it arrives: half a
-                  // table, a formula without its closing `$` or an unfinished
-                  // code fence cannot be parsed at all, and re-parsing every
-                  // frame would only make the bubble flicker. Once the turn is
-                  // finished the stored message is rendered as Markdown.
-                  ? SelectableText(entry.text)
-                  : SelectionArea(
-                      child: GptMarkdown(
-                        entry.text,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                        textDirection: Directionality.of(context),
-                        // Models write `$…$`, not the package's `\(…\)`.
-                        useDollarSignsForLatex: true,
-                        imageBuilder: _blockedImage,
-                      ),
-                    ),
-            for (final id in entry.assetIds)
-              FutureBuilder<Asset?>(
-                future: studio.store.asset(id),
-                builder: (context, snapshot) {
-                  final asset = snapshot.data;
-                  if (asset == null) return const SizedBox.shrink();
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: GestureDetector(
-                      onTap: () => _preview(asset),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxHeight: user ? 120 : 400,
-                          ),
-                          child: _image(asset),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-          ],
+            );
+          },
         ),
+    ];
+    if (!user) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: body,
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Align(
+        alignment: AlignmentDirectional.centerEnd,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: body,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// A finished turn is Markdown; one still arriving is plain text, because
+  /// half a table, a formula without its closing `$` or an unfinished code
+  /// fence cannot be parsed at all, and re-parsing every frame would only make
+  /// the text flicker.
+  Widget _text(String text, {required bool user, required bool streaming}) {
+    final style = Theme.of(
+      context,
+    ).textTheme.bodyMedium?.copyWith(height: 1.6);
+    if (user || streaming) {
+      return SelectableText(text, style: style);
+    }
+    return SelectionArea(
+      child: GptMarkdown(
+        text,
+        style: style,
+        textDirection: Directionality.of(context),
+        // Models write `$…$`, not the package's `\(…\)`.
+        useDollarSignsForLatex: true,
+        imageBuilder: _blockedImage,
       ),
     );
   }
