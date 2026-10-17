@@ -120,11 +120,17 @@ void main() {
     });
   });
 
-  test('the image tool asks for a prompt and nothing else', () {
+  test('the image tool asks for a prompt and one of the offered ratios', () {
     final parameters = imageTool['parameters'] as Map;
+    final properties = parameters['properties'] as Map;
     expect(imageTool['name'], 'generate_image');
-    expect((parameters['properties'] as Map).keys, ['prompt']);
-    expect(parameters['required'], ['prompt']);
+    expect(properties.keys, ['prompt', 'aspect_ratio']);
+    // OpenAI strict tools require every property to be listed as required.
+    expect(parameters['required'], ['prompt', 'aspect_ratio']);
     expect(parameters['additionalProperties'], isFalse);
+    expect(
+      ((properties['aspect_ratio'] as Map)['enum'] as List).toSet(),
+      {'auto', ...sizePresets.keys},
+    );
   });
 }
