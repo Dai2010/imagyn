@@ -445,3 +445,134 @@ const imageTool = {
     'additionalProperties': false,
   },
 };
+
+/// One slide: what a deck tool adds, and what the workspace renders.
+class Slide {
+  const Slide({this.title = '', this.bullets = const [], this.imageId});
+  final String title;
+  final List<String> bullets;
+  final String? imageId;
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'bullets': bullets,
+    if (imageId != null) 'imageId': imageId,
+  };
+  factory Slide.fromJson(Map<String, dynamic> j) => Slide(
+    title: j['title'] as String? ?? '',
+    bullets: List<String>.from(j['bullets'] as List? ?? []),
+    imageId: j['imageId'] as String?,
+  );
+}
+
+/// A deck being built. Held in memory for the session: the workspace reads the
+/// same structure the tools write, so the preview cannot drift from the file.
+class Deck {
+  Deck({
+    required this.id,
+    required this.title,
+    this.aspectRatio = '16:9',
+    List<Slide>? slides,
+  }) : slides = slides ?? [];
+  final String id;
+  String title;
+  final String aspectRatio;
+  final List<Slide> slides;
+}
+
+const createDeckTool = {
+  'name': 'create_deck',
+  'description':
+      'Create an empty slide deck. Use this for presentations, not for a '
+      'single picture: slides are text and images the user can still edit in '
+      'PowerPoint or WPS afterwards.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'title': {'type': 'string'},
+      'aspect_ratio': {'type': 'string', 'enum': ['16:9', '4:3']},
+    },
+    'required': ['title', 'aspect_ratio'],
+    'additionalProperties': false,
+  },
+};
+
+const addSlideTool = {
+  'name': 'add_slide',
+  'description':
+      'Append one slide to a deck. Call it once per slide so the user sees '
+      'each page arrive. Pass image_id only when an image already exists.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'title': {'type': 'string'},
+      'bullets': {
+        'type': 'array',
+        'items': {'type': 'string'},
+      },
+      'image_id': {
+        'type': 'string',
+        'description': 'Id of an image from generate_image, or an empty string.',
+      },
+    },
+    'required': ['deck', 'title', 'bullets', 'image_id'],
+    'additionalProperties': false,
+  },
+};
+
+const updateSlideTool = {
+  'name': 'update_slide',
+  'description': 'Replace the text of one slide, keeping its image.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'index': {'type': 'integer', 'description': 'Zero-based slide index.'},
+      'title': {'type': 'string'},
+      'bullets': {
+        'type': 'array',
+        'items': {'type': 'string'},
+      },
+    },
+    'required': ['deck', 'index', 'title', 'bullets'],
+    'additionalProperties': false,
+  },
+};
+
+const removeSlideTool = {
+  'name': 'remove_slide',
+  'description': 'Remove one slide from a deck.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'index': {'type': 'integer', 'description': 'Zero-based slide index.'},
+    },
+    'required': ['deck', 'index'],
+    'additionalProperties': false,
+  },
+};
+
+const finishDeckTool = {
+  'name': 'finish_deck',
+  'description':
+      'Finish a deck once every slide is in place. Report the slide count.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+    },
+    'required': ['deck'],
+    'additionalProperties': false,
+  },
+};
+
+/// Every tool offered to the model. The order is the order of the prompt.
+const agentTools = [
+  imageTool,
+  createDeckTool,
+  addSlideTool,
+  updateSlideTool,
+  removeSlideTool,
+  finishDeckTool,
+];

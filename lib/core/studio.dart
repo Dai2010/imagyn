@@ -582,11 +582,115 @@ class Studio extends ChangeNotifier {
     }
   }
 
+  /// Decks built in this session, keyed by the id the model was given.
+  final Map<String, Deck> decks = {};
+  Deck? activeDeck;
+
+  String _createDeck(AgentCall call) {
+    try {
+      final title = _argText(call, 'title');
+      final ratio = _argText(call, 'aspect_ratio');
+      if (ratio != '16:9' && ratio != '4:3') {
+        return 'Invalid arguments for create_deck.';
+      }
+      final id = store.newId();
+      final deck = Deck(id: id, title: title, aspectRatio: ratio);
+      decks[id] = deck;
+      activeDeck = deck;
+      notifyListeners();
+      return 'Deck "$title" created with id $id ($ratio).';
+    } on FormatException {
+      return 'Invalid arguments for create_deck.';
+    }
+  }
+
+  String _addSlide(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      final image = _argText(call, 'image_id');
+      deck.slides.add(
+        Slide(
+          title: _argText(call, 'title'),
+          bullets: _argBullets(call),
+          imageId: image.isEmpty ? null : image,
+        ),
+      );
+      notifyListeners();
+      return 'Slide ${deck.slides.length} added to deck ${deck.id}.';
+    } on FormatException {
+      return 'Invalid arguments for add_slide.';
+    }
+  }
+
+  String _updateSlide(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      final index = _argIndex(call, 'index', deck.slides.length);
+      final previous = deck.slides[index];
+      deck.slides[index] = Slide(
+        title: _argText(call, 'title'),
+        bullets: _argBullets(call),
+        imageId: previous.imageId,
+      );
+      notifyListeners();
+      return 'Slide ${index + 1} updated.';
+    } on FormatException {
+      return 'Invalid arguments for update_slide.';
+    }
+  }
+
+  String _removeSlide(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      final index = _argIndex(call, 'index', deck.slides.length);
+      deck.slides.removeAt(index);
+      notifyListeners();
+      return 'Slide ${index + 1} removed. ${deck.slides.length} remain.';
+    } on FormatException {
+      return 'Invalid arguments for remove_slide.';
+    }
+  }
+
+  String _finishDeck(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      return 'Deck ${deck.id} finished: ${deck.slides.length} slides.';
+    } on FormatException {
+      return 'Invalid arguments for finish_deck.';
+    }
+  }
+
+  Deck _deckOf(AgentCall call) {
+    final deck = decks[_argText(call, 'deck')];
+    if (deck == null) throw const FormatException('invalidTool');
+    return deck;
+  }
+
+  String _argText(AgentCall call, String key) {
+    final value = call.arguments[key];
+    if (value is! String) throw const FormatException('invalidTool');
+    return value;
+  }
+
+  List<String> _argBullets(AgentCall call) {
+    final value = call.arguments['bullets'];
+    if (value is! List) throw const FormatException('invalidTool');
+    return [for (final item in value) if (item is String) item];
+  }
+
+  int _argIndex(AgentCall call, String key, int length) {
+    final value = call.arguments[key];
+    if (value is! int || value < 0 || value >= length) {
+      throw const FormatException('invalidTool');
+    }
+    return value;
+  }
+
   /// Runs one tool call and returns the text the model sees as its result.
   ///
   /// An unknown name is answered as an error result instead of thrown: being
   /// told "no such tool" lets the model try something else, which is the whole
-  /// point of a multi-step turn. Only the image tool exists today.
+  /// point of a multi-step turn.
   Future<String> _runCall(
     StudioApi client,
     AgentCall call,
@@ -595,6 +699,18 @@ class Studio extends ChangeNotifier {
     List<Asset> created, {
     required void Function(String id, Map<String, dynamic> record) onJob,
   }) async {
+    switch (call.name) {
+      case 'create_deck':
+        return _createDeck(call);
+      case 'add_slide':
+        return _addSlide(call);
+      case 'update_slide':
+        return _updateSlide(call);
+      case 'remove_slide':
+        return _removeSlide(call);
+      case 'finish_deck':
+        return _finishDeck(call);
+    }
     if (call.name != imageTool['name']) {
       return 'Unknown tool "${call.name}": this build has no such tool.';
     }

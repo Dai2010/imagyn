@@ -218,7 +218,8 @@ void main() {
       expect(body['store'], false);
       expect(body['parallel_tool_calls'], false);
       expect(body['tools'], [
-        {'type': 'function', ...imageTool, 'strict': true},
+        for (final tool in agentTools)
+          {'type': 'function', ...tool, 'strict': true},
       ]);
       expect(body.containsKey('messages'), false);
       expect(body.containsKey('previous_response_id'), false);
