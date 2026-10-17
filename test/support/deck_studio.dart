@@ -9,12 +9,18 @@ import 'memory_store.dart';
 /// and an id that names nothing still resolves to null.
 class DeckStore extends MemoryStore {
   final savedAssets = <String, Asset>{};
+  final savedJobs = <String, ImageJob>{};
 
   @override
   Future<List<Asset>> assets() async => savedAssets.values.toList();
 
   @override
   Future<Asset?> asset(String id) async => savedAssets[id];
+
+  @override
+  Future<void> job(String id, String state, Map<String, dynamic> record) async {
+    savedJobs[id] = ImageJob(id, state, record);
+  }
 
   @override
   Future<Asset> saveAsset(
