@@ -310,6 +310,28 @@ class Asset {
   );
 }
 
+/// One tool call exactly as the service sent it.
+///
+/// The arguments are not validated here: whether they make sense is the
+/// executor's question. A call to a tool this build does not know has to be
+/// answerable with an error, not allowed to fail the whole turn — otherwise a
+/// model that tries one unknown tool loses its answer as well.
+class AgentCall {
+  const AgentCall(this.id, this.name, this.arguments);
+  final String id, name;
+  final Map<String, dynamic> arguments;
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'arguments': arguments,
+  };
+  factory AgentCall.fromJson(Map<String, dynamic> j) => AgentCall(
+    j['id'] as String,
+    j['name'] as String,
+    Map<String, dynamic>.from(j['arguments'] as Map),
+  );
+}
+
 class ChatEntry {
   const ChatEntry(
     this.role,
@@ -317,6 +339,9 @@ class ChatEntry {
     this.assetIds = const [],
     this.model,
     this.reasoning = '',
+    this.calls = const [],
+    this.callId,
+    this.name,
   });
   final String role, text;
   final String? model;
@@ -324,12 +349,27 @@ class ChatEntry {
   /// What the model thought before answering, when the service exposes it.
   final String reasoning;
   final List<String> assetIds;
+
+  /// The calls this turn asked for. A turn that calls a tool carries no answer
+  /// yet; the answer arrives after the results are sent back in the next one.
+  final List<AgentCall> calls;
+
+  /// Set on the entry carrying a tool's result: which call it answers.
+  final String? callId;
+
+  /// The tool a result entry belongs to, so the transcript can label a result
+  /// without looking the call up.
+  final String? name;
+
   Map<String, dynamic> toJson() => {
     'role': role,
     'text': text,
     'assetIds': assetIds,
     if (model != null) 'model': model,
     if (reasoning.isNotEmpty) 'reasoning': reasoning,
+    if (calls.isNotEmpty) 'calls': calls.map((call) => call.toJson()).toList(),
+    if (callId != null) 'callId': callId,
+    if (name != null) 'name': name,
   };
   factory ChatEntry.fromJson(Map<String, dynamic> j) => ChatEntry(
     j['role'] as String,
@@ -337,6 +377,12 @@ class ChatEntry {
     model: j['model'] as String?,
     reasoning: j['reasoning'] as String? ?? '',
     assetIds: List<String>.from(j['assetIds'] as List? ?? []),
+    calls: [
+      for (final call in j['calls'] as List? ?? [])
+        AgentCall.fromJson(Map<String, dynamic>.from(call as Map)),
+    ],
+    callId: j['callId'] as String?,
+    name: j['name'] as String?,
   );
 }
 
