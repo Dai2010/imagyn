@@ -1,0 +1,47 @@
+# Keep the pub packages and the GitHub Actions current, one grouped pull
+# request per ecosystem per week. `check` (analyze + test) runs on every pull
+# request, so a bump that breaks the build shows up before it can merge.
+# Major updates are left out of the groups on purpose: they need their
+# changelogs read, and a pub major can move a transitive dependency past what
+# an exact pin in pubspec.yaml can compile against.
+version: 2
+updates:
+  - package-ecosystem: pub
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+    groups:
+      dart-packages:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci(deps)"
+    labels:
+      - dependencies
+    groups:
+      workflow-actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
