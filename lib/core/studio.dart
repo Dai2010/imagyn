@@ -34,6 +34,10 @@ class Studio extends ChangeNotifier {
   /// The tool running right now, so a screen that watches the Agent build
   /// something can say what it is waiting for instead of a generic spinner.
   String? runningTool;
+
+  /// Set when the model asked the user a question: the turn stops after that
+  /// tool result, and the user's next message is the answer.
+  bool _asked = false;
   List<Asset> gallery = [], galleryRefs = [], agentRefs = [];
   List<ChatEntry> chat = [];
   List<ImageJob> jobs = [];
@@ -370,12 +374,14 @@ class Studio extends ChangeNotifier {
     busy = true;
     error = null;
     errorDetail = null;
+    _asked = false;
     stage = agent ? 'discussing' : 'working';
     _cancel = CancelToken();
     _api = client;
     String? jobId;
     Map<String, dynamic>? record;
     final created = <Asset>[];
+    var answerSaved = false;
     notifyListeners();
     try {
       String? imagePrompt = prompt.trim();
@@ -447,10 +453,9 @@ class Studio extends ChangeNotifier {
                 },
               );
             } catch (e) {
-              // The assistant message above already names every call, and the
-              // protocol rejects a turn whose calls have no results. Record
-              // the failure for this call and a "not run" result for the ones
-              // behind it before the error ends the turn.
+              // A tool failure is a result for the model, not the end of the
+              // turn. Cancellation is the one exception: the user asked to
+              // stop, so the turn ends.
               await store.addMessage(
                 session,
                 ChatEntry(
@@ -460,26 +465,34 @@ class Studio extends ChangeNotifier {
                   name: call.name,
                 ),
               );
-              for (final rest in result.calls.skip(index + 1)) {
-                await store.addMessage(
-                  session,
-                  ChatEntry(
-                    'tool',
-                    'Not run because an earlier tool failed.',
-                    callId: rest.id,
-                    name: rest.name,
-                  ),
-                );
-              }
               chat = await store.messages(session);
-              rethrow;
+              if (errorCode(e) == 'cancelled') rethrow;
+              continue;
             }
             await store.addMessage(
               session,
               ChatEntry('tool', output, callId: call.id, name: call.name),
             );
             chat = await store.messages(session);
+            if (_asked) {
+              // A question ends the turn. The calls behind it were named by
+              // the assistant message too, so answer them before stopping.
+              for (final rest in result.calls.skip(index + 1)) {
+                await store.addMessage(
+                  session,
+                  ChatEntry(
+                    'tool',
+                    'Not run: the user was asked a question and the turn ended.',
+                    callId: rest.id,
+                    name: rest.name,
+                  ),
+                );
+              }
+              chat = await store.messages(session);
+              break;
+            }
           }
+          if (_asked) break;
         }
         // Every image above was produced by a call; the single-shot path below
         // belongs to the gallery.
@@ -521,16 +534,19 @@ class Studio extends ChangeNotifier {
       }
       if (agent) {
         _clearStream();
-        await store.addMessage(
-          session,
-          ChatEntry(
-            'assistant',
-            reply.isEmpty && created.isNotEmpty ? '' : reply,
-            model: requestConfig.agentModel,
-            reasoning: reasoning,
-            assetIds: created.map((a) => a.id).toList(),
-          ),
-        );
+        if (!_asked) {
+          await store.addMessage(
+            session,
+            ChatEntry(
+              'assistant',
+              reply.isEmpty && created.isNotEmpty ? '' : reply,
+              model: requestConfig.agentModel,
+              reasoning: reasoning,
+              assetIds: created.map((a) => a.id).toList(),
+            ),
+          );
+        }
+        answerSaved = true;
         if (created.isNotEmpty && requestConfig.vision) {
           agentRefs = [created.first];
         }
@@ -539,6 +555,21 @@ class Studio extends ChangeNotifier {
     } catch (e) {
       error = errorCode(e, submitted: jobId != null);
       errorDetail = errorDetailOf(e, secrets: [key, imageKey]);
+      // Stopping is usually a way to get a word in, so the part that was
+      // already written stays in the transcript and in the next request's
+      // context instead of vanishing with the spinner.
+      if (agent && !answerSaved && streamingText.trim().isNotEmpty) {
+        await store.addMessage(
+          session,
+          ChatEntry(
+            'assistant',
+            streamingText,
+            model: requestConfig.agentModel,
+            reasoning: streamingReasoning,
+          ),
+        );
+        chat = await store.messages(session);
+      }
       final failedJob = jobId;
       if (failedJob != null) {
         final uncertain =
@@ -559,6 +590,7 @@ class Studio extends ChangeNotifier {
       _api = null;
       _cancel = null;
       busy = false;
+      _asked = false;
       _clearStream();
       notifyListeners();
     }
@@ -723,6 +755,22 @@ class Studio extends ChangeNotifier {
     }
   }
 
+  String _askUser(AgentCall call) {
+    try {
+      final question = _argText(call, 'question').trim();
+      if (question.isEmpty) throw const FormatException('invalidTool');
+      final options = _argList(call, 'options');
+      _asked = true;
+      final choices = options.isEmpty
+          ? ''
+          : ' Options: ${options.join(' / ')}.';
+      return 'Question for the user: $question$choices '
+          'The turn ends here; the user\'s next message is the answer.';
+    } on FormatException {
+      return 'Invalid arguments for ask_user.';
+    }
+  }
+
   Deck _deckOf(AgentCall call) {
     final deck = decks[_argText(call, 'deck')];
     if (deck == null) throw const FormatException('invalidTool');
@@ -735,8 +783,10 @@ class Studio extends ChangeNotifier {
     return value;
   }
 
-  List<String> _argBullets(AgentCall call) {
-    final value = call.arguments['bullets'];
+  List<String> _argBullets(AgentCall call) => _argList(call, 'bullets');
+
+  List<String> _argList(AgentCall call, String key) {
+    final value = call.arguments[key];
     if (value is! List) throw const FormatException('invalidTool');
     return [for (final item in value) if (item is String) item];
   }
@@ -798,6 +848,8 @@ class Studio extends ChangeNotifier {
         return _removeSlide(call);
       case 'finish_deck':
         return _finishDeck(call);
+      case 'ask_user':
+        return _askUser(call);
     }
     if (call.name != imageTool['name']) {
       return 'Unknown tool "${call.name}": this build has no such tool.';
@@ -821,19 +873,45 @@ class Studio extends ChangeNotifier {
     onJob(id, record);
     jobs = await store.jobs();
     notifyListeners();
-    final assets = await _runJob(
-      client,
-      id,
-      record,
-      parsed.prompt,
-      refs,
-      jobOptions,
-    );
-    created.addAll(assets);
-    if (assets.isEmpty) return 'The image service returned no image.';
-    final ids = assets.map((asset) => asset.id).join(', ');
-    return 'Generated ${assets.length} image(s). image_id: $ids. '
-        'Pass this exact id as add_slide.image_id, or "last" for the newest.';
+    try {
+      final assets = await _runJob(
+        client,
+        id,
+        record,
+        parsed.prompt,
+        refs,
+        jobOptions,
+      );
+      created.addAll(assets);
+      if (assets.isEmpty) return 'The image service returned no image.';
+      final ids = assets.map((asset) => asset.id).join(', ');
+      return 'Generated ${assets.length} image(s). image_id: $ids. '
+          'Pass this exact id as add_slide.image_id, or "last" for the newest.';
+    } catch (e) {
+      if (errorCode(e) == 'cancelled') rethrow;
+      // A failed image is a tool result, not the end of the turn: the text
+      // model gets the code and decides whether to retry, change the prompt,
+      // or ask the user. Only a failing text-model request ends the turn.
+      final code = errorCode(e);
+      final detail = errorDetailOf(e, secrets: [key, imageKey]);
+      final uncertain =
+          code == 'unknown' ||
+          code == 'cancelled' ||
+          code == 'incompleteImageStream';
+      await store.job(id, uncertain ? 'unknown' : 'failed', {
+        ...record,
+        'error': code,
+        'detail': detail,
+        if (e is ImageApiException && e.outputs.isNotEmpty)
+          'outputs': e.outputs,
+      });
+      jobs = await store.jobs();
+      notifyListeners();
+      return 'Image generation failed ($code)'
+          '${detail == null ? '' : ': $detail'}. '
+          'You may retry with a different prompt or aspect ratio, or ask the '
+          'user what to do with ask_user.';
+    }
   }
 
   /// Runs one recorded generation and files whatever it returns. A fresh

@@ -136,6 +136,10 @@ const defaultAgentPrompt =
     'picture. Never put a description or a prompt into image_id. '
     'You may call tools repeatedly in one turn; after each result decide the next step and keep '
     'going until the deck is finished, then answer briefly. '
+    'If a tool returns an error, read its code: retry only with changed arguments, change '
+    'approach, or ask the user with ask_user. Never repeat the same failing call. '
+    'Call ask_user when you need a decision or a missing detail; the turn ends and the user\'s '
+    'next message is the answer. '
     'For discussions reply in text. Reference images are ordered and supplied by the app; '
     'preserve user constraints on edits. If the target is unclear, ask. '
     'When the user asks for a shape or aspect ratio, pass it as aspect_ratio; never express the '
@@ -602,6 +606,27 @@ const finishDeckTool = {
   },
 };
 
+const askUserTool = {
+  'name': 'ask_user',
+  'description':
+      'Ask the user a question when you need a decision or a missing detail. '
+      'The turn ends after this call and the user\'s next message is the '
+      'answer. Provide short options when the choice is enumerable; pass an '
+      'empty list otherwise.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'question': {'type': 'string'},
+      'options': {
+        'type': 'array',
+        'items': {'type': 'string'},
+      },
+    },
+    'required': ['question', 'options'],
+    'additionalProperties': false,
+  },
+};
+
 /// Every tool offered to the model. The order is the order of the prompt.
 const agentTools = [
   imageTool,
@@ -610,4 +635,5 @@ const agentTools = [
   updateSlideTool,
   removeSlideTool,
   finishDeckTool,
+  askUserTool,
 ];
