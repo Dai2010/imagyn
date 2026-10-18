@@ -347,11 +347,42 @@ class _GalleryViewState extends State<GalleryView> {
                   onPressed: studio.cancel,
                   child: Text(s.t('cancel')),
                 ),
+              IconButton(
+                tooltip: s.t('deleteRecord'),
+                visualDensity: VisualDensity.compact,
+                onPressed: () => _deleteJob(job),
+                icon: const Icon(Icons.delete_outline, size: 20),
+              ),
             ],
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _deleteJob(ImageJob job) async {
+    final running = job.state == 'submitting';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(s.t('deleteRecord')),
+        content: Text(
+          s.t(running ? 'deleteRecordRunning' : 'deleteRecordConfirm'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(s.t('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(s.t('delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await studio.deleteJob(job);
   }
 
   Future<void> _jobDetails(ImageJob job) => showModalBottomSheet<void>(
@@ -430,10 +461,10 @@ class _GalleryViewState extends State<GalleryView> {
             ),
             TextButton(
               onPressed: () {
-                studio.dismissJob(job);
                 Navigator.pop(context);
+                _deleteJob(job);
               },
-              child: Text(s.t('dismiss')),
+              child: Text(s.t('deleteRecord')),
             ),
           ],
         ),

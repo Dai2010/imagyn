@@ -48,6 +48,16 @@ class Studio extends ChangeNotifier {
   Map<String, dynamic> _conversationSettings = {};
   Future<void> _favoriteUpdates = Future<void>.value();
 
+  /// Job ids whose row was deleted while the request was still in flight. The
+  /// completion handler has already read its own state by then, so the id is
+  /// remembered to keep it from writing the deleted row back.
+  final _deletedJobs = <String>{};
+
+  /// The job whose request is in flight. A download retry keeps its row in the
+  /// failed/unknown state, so the state alone cannot tell whether cancelling it
+  /// is safe.
+  String? _activeJob;
+
   /// The turn arriving right now, so a reply can be read while it is written
   /// instead of appearing all at once when it ends.
   String streamingText = '', streamingReasoning = '';
@@ -335,9 +345,32 @@ class Studio extends ChangeNotifier {
     await update;
   }
 
-  Future<void> dismissJob(ImageJob job) async {
-    await store.dismissJob(job.id);
-    await refresh();
+  Future<void> deleteJob(ImageJob job) async {
+    // A job with a request in flight names paid work; deleting it without
+    // stopping that request would leave the work running with no record.
+    if (busy && _activeJob == job.id) cancel();
+    _deletedJobs.add(job.id);
+    if (_activeJob == job.id) _activeJob = null;
+    await store.deleteJob(job.id);
+    jobs.removeWhere((item) => item.id == job.id);
+    notifyListeners();
+  }
+
+  /// Writes a job state unless the record was deleted while its request was in
+  /// flight. Without this the catch/finally path of a cancelled turn would
+  /// restore the row the user just removed.
+  Future<void> _recordJob(
+    String id,
+    String state,
+    Map<String, dynamic> record,
+  ) async {
+    if (_deletedJobs.contains(id)) return;
+    if (state == 'submitting') {
+      _activeJob = id;
+    } else if (_activeJob == id) {
+      _activeJob = null;
+    }
+    await store.job(id, state, record);
   }
 
   Future<void> submit(
@@ -518,7 +551,7 @@ class Studio extends ChangeNotifier {
           'session': agent ? session : null,
         };
         record = row;
-        await store.job(candidateJobId, 'submitting', row);
+        await _recordJob(candidateJobId, 'submitting', row);
         jobId = candidateJobId;
         if (!agent) onAccepted?.call();
         jobs = await store.jobs();
@@ -578,7 +611,7 @@ class Studio extends ChangeNotifier {
             error == 'unknown' ||
             error == 'cancelled' ||
             error == 'incompleteImageStream';
-        await store.job(failedJob, uncertain ? 'unknown' : 'failed', {
+        await _recordJob(failedJob, uncertain ? 'unknown' : 'failed', {
           ...record!,
           'error': error,
           'detail': errorDetail,
@@ -609,6 +642,7 @@ class Studio extends ChangeNotifier {
     stage = 'downloading';
     _cancel = CancelToken();
     _api = client;
+    _activeJob = job.id;
     notifyListeners();
     try {
       final images = await client.downloadImages(outputs, _cancel!);
@@ -634,7 +668,7 @@ class Studio extends ChangeNotifier {
           ),
         );
       }
-      await store.job(job.id, 'complete', {
+      await _recordJob(job.id, 'complete', {
         ...parameters,
         'assets': created.map((a) => a.id).toList(),
       });
@@ -643,7 +677,7 @@ class Studio extends ChangeNotifier {
     } catch (e) {
       error = errorCode(e);
       errorDetail = errorDetailOf(e, secrets: [key, imageKey]);
-      await store.job(job.id, 'failed', {
+      await _recordJob(job.id, 'failed', {
         ...job.record,
         'error': error,
         'detail': errorDetail,
@@ -653,6 +687,7 @@ class Studio extends ChangeNotifier {
       client.close();
       _api = null;
       _cancel = null;
+      _activeJob = null;
       busy = false;
       notifyListeners();
     }
@@ -901,7 +936,7 @@ class Studio extends ChangeNotifier {
       'createdAt': DateTime.now().toIso8601String(),
       'session': session,
     };
-    await store.job(id, 'submitting', record);
+    await _recordJob(id, 'submitting', record);
     onJob(id, record);
     jobs = await store.jobs();
     notifyListeners();
@@ -930,7 +965,7 @@ class Studio extends ChangeNotifier {
           code == 'unknown' ||
           code == 'cancelled' ||
           code == 'incompleteImageStream';
-      await store.job(id, uncertain ? 'unknown' : 'failed', {
+      await _recordJob(id, uncertain ? 'unknown' : 'failed', {
         ...record,
         'error': code,
         'detail': detail,
@@ -973,7 +1008,7 @@ class Studio extends ChangeNotifier {
         ),
       );
     }
-    await store.job(jobId, 'complete', {
+    await _recordJob(jobId, 'complete', {
       ...record,
       'assets': created.map((a) => a.id).toList(),
     });
@@ -1038,7 +1073,7 @@ class Studio extends ChangeNotifier {
     notifyListeners();
     try {
       client.validateGeneration(prompt, refs, options);
-      await store.job(job.id, 'submitting', job.record);
+      await _recordJob(job.id, 'submitting', job.record);
       jobs = await store.jobs();
       notifyListeners();
       final created = await _runJob(
@@ -1054,7 +1089,7 @@ class Studio extends ChangeNotifier {
     } catch (e) {
       error = errorCode(e, submitted: true);
       errorDetail = errorDetailOf(e, secrets: [key, imageKey]);
-      await store.job(job.id, 'failed', {
+      await _recordJob(job.id, 'failed', {
         ...job.record,
         'error': error,
         'detail': errorDetail,
@@ -1080,7 +1115,7 @@ class Studio extends ChangeNotifier {
     // would bring it back as a conversation holding one image.
     for (final job in await store.jobs()) {
       if (job.record['session'] != id) continue;
-      await store.job(job.id, job.state, {...job.record, 'session': null});
+      await _recordJob(job.id, job.state, {...job.record, 'session': null});
     }
     await store.deleteSession(id);
     if (id == session) {

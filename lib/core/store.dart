@@ -185,13 +185,10 @@ class LocalStore {
           )
           .toList();
 
-  Future<void> dismissJob(String id) => db
-      .delete(
-        'jobs',
-        where: 'id = ? AND state != ?',
-        whereArgs: [id, 'submitting'],
-      )
-      .then((_) {});
+  /// Removes one job record. A submission that is still running is stopped by
+  /// the caller first; the record itself is always deletable.
+  Future<void> deleteJob(String id) =>
+      db.delete('jobs', where: 'id = ?', whereArgs: [id]).then((_) {});
 
   /// Removes one conversation's messages and the per-conversation settings that
   /// belong to it. The images it produced stay: they are the user's work, and
