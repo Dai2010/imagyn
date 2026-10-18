@@ -298,11 +298,77 @@ void main() {
 
     await studio.submit('draw two pictures', true, const ImageOptions());
 
-    expect(studio.error, isNotNull);
+    expect(studio.error, isNull);
+    expect(studio.chat.last.text, 'ok');
     final tools = studio.chat.where((entry) => entry.role == 'tool').toList();
     expect(tools, hasLength(2));
     expect(tools.map((entry) => entry.callId), ['c1', 'c2']);
-    expect(tools.first.text, startsWith('Tool failed:'));
-    expect(tools.last.text, contains('Not run'));
+    expect(
+      tools.every((entry) => entry.text.startsWith('Image generation failed')),
+      isTrue,
+    );
+  });
+
+  test('ask_user ends the turn and the reply becomes the next answer', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    var requests = 0;
+    final bodies = <Map<String, dynamic>>[];
+    final subscription = server.listen((request) async {
+      final body =
+          jsonDecode(await utf8.decoder.bind(request).join())
+              as Map<String, dynamic>;
+      bodies.add(body);
+      final message = switch (requests++) {
+        0 => toolCall('ask_user', {
+          'question': '幻灯片要多宽？',
+          'options': ['16:9', '4:3'],
+        }),
+        _ => {'content': '好，按 16:9。'},
+      };
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'choices': [
+            {'message': message},
+          ],
+        }),
+      );
+      await request.response.close();
+    });
+    addTearDown(subscription.cancel);
+    final store = DeckStore()
+      ..savedConfig = ServiceConfig(
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        agentModel: 'agent',
+        streamAgent: false,
+      );
+    final studio = DeckStudio(store);
+    addTearDown(studio.dispose);
+    await studio.initialize();
+
+    await studio.submit('做一份演示文稿', true, const ImageOptions());
+
+    expect(studio.error, isNull);
+    expect(requests, 1);
+    final question = studio.chat.singleWhere((entry) => entry.role == 'tool');
+    expect(question.name, 'ask_user');
+    expect(question.text, contains('幻灯片要多宽？'));
+
+    await studio.submit('16:9', true, const ImageOptions());
+
+    expect(studio.error, isNull);
+    expect(requests, 2);
+    final messages = bodies.last['messages'] as List;
+    expect(
+      messages.any(
+        (entry) =>
+            (entry as Map)['role'] == 'tool' &&
+            (entry['content'] as String).contains('Question for the user'),
+      ),
+      isTrue,
+    );
+    expect(messages.last, {'role': 'user', 'content': '16:9'});
+    expect(studio.chat.last.text, '好，按 16:9。');
   });
 }

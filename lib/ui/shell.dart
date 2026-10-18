@@ -480,6 +480,41 @@ class _StudioShellState extends State<StudioShell> {
         ? ''
         : entry.text.trim();
     final theme = Theme.of(context);
+    if (name == 'ask_user') {
+      final question = detail
+          .replaceFirst('Question for the user: ', '')
+          .split(' The turn ends here;')
+          .first;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.help_outline,
+                  size: 16,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    question,
+                    style: theme.textTheme.bodySmall?.copyWith(height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     final row = Row(
       children: [
         Icon(
