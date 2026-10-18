@@ -400,7 +400,9 @@ class Studio extends ChangeNotifier {
         // result and decide to call another. The cap keeps a loop that never
         // settles from spending the whole session; the last text stands as the
         // answer when it is reached.
-        const maxSteps = 8;
+        // A page with a table takes add_slide + add_table. Allow a normal
+        // multi-page deck to finish while retaining a finite request budget.
+        const maxSteps = 32;
         for (var step = 0; step < maxSteps; step++) {
           final result = requestConfig.streamAgent
               ? await client.converseStream(
@@ -692,6 +694,7 @@ class Studio extends ChangeNotifier {
         title: _argText(call, 'title'),
         bullets: _argBullets(call),
         imageId: previous.imageId,
+        table: previous.table,
       );
       notifyListeners();
       return 'Slide ${index + 1} updated.';
@@ -709,6 +712,33 @@ class Studio extends ChangeNotifier {
       return 'Slide ${index + 1} removed. ${deck.slides.length} remain.';
     } on FormatException {
       return 'Invalid arguments for remove_slide.';
+    }
+  }
+
+  String _addTable(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      final index = _argIndex(call, 'index', deck.slides.length);
+      final headerRow = call.arguments['header_row'];
+      if (headerRow is! bool) throw const FormatException('invalidTool');
+      final table = SlideTable.fromJson({
+        'rows': call.arguments['rows'],
+        'headerRow': headerRow,
+      });
+      final previous = deck.slides[index];
+      deck.slides[index] = Slide(
+        title: previous.title,
+        bullets: previous.bullets,
+        imageId: previous.imageId,
+        table: table,
+      );
+      notifyListeners();
+      return 'Table ${table.rows.length}x${table.columnCount} added to '
+          'slide ${index + 1} in deck ${deck.id}.';
+    } on FormatException {
+      return 'Invalid arguments for add_table. Use an existing deck and '
+          'zero-based slide index, header_row as a boolean, and 1-12 '
+          'rectangular rows of 1-8 string cells (at most 500 characters each).';
     }
   }
 
@@ -792,6 +822,8 @@ class Studio extends ChangeNotifier {
         return _createDeck(call);
       case 'add_slide':
         return _addSlide(call, created);
+      case 'add_table':
+        return _addTable(call);
       case 'update_slide':
         return _updateSlide(call);
       case 'remove_slide':

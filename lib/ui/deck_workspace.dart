@@ -477,145 +477,250 @@ class _SlideCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          final pad = (width * .055).clamp(10.0, 44.0);
-          final title = large
-              ? (width * .045).clamp(18.0, 40.0)
-              : (width * .05).clamp(13.0, 22.0);
-          final body = title * .62;
-          final hasImage = asset != null;
-          return Padding(
-            padding: EdgeInsets.all(pad),
-            child: Row(
+          if (slide.table != null) {
+            // A bounded canvas keeps the table's relative layout stable at
+            // thumbnail and dialog size, including on a narrow phone.
+            const width = 960.0;
+            final height = width * constraints.maxHeight / constraints.maxWidth;
+            return FittedBox(
+              fit: BoxFit.contain,
+              child: SizedBox(
+                width: width,
+                height: height,
+                child: _content(context, width),
+              ),
+            );
+          }
+          return _content(context, constraints.maxWidth);
+        },
+      ),
+    );
+  }
+
+  Widget _content(BuildContext context, double width) {
+    final scheme = Theme.of(context).colorScheme;
+    final pad = (width * .055).clamp(10.0, 44.0);
+    final title = slide.table != null
+        ? 40.0
+        : large
+        ? (width * .045).clamp(18.0, 40.0)
+        : (width * .05).clamp(13.0, 22.0);
+    final body = title * .62;
+    final hasImage = asset != null;
+    return Padding(
+      padding: EdgeInsets.all(pad),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: hasImage ? 3 : 1,
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  flex: hasImage ? 3 : 1,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        number.toString().padLeft(2, '0'),
-                        style: TextStyle(
-                          fontSize: body * .8,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 1.2,
-                          color: scheme.primary,
-                        ),
-                      ),
-                      SizedBox(height: pad * .45),
-                      Text(
-                        slide.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: title,
-                          height: 1.25,
-                          fontWeight: FontWeight.w700,
-                          color: scheme.onSurface,
-                        ),
-                      ),
-                      SizedBox(height: pad * .35),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          physics: const NeverScrollableScrollPhysics(),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              for (final bullet in slide.bullets)
-                                Padding(
-                                  padding: EdgeInsets.only(bottom: body * .55),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Padding(
-                                        padding: EdgeInsets.only(
-                                          top: body * .55,
-                                          right: body * .7,
-                                        ),
-                                        child: Container(
-                                          width: body * .3,
-                                          height: body * .3,
-                                          decoration: BoxDecoration(
-                                            color: scheme.primary,
-                                            shape: BoxShape.circle,
-                                          ),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Text(
-                                          bullet,
-                                          style: TextStyle(
-                                            fontSize: body,
-                                            height: 1.35,
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
+                Text(
+                  number.toString().padLeft(2, '0'),
+                  style: TextStyle(
+                    fontSize: body * .8,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.2,
+                    color: scheme.primary,
                   ),
                 ),
-                if (hasImage) ...[
-                  SizedBox(width: pad * .8),
+                SizedBox(height: pad * .45),
+                Text(
+                  slide.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: title,
+                    height: 1.25,
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurface,
+                  ),
+                ),
+                SizedBox(height: pad * .35),
+                Expanded(child: _body(context, body)),
+              ],
+            ),
+          ),
+          if (hasImage) ...[
+            SizedBox(width: pad * .8),
+            Expanded(
+              flex: 2,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(large ? 14 : 8),
+                child: SizedBox.expand(child: _image(context)),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _body(BuildContext context, double fontSize) {
+    final table = slide.table;
+    if (table == null) return _bullets(context, fontSize);
+    final hasBullets = slide.bullets.any((text) => text.trim().isNotEmpty);
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (hasBullets) ...[
+            SizedBox(
+              height: constraints.maxHeight * .35,
+              child: _bullets(context, fontSize),
+            ),
+            const SizedBox(height: 12),
+          ],
+          Expanded(child: _table(context, table)),
+        ],
+      ),
+    );
+  }
+
+  Widget _bullets(BuildContext context, double body) {
+    final scheme = Theme.of(context).colorScheme;
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final bullet in slide.bullets.where(
+            (text) => slide.table == null || text.trim().isNotEmpty,
+          ))
+            Padding(
+              padding: EdgeInsets.only(bottom: body * .55),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.only(top: body * .55, right: body * .7),
+                    child: Container(
+                      width: body * .3,
+                      height: body * .3,
+                      decoration: BoxDecoration(
+                        color: scheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
                   Expanded(
-                    flex: 2,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(large ? 14 : 8),
-                      child: SizedBox.expand(
-                        child: FutureBuilder<Asset?>(
-                          future: asset,
-                          builder: (context, snapshot) {
-                            final image = snapshot.data;
-                            if (image == null) {
-                              return ColoredBox(
-                                color: scheme.surfaceContainerHighest,
-                                child: Center(
-                                  child: snapshot.connectionState ==
-                                          ConnectionState.done
-                                      ? Icon(
-                                          Icons.image_not_supported_outlined,
-                                          color: scheme.outline,
-                                        )
-                                      : Text(
-                                          Strings.of(context).t('deckImage'),
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.labelSmall,
-                                        ),
-                                ),
-                              );
-                            }
-                            return Image.file(
-                              File(studio.store.file(image).path),
-                              fit: BoxFit.cover,
-                              cacheWidth: large ? 1200 : 520,
-                              errorBuilder: (_, _, _) => ColoredBox(
-                                color: scheme.surfaceContainerHighest,
-                                child: Icon(
-                                  Icons.broken_image_outlined,
-                                  color: scheme.outline,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+                    child: Text(
+                      bullet,
+                      style: TextStyle(
+                        fontSize: body,
+                        height: 1.35,
+                        color: scheme.onSurfaceVariant,
                       ),
                     ),
                   ),
                 ],
-              ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _table(BuildContext context, SlideTable table) {
+    final scheme = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final rowHeight = constraints.maxHeight / table.rows.length;
+        final cellWidth = constraints.maxWidth / table.columnCount;
+        return Table(
+          border: TableBorder.all(color: scheme.outlineVariant),
+          defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+          children: [
+            for (var row = 0; row < table.rows.length; row++)
+              TableRow(
+                decoration: BoxDecoration(
+                  color: table.headerRow && row == 0
+                      ? scheme.primaryContainer
+                      : row.isEven
+                      ? scheme.surfaceContainer
+                      : scheme.surfaceContainerLow,
+                ),
+                children: [
+                  for (final text in table.rows[row])
+                    SizedBox(
+                      height: rowHeight,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: (cellWidth * .1).clamp(2.0, 10.0),
+                          vertical: (rowHeight * .15).clamp(2.0, 8.0),
+                        ),
+                        child: LayoutBuilder(
+                          // Keep the grid at full width while fitting complete
+                          // cell text into its row. Dense tables stay bounded;
+                          // the model can split them across slides for legibility.
+                          builder: (context, cell) => FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: SizedBox(
+                              width: cell.maxWidth,
+                              child: Text(
+                                text,
+                                style: TextStyle(
+                                  fontSize: (24.0 - table.columnCount).clamp(
+                                    14.0,
+                                    20.0,
+                                  ),
+                                  height: 1.25,
+                                  fontWeight: table.headerRow && row == 0
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: table.headerRow && row == 0
+                                      ? scheme.onPrimaryContainer
+                                      : scheme.onSurface,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _image(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return FutureBuilder<Asset?>(
+      future: asset,
+      builder: (context, snapshot) {
+        final image = snapshot.data;
+        if (image == null) {
+          return ColoredBox(
+            color: scheme.surfaceContainerHighest,
+            child: Center(
+              child: snapshot.connectionState == ConnectionState.done
+                  ? Icon(
+                      Icons.image_not_supported_outlined,
+                      color: scheme.outline,
+                    )
+                  : Text(
+                      Strings.of(context).t('deckImage'),
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
             ),
           );
-        },
-      ),
+        }
+        return Image.file(
+          File(studio.store.file(image).path),
+          fit: BoxFit.cover,
+          cacheWidth: large ? 1200 : 520,
+          errorBuilder: (_, _, _) => ColoredBox(
+            color: scheme.surfaceContainerHighest,
+            child: Icon(Icons.broken_image_outlined, color: scheme.outline),
+          ),
+        );
+      },
     );
   }
 }
