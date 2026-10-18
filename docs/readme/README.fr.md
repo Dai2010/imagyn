@@ -11,13 +11,15 @@ Une application sobre de création d’images par IA, avec deux espaces : **Gale
 | Espace | Fonction |
 | --- | --- |
 | **Galerie** | Générez des images à partir d’une description, avec ou sans images de référence. Les références sont numérotées : vous pouvez demander « le personnage de l’image 1 avec les vêtements de l’image 2 ». |
-| **Agent** | Créez et modifiez des images par conversation. Discussion et génération ont des états distincts ; une conversation ordinaire ne déclenche pas discrètement une génération payante. Chaque modification est enregistrée séparément, et les images créées apparaissent aussi dans la galerie. |
+| **Agent** | Créez et modifiez des images par conversation. Discussion et génération ont des états distincts ; une conversation ordinaire ne déclenche pas discrètement une génération payante. Chaque modification est enregistrée séparément, et les images créées apparaissent aussi dans la galerie. Il peut aussi enchaîner les outils : générer des images, créer une présentation, ajouter du texte et des tableaux page par page, parcourir les pages dans un espace de travail dédié et exporter un `.pptx` modifiable. |
 
 Les paramètres disposent d’une page dédiée avec trois onglets : **Images / Agent / Général**. Changez de modèle pendant une conversation et personnalisez, pour chaque modèle, l’instruction système, le nombre de messages de contexte et les paramètres de sortie. L’historique et le brouillon sont conservés. Une option réduit les animations.
 
 ## Fonctionnalités
 
 - **Priorité au stockage local :** l’historique est enregistré dans SQLite, dans le dossier privé de l’application. Les créations sont des fichiers locaux, sans dépendance à des adresses temporaires. Les clés API utilisent le stockage sécurisé du système, pas la base de données.
+- **Agent par étapes :** dans un même tour, il peut appeler plusieurs fois des outils (génération d’images, création de deck, tableaux, questions). Un échec d’outil est renvoyé au modèle comme résultat pour qu’il continue ; seule une requête au modèle de texte en échec termine le tour. L’arrêt conserve le texte déjà écrit comme contexte du tour suivant.
+- **Présentations :** `create_deck` → `add_slide` → `add_table` → `finish_deck`, avec un aperçu page par page dans l’espace de travail. L’export est un OOXML natif `.pptx` ; les zones de texte, les images et les tableaux restent modifiables dans PowerPoint / WPS. Un tableau par diapositive, jusqu’à 12 lignes × 8 colonnes et 500 caractères par cellule.
 - **Votre propre service :** configurez les adresses de base, les modèles d’image et de conversation, le protocole (OpenAI Chat Completions / OpenAI Responses / Anthropic Messages) et, éventuellement, un proxy HTTP. Les modèles de conversation et d’image peuvent utiliser des services différents.
 - **États explicites :** échec d’envoi, résultat inconnu, génération en cours et échec de téléchargement sont distingués. Après un délai d’attente dépassé, une requête payante n’est jamais renvoyée automatiquement ; le résultat reste « inconnu » pour vous laisser vérifier.
 - **Six langues :** 中文, English, Français, Español, Русский et العربية, avec une mise en page de droite à gauche pour l’arabe.
@@ -30,9 +32,12 @@ Les paramètres disposent d’une page dédiée avec trois onglets : **Images / 
 | API ou fonctionnalité | État |
 | --- | --- |
 | OpenAI Images (`images/generations`, `images/edits`) | Implémenté, avec plusieurs références et des sorties URL / Base64 |
-| OpenAI Chat Completions + `generate_image` | Implémenté en mode Agent (`/chat/completions`) |
-| OpenAI Responses + `generate_image` | Implémenté en mode Agent (`/responses`) |
-| Anthropic Messages + `generate_image` | Implémenté en mode Agent |
+| OpenAI Chat Completions + appels d’outils | Implémenté en mode Agent (`/chat/completions`) |
+| OpenAI Responses + appels d’outils | Implémenté en mode Agent (`/responses`) |
+| Anthropic Messages + appels d’outils | Implémenté en mode Agent |
+| Boucle d’outils multi-étapes de l’Agent (`generate_image`, `create_deck`, `add_slide`, `add_table`, `ask_user`, …) | Implémenté, jusqu’à 32 étapes par tour ; les échecs d’outils sont renvoyés au modèle comme résultats |
+| Export de présentation (`.pptx`, zones de texte / images / tableaux) | OOXML natif ; modifiable dans PowerPoint / WPS (ouverture sur appareil réel non testée) |
+| WebFetch / `fetch_url` | Exécuteur et schéma d’outil encore en PR ; non branché dans la boucle |
 | Résultats OpenAI Images en SSE | Implémenté ; activation dans les options de compatibilité de l’API d’images |
 | Outil intégré `image_generation` de Responses | Non implémenté ; Agent utilise la fonction `generate_image` de l’application pour appeler l’API Images séparée |
 | Modification par masque, tâches par lots, synchronisation cloud, inférence locale | Non implémenté ; extensions possibles |
@@ -68,8 +73,8 @@ Les paquets pour ordinateur **ne sont pas signés** : Windows SmartScreen indiqu
 ## Structure du projet
 
 ```text
-lib/core/    Stockage, modèles de données, adaptateurs API et état de l’application
-lib/ui/      Interface Galerie / Agent et paramètres
+lib/core/    Stockage, modèles de données, adaptateurs API, état de l’application et écriture .pptx
+lib/ui/      Interface Galerie / Agent, espace de travail du deck et paramètres
 lib/l10n/    Textes et tables de traduction en six langues
 platform/    Fichiers natifs propres au projet ajoutés à la sortie de flutter create
 scripts/     Génération des plateformes et des traductions
@@ -84,6 +89,7 @@ Les guides suivants sont actuellement en chinois :
 - [Images et galerie](../../docs/image-workflow.md) — API d’images, galerie et envoi des demandes
 - [Paramètres Agent](../../docs/agent-settings.md) — Onglets, changement de modèle, instructions et contexte personnalisés
 - [Capacités](../../docs/capabilities.md) — API prises en charge et gestion des échecs
+- [Tableaux de présentation](../../docs/deck-tables.md) — Modèle, export et limites
 
 ## Licence
 

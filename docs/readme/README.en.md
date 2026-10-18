@@ -11,13 +11,15 @@ A minimalist AI image creation app with two entry points: **Gallery** and **Agen
 | Entry point | What it does |
 | --- | --- |
 | **Gallery** | Generate images from a prompt, with zero or more reference images. References are numbered, so you can ask for “the person from image 1 wearing the clothes from image 2.” |
-| **Agent** | Generate and refine images through conversation. Discussion and generation have separate status indicators; ordinary chat does not silently trigger paid image generation. Each edit is saved as a separate version, and generated images also appear in the gallery. |
+| **Agent** | Generate and refine images through conversation. Discussion and generation have separate status indicators; ordinary chat does not silently trigger paid image generation. Each edit is saved as a separate version, and generated images also appear in the gallery. It can also call tools repeatedly: generate images, create a presentation, add text and tables page by page, review the pages in a separate workspace, and finally export an editable `.pptx`. |
 
 Settings has its own page with three tabs: **Images / Agent / General**. Switch models during a conversation and customize each model’s system prompt, context message count and output parameters while keeping your history and draft. Reduced motion is also supported.
 
 ## Features
 
 - **Local first:** History is stored in SQLite in the app’s private directory. Artwork is saved as local files rather than depending on temporary URLs. API keys use the system’s secure storage, not the database.
+- **Agent works in steps:** within one turn it can call tools repeatedly (image generation, deck building, tables, asking you). A tool failure is returned to the model as a result so it can continue; only a failing text-model request ends the turn. Stopping keeps the text already written as context for the next turn.
+- **Presentations:** `create_deck` → `add_slide` → `add_table` → `finish_deck`, with a page-by-page workspace preview. Export is native OOXML `.pptx`; text boxes, pictures and tables remain editable in PowerPoint / WPS. One table per slide, up to 12 rows × 8 columns and 500 characters per cell.
 - **Bring your own service:** Configure base URLs, image and chat models, the protocol (OpenAI Chat Completions / OpenAI Responses / Anthropic Messages), and an optional HTTP proxy. Chat and image models can use different services.
 - **Clear task states:** Submission failures, unknown results, generation in progress and download failures are shown separately. A timeout after submission never automatically resends a paid generation request; the result stays “unknown” for you to check.
 - **Six languages:** 中文, English, Français, Español, Русский and العربية, including right-to-left Arabic layout.
@@ -30,9 +32,12 @@ Settings has its own page with three tabs: **Images / Agent / General**. Switch 
 | API or feature | Status |
 | --- | --- |
 | OpenAI Images (`images/generations`, `images/edits`) | Implemented, including multiple reference images and URL / Base64 output |
-| OpenAI Chat Completions + `generate_image` | Implemented in Agent mode (`/chat/completions`) |
-| OpenAI Responses + `generate_image` | Implemented in Agent mode (`/responses`) |
-| Anthropic Messages + `generate_image` | Implemented in Agent mode |
+| OpenAI Chat Completions + tool calls | Implemented in Agent mode (`/chat/completions`) |
+| OpenAI Responses + tool calls | Implemented in Agent mode (`/responses`) |
+| Anthropic Messages + tool calls | Implemented in Agent mode |
+| Agent multi-step tool loop (`generate_image`, `create_deck`, `add_slide`, `add_table`, `ask_user`, …) | Implemented, up to 32 steps per turn; tool failures return to the model as results |
+| Presentation export (`.pptx`, text boxes / pictures / tables) | Native OOXML; editable in PowerPoint / WPS (opening on a real device is still untested) |
+| WebFetch / `fetch_url` | Executor and tool schema are still in PRs; not wired into the loop |
 | OpenAI Images SSE results | Implemented; enable it in the image API compatibility options |
 | Responses built-in `image_generation` tool | Not implemented; Agent uses the app’s `generate_image` function to call the separate Images API |
 | Mask editing, batch jobs, cloud sync, local inference | Not implemented; possible future extensions |
@@ -68,8 +73,8 @@ Desktop packages **are unsigned**: Windows SmartScreen displays an “unknown pu
 ## Project layout
 
 ```text
-lib/core/    Storage, data models, API adapters and application state
-lib/ui/      Gallery / Agent shell and settings
+lib/core/    Storage, data models, API adapters, application state and the .pptx writer
+lib/ui/      Gallery / Agent shell, the deck workspace and settings
 lib/l10n/    Six-language text and lookup tables
 platform/    App-owned native files overlaid onto flutter create output
 scripts/     Platform scaffolding and translation generation
@@ -84,6 +89,7 @@ The following guides are currently in Chinese:
 - [Image workflow](../../docs/image-workflow.md) — Image API behavior, gallery and submission behavior
 - [Agent settings](../../docs/agent-settings.md) — Settings tabs, model switching, custom prompts and context parameters
 - [Capabilities](../../docs/capabilities.md) — API support matrix and failure handling
+- [Deck tables](../../docs/deck-tables.md) — Table model, export and limits
 
 ## License
 
