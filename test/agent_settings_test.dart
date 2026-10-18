@@ -275,4 +275,58 @@ void main() {
     await subscription.cancel();
     await server.close(force: true);
   });
+
+  test('a call without a result is filled before the request is sent', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final received = Completer<Map<String, dynamic>>();
+    final subscription = server.listen((request) async {
+      received.complete(
+        jsonDecode(await utf8.decoder.bind(request).join())
+            as Map<String, dynamic>,
+      );
+      request.response.headers.contentType = ContentType.json;
+      request.response.write('{"choices":[{"message":{"content":"OK"}}]}');
+      await request.response.close();
+    });
+    final client = StudioApi(
+      ServiceConfig(
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        agentModel: 'a',
+      ),
+      'key',
+      '',
+      MemoryStore(),
+    );
+    await client.converse(
+      [
+        const ChatEntry(
+          'assistant',
+          '',
+          calls: [
+            AgentCall('call-1', 'generate_image', {
+              'prompt': 'a fox',
+              'aspect_ratio': 'auto',
+            }),
+          ],
+        ),
+        const ChatEntry('user', 'next'),
+      ],
+      [],
+      CancelToken(),
+    );
+    final messages = (await received.future)['messages'] as List;
+    final assistant = messages.indexWhere(
+      (entry) => (entry as Map)['role'] == 'assistant',
+    );
+    expect(messages[assistant + 1], {
+      'role': 'tool',
+      'tool_call_id': 'call-1',
+      'content':
+          'No result was recorded: the turn was interrupted before this call finished.',
+    });
+    expect(messages[assistant + 2], {'role': 'user', 'content': 'next'});
+    client.close();
+    await subscription.cancel();
+    await server.close(force: true);
+  });
 }

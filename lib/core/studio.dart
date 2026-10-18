@@ -431,18 +431,49 @@ class Studio extends ChangeNotifier {
           );
           chat = await store.messages(session);
           _clearStream();
-          for (final call in result.calls) {
-            final output = await _runCall(
-              client,
-              call,
-              refs,
-              options,
-              created,
-              onJob: (id, row) {
-                jobId = id;
-                record = row;
-              },
-            );
+          for (var index = 0; index < result.calls.length; index++) {
+            final call = result.calls[index];
+            String output;
+            try {
+              output = await _runCall(
+                client,
+                call,
+                refs,
+                options,
+                created,
+                onJob: (id, row) {
+                  jobId = id;
+                  record = row;
+                },
+              );
+            } catch (e) {
+              // The assistant message above already names every call, and the
+              // protocol rejects a turn whose calls have no results. Record
+              // the failure for this call and a "not run" result for the ones
+              // behind it before the error ends the turn.
+              await store.addMessage(
+                session,
+                ChatEntry(
+                  'tool',
+                  'Tool failed: ${errorCode(e)}',
+                  callId: call.id,
+                  name: call.name,
+                ),
+              );
+              for (final rest in result.calls.skip(index + 1)) {
+                await store.addMessage(
+                  session,
+                  ChatEntry(
+                    'tool',
+                    'Not run because an earlier tool failed.',
+                    callId: rest.id,
+                    name: rest.name,
+                  ),
+                );
+              }
+              chat = await store.messages(session);
+              rethrow;
+            }
             await store.addMessage(
               session,
               ChatEntry('tool', output, callId: call.id, name: call.name),
