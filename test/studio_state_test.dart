@@ -26,6 +26,11 @@ class StateStore extends MemoryStore {
   }
 
   @override
+  Future<void> deleteJob(String id) async {
+    savedJobs.remove(id);
+  }
+
+  @override
   Future<Asset> saveAsset(
     Uint8List bytes, {
     String prompt = '',
@@ -356,5 +361,57 @@ void main() {
     expect(studio.gallery.map((asset) => asset.id), [kept.id]);
     expect(studio.favorites, {kept.id});
     expect(store.savedAssets.containsKey(gone.id), isFalse);
+  });
+
+  test('a submitting record can be deleted', () async {
+    final store = StateStore();
+    final studio = Studio(store);
+    addTearDown(studio.dispose);
+    await studio.initialize();
+    final job = ImageJob('job', 'submitting', {'prompt': 'a fox'});
+    store.savedJobs[job.id] = job;
+    studio.jobs = [job];
+
+    await studio.deleteJob(job);
+
+    expect(store.savedJobs, isEmpty);
+    expect(studio.jobs, isEmpty);
+  });
+
+  test('a deleted record is not restored by a late download', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==',
+    );
+    final requested = Completer<void>();
+    final release = Completer<void>();
+    final subscription = server.listen((request) async {
+      if (!requested.isCompleted) requested.complete();
+      await release.future;
+      request.response.add(png);
+      await request.response.close();
+    });
+    addTearDown(subscription.cancel);
+    final store = StateStore();
+    final studio = Studio(store);
+    addTearDown(studio.dispose);
+    await studio.initialize();
+    final job = ImageJob('job', 'failed', {
+      'prompt': 'a fox',
+      'outputs': ['http://127.0.0.1:${server.port}/result.png'],
+      'session': studio.session,
+    });
+    store.savedJobs[job.id] = job;
+    studio.jobs = [job];
+
+    final retry = studio.retryDownload(job);
+    await requested.future;
+    await studio.deleteJob(job);
+    release.complete();
+    await retry;
+
+    expect(store.savedJobs, isEmpty);
+    expect(studio.jobs, isEmpty);
   });
 }
