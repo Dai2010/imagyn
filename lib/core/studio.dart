@@ -53,6 +53,11 @@ class Studio extends ChangeNotifier {
   /// remembered to keep it from writing the deleted row back.
   final _deletedJobs = <String>{};
 
+  /// The job whose request is in flight. A download retry keeps its row in the
+  /// failed/unknown state, so the state alone cannot tell whether cancelling it
+  /// is safe.
+  String? _activeJob;
+
   /// The turn arriving right now, so a reply can be read while it is written
   /// instead of appearing all at once when it ends.
   String streamingText = '', streamingReasoning = '';
@@ -341,10 +346,11 @@ class Studio extends ChangeNotifier {
   }
 
   Future<void> deleteJob(ImageJob job) async {
-    // A submitting record names the request in flight; deleting it without
-    // stopping that request would leave paid work running with no record.
-    if (busy && job.state == 'submitting') cancel();
+    // A job with a request in flight names paid work; deleting it without
+    // stopping that request would leave the work running with no record.
+    if (busy && _activeJob == job.id) cancel();
     _deletedJobs.add(job.id);
+    if (_activeJob == job.id) _activeJob = null;
     await store.deleteJob(job.id);
     jobs.removeWhere((item) => item.id == job.id);
     notifyListeners();
@@ -359,6 +365,11 @@ class Studio extends ChangeNotifier {
     Map<String, dynamic> record,
   ) async {
     if (_deletedJobs.contains(id)) return;
+    if (state == 'submitting') {
+      _activeJob = id;
+    } else if (_activeJob == id) {
+      _activeJob = null;
+    }
     await store.job(id, state, record);
   }
 
@@ -631,6 +642,7 @@ class Studio extends ChangeNotifier {
     stage = 'downloading';
     _cancel = CancelToken();
     _api = client;
+    _activeJob = job.id;
     notifyListeners();
     try {
       final images = await client.downloadImages(outputs, _cancel!);
@@ -675,6 +687,7 @@ class Studio extends ChangeNotifier {
       client.close();
       _api = null;
       _cancel = null;
+      _activeJob = null;
       busy = false;
       notifyListeners();
     }
