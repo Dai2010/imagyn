@@ -26,9 +26,8 @@ class PptxImage {
     ? (width: 9144000, height: 6858000)
     : (width: 12192000, height: 6858000);
 
-/// Builds a real Office Open XML presentation: every slide is a text frame
-/// and, when it has one, a picture — not an image of a slide. PowerPoint,
-/// WPS and Keynote can open the result and keep editing it.
+/// Builds an Office Open XML presentation with editable text, pictures and
+/// native DrawingML tables. The caller supplies any referenced picture bytes.
 ///
 /// The archive is stored rather than deflated. Images are already compressed,
 /// slide XML is small, and a stored archive needs no compressor in Dart — only
@@ -68,10 +67,7 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
     ..add('ppt/presentation.xml', _presentationXml(slides.length, size))
     ..add('ppt/_rels/presentation.xml.rels', _presentationRels(slides.length))
     ..add('ppt/slideMasters/slideMaster1.xml', _slideMasterXml())
-    ..add(
-      'ppt/slideMasters/_rels/slideMaster1.xml.rels',
-      _slideMasterRels(),
-    )
+    ..add('ppt/slideMasters/_rels/slideMaster1.xml.rels', _slideMasterRels())
     ..add('ppt/slideLayouts/slideLayout1.xml', _slideLayoutXml())
     ..add(
       'ppt/slideLayouts/_rels/slideLayout1.xml.rels',
@@ -90,7 +86,11 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
     zip.add(
       'ppt/slides/_rels/slide${slide.number}.xml.rels',
       _relationshipXml([
-        _Relationship('rId1', 'slideLayout', '../slideLayouts/slideLayout1.xml'),
+        _Relationship(
+          'rId1',
+          'slideLayout',
+          '../slideLayouts/slideLayout1.xml',
+        ),
         for (var i = 0; i < slide.images.length; i++)
           _Relationship(
             'rId${i + 2}',
@@ -348,6 +348,8 @@ String _slideXml(
     for (final bullet in slide.bullets)
       if (bullet.trim().isNotEmpty) bullet.trim(),
   ];
+  final table = slide.table;
+  final bulletHeight = table == null ? bodyHeight : (bodyHeight * .35).round();
   if (bullets.isNotEmpty) {
     shapes.write(
       _textShape(
@@ -356,11 +358,28 @@ String _slideXml(
         x: margin,
         y: bodyTop,
         cx: textWidth,
-        cy: bodyHeight,
+        cy: bulletHeight,
         paragraphs: [
           for (final bullet in bullets)
             _bulletParagraph(bullet, bodySize, '3B3650'),
         ],
+      ),
+    );
+  }
+  if (table != null) {
+    final tableGap = bullets.isEmpty ? 0 : (size.height * .025).round();
+    final tableTop = bullets.isEmpty
+        ? bodyTop
+        : bodyTop + bulletHeight + tableGap;
+    shapes.write(
+      _tableShape(
+        id: id++,
+        name: 'Table ${number - 1}',
+        table: table,
+        x: margin,
+        y: tableTop,
+        cx: textWidth,
+        cy: bodyTop + bodyHeight - tableTop,
       ),
     );
   }
@@ -436,7 +455,8 @@ String _textShape({
   required int cx,
   required int cy,
   required List<String> paragraphs,
-}) => '<p:sp>'
+}) =>
+    '<p:sp>'
     '<p:nvSpPr><p:cNvPr id="$id" name="${_esc(name)}"/>'
     '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>'
     '<p:spPr><a:xfrm><a:off x="$x" y="$y"/><a:ext cx="$cx" cy="$cy"/>'
@@ -454,6 +474,157 @@ String _run(String text, int size, bool bold, String color) =>
     '<a:latin typeface="Aptos"/><a:ea typeface="Microsoft YaHei"/>'
     '</a:rPr><a:t>${_esc(text)}</a:t>';
 
+/// Distributes integer EMUs without losing the remainder to rounding. The
+/// grid and row dimensions consequently match the graphic frame exactly.
+List<int> _equalParts(int total, int count) => [
+  for (var i = 0; i < count; i++) total ~/ count + (i < total % count ? 1 : 0),
+];
+
+/// Font sizes use hundredths of a point (127 EMUs). Fit actual cell text,
+/// including paragraphs, because Office treats table row heights as minima.
+/// normAutofit alone does not prevent a long cell from expanding its row.
+int _tableFontSize(
+  List<String> paragraphs,
+  int width,
+  int height, {
+  required int row,
+  required int column,
+}) {
+  bool fits(int fontSize) {
+    final capacity = width / (fontSize * 127);
+    final availableLines = height ~/ (_tableLineHeight(fontSize) * 127);
+    var lines = 0;
+    for (final paragraph in paragraphs) {
+      lines++;
+      var used = 0.0;
+      for (final rune in paragraph.runes) {
+        // Estimate conservatively across font substitutions. CJK and emoji
+        // need a full em; most Latin characters take less space. Count tabs
+        // as several characters even when they occur at the start of a line.
+        final advance = rune == 0x09
+            ? 4.4
+            : (rune > 0x7F ? 1.1 : (rune == 0x4D || rune == 0x57 ? 1.0 : .8));
+        if (used > 0 && used + advance > capacity) {
+          lines++;
+          used = 0;
+        }
+        used += advance;
+      }
+      if (lines > availableLines) return false;
+    }
+    return lines <= availableLines;
+  }
+
+  // DrawingML's minimum valid font size is one point. A cell with hundreds of
+  // explicit paragraphs can still exceed that limit; return a useful error
+  // instead of a table that Office silently expands past the slide boundary.
+  if (!fits(100)) {
+    throw FormatException(
+      'Table cell at row $row, column $column cannot fit at the minimum '
+      '1pt font size. Shorten its text or split the table across slides.',
+    );
+  }
+  var lower = 100;
+  var upper = 1800;
+  while (lower < upper) {
+    final candidate = (lower + upper + 1) ~/ 2;
+    if (fits(candidate)) {
+      lower = candidate;
+    } else {
+      upper = candidate - 1;
+    }
+  }
+  return lower;
+}
+
+int _tableLineHeight(int fontSize) => (fontSize * 1.2).ceil();
+
+String _tableShape({
+  required int id,
+  required String name,
+  required SlideTable table,
+  required int x,
+  required int y,
+  required int cx,
+  required int cy,
+}) {
+  final widths = _equalParts(cx, table.columnCount);
+  final heights = _equalParts(cy, table.rows.length);
+  final buffer = StringBuffer(
+    '<p:graphicFrame>'
+    '<p:nvGraphicFramePr><p:cNvPr id="$id" name="${_esc(name)}"/>'
+    '<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/>'
+    '</p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>'
+    '<p:xfrm><a:off x="$x" y="$y"/><a:ext cx="$cx" cy="$cy"/></p:xfrm>'
+    '<a:graphic><a:graphicData '
+    'uri="http://schemas.openxmlformats.org/drawingml/2006/table">'
+    '<a:tbl><a:tblPr firstRow="${table.headerRow ? 1 : 0}" bandRow="0"/>'
+    '<a:tblGrid>',
+  );
+  for (final width in widths) {
+    buffer.write('<a:gridCol w="$width"/>');
+  }
+  buffer.write('</a:tblGrid>');
+  for (var row = 0; row < table.rows.length; row++) {
+    final isHeader = table.headerRow && row == 0;
+    final fill = isHeader ? '7863C7' : (row.isEven ? 'F4F2FA' : 'FFFFFF');
+    final color = isHeader ? 'FFFFFF' : '3B3650';
+    buffer.write('<a:tr h="${heights[row]}">');
+    for (var column = 0; column < table.columnCount; column++) {
+      final text = table.rows[row][column];
+      // Smaller cells need proportionally smaller padding to keep useful
+      // space for their content, while normal tables retain comfortable gaps.
+      final horizontalInset = math.min(91440, widths[column] ~/ 20);
+      final verticalInset = math.min(45720, heights[row] ~/ 32);
+      final paragraphs = text
+          .replaceAll('\r\n', '\n')
+          .replaceAll('\r', '\n')
+          .split('\n');
+      final fontSize = _tableFontSize(
+        paragraphs,
+        widths[column] - horizontalInset * 2,
+        heights[row] - verticalInset * 2,
+        row: row + 1,
+        column: column + 1,
+      );
+      buffer.write(
+        '<a:tc><a:txBody>'
+        '<a:bodyPr wrap="square"><a:normAutofit/></a:bodyPr><a:lstStyle/>',
+      );
+      // DrawingML paragraphs, rather than literal newlines in a:t, preserve
+      // line breaks consistently in Office, including leading/trailing blanks.
+      for (final line in paragraphs) {
+        buffer.write(
+          '<a:p><a:pPr algn="l">'
+          '<a:lnSpc><a:spcPts val="${_tableLineHeight(fontSize)}"/></a:lnSpc>'
+          '<a:spcBef><a:spcPts val="0"/></a:spcBef>'
+          '<a:spcAft><a:spcPts val="0"/></a:spcAft><a:buNone/></a:pPr><a:r>'
+          '${_run(line, fontSize, isHeader, color)}'
+          '</a:r><a:endParaRPr lang="zh-CN" sz="$fontSize"/></a:p>',
+        );
+      }
+      buffer.write(
+        '</a:txBody>'
+        '<a:tcPr marL="$horizontalInset" marR="$horizontalInset" '
+        'marT="$verticalInset" marB="$verticalInset" '
+        'anchor="ctr">',
+      );
+      for (final side in ['L', 'R', 'T', 'B']) {
+        buffer.write(
+          '<a:ln$side w="6350"><a:solidFill><a:srgbClr val="DCD7EA"/>'
+          '</a:solidFill><a:prstDash val="solid"/></a:ln$side>',
+        );
+      }
+      buffer.write(
+        '<a:solidFill><a:srgbClr val="$fill"/></a:solidFill></a:tcPr></a:tc>',
+      );
+    }
+    buffer.write('</a:tr>');
+  }
+  buffer.write('</a:tbl></a:graphicData></a:graphic></p:graphicFrame>');
+  return buffer.toString();
+}
+
 String _bulletParagraph(String text, int size, String color) =>
     '<a:p><a:pPr marL="342900" indent="-342900">'
     '<a:lnSpc><a:spcPct val="115000"/></a:lnSpc>'
@@ -468,7 +639,8 @@ String _pictureShape({
   required int y,
   required int cx,
   required int cy,
-}) => '<p:pic>'
+}) =>
+    '<p:pic>'
     '<p:nvPicPr><p:cNvPr id="$id" name="${_esc(name)}"/>'
     '<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/>'
     '</p:nvPicPr>'
@@ -510,7 +682,10 @@ String _esc(String value) {
       case 0x27:
         buffer.write('&apos;');
       default:
-        if (rune < 0x20 && rune != 0x09 && rune != 0x0A && rune != 0x0D) {
+        if ((rune < 0x20 && rune != 0x09 && rune != 0x0A && rune != 0x0D) ||
+            (rune >= 0xD800 && rune <= 0xDFFF) ||
+            rune == 0xFFFE ||
+            rune == 0xFFFF) {
           continue;
         }
         buffer.writeCharCode(rune);

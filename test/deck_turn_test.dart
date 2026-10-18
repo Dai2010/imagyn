@@ -130,7 +130,19 @@ void main() {
           'bullets': ['要点'],
           'image_id': 'last',
         }),
-        3 => toolCall('finish_deck', {'deck': deckId}),
+        3 => toolCall('add_table', {
+          'deck': deckId,
+          'index': 0,
+          'rows': [['属性', '值'], ['配图', '狐狸']],
+          'header_row': true,
+        }),
+        4 => toolCall('update_slide', {
+          'deck': deckId,
+          'index': 0,
+          'title': '狐狸与表格',
+          'bullets': ['更新要点'],
+        }),
+        5 => toolCall('finish_deck', {'deck': deckId}),
         _ => {'content': '做好了。'},
       };
       request.response.headers.contentType = ContentType.json;
@@ -161,6 +173,8 @@ void main() {
     final deck = studio.decks.values.single;
     expect(studio.gallery, hasLength(1));
     expect(deck.slides.single.imageId, studio.gallery.single.id);
+    expect(deck.slides.single.table!.rows, [['属性', '值'], ['配图', '狐狸']]);
+    expect(deck.slides.single.title, '狐狸与表格');
     expect(
       studio.chat.any(
         (entry) => entry.role == 'tool' && entry.text.contains('with image'),

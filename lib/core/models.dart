@@ -125,7 +125,7 @@ class ServiceConfig {
       : ServiceConfig(baseUrl: imageBaseUrl).endpoint(path);
 }
 
-const defaultAgentPrompt =
+const deckAgentPrompt =
     'You are Imagyn, an assistant for images and slide decks. Reply in the user language. '
     'Use generate_image only for an explicit image request or when a deck page needs a picture; '
     'never claim an image was generated yourself. '
@@ -144,6 +144,13 @@ const defaultAgentPrompt =
     'preserve user constraints on edits. If the target is unclear, ask. '
     'When the user asks for a shape or aspect ratio, pass it as aspect_ratio; never express the '
     'ratio only in the prompt text.';
+
+const defaultAgentPrompt =
+    '$deckAgentPrompt '
+    'For tabular data, call add_table after add_slide with the zero-based slide '
+    'index, rectangular string rows, and header_row. This creates editable '
+    'table cells. Each slide holds one table; add_table replaces that table. '
+    'Keep cells concise and split large tables across slides.';
 
 /// The prompt shipped before the deck tools. A saved profile that still holds
 /// it verbatim is upgraded on load; a prompt the user edited is kept as is.
@@ -211,7 +218,10 @@ class AgentOptions {
   factory AgentOptions.fromJson(Map<String, dynamic> value) {
     final stored = value['systemPrompt'] as String?;
     return AgentOptions(
-      systemPrompt: stored == null || stored == legacyAgentPrompt
+      systemPrompt:
+          stored == null ||
+              stored == legacyAgentPrompt ||
+              stored == deckAgentPrompt
           ? defaultAgentPrompt
           : stored,
       contextMessages: (value['contextMessages'] as num? ?? 0).toInt(),
@@ -477,20 +487,92 @@ const imageTool = {
 
 /// One slide: what a deck tool adds, and what the workspace renders.
 class Slide {
-  const Slide({this.title = '', this.bullets = const [], this.imageId});
+  const Slide({
+    this.title = '',
+    this.bullets = const [],
+    this.imageId,
+    this.table,
+  });
   final String title;
   final List<String> bullets;
   final String? imageId;
+  final SlideTable? table;
   Map<String, dynamic> toJson() => {
     'title': title,
     'bullets': bullets,
     if (imageId != null) 'imageId': imageId,
+    if (table != null) 'table': table!.toJson(),
   };
   factory Slide.fromJson(Map<String, dynamic> j) => Slide(
     title: j['title'] as String? ?? '',
     bullets: List<String>.from(j['bullets'] as List? ?? []),
     imageId: j['imageId'] as String?,
+    table: j['table'] == null
+        ? null
+        : SlideTable.fromJson(Map<String, dynamic>.from(j['table'] as Map)),
   );
+}
+
+/// A bounded, rectangular text table. Deep copies prevent a caller from
+/// mutating a validated table into a ragged or oversized one before export.
+class SlideTable {
+  factory SlideTable({
+    required List<List<String>> rows,
+    bool headerRow = true,
+  }) {
+    if (rows.isEmpty ||
+        rows.length > maxRows ||
+        rows.first.isEmpty ||
+        rows.first.length > maxColumns) {
+      throw const FormatException('invalidTable');
+    }
+    final columns = rows.first.length;
+    for (final row in rows) {
+      if (row.length != columns ||
+          row.any((cell) => cell.length > maxCellLength)) {
+        throw const FormatException('invalidTable');
+      }
+    }
+    return SlideTable._(
+      List<List<String>>.unmodifiable([
+        for (final row in rows) List<String>.unmodifiable(row),
+      ]),
+      headerRow,
+    );
+  }
+
+  const SlideTable._(this.rows, this.headerRow);
+
+  static const maxRows = 12;
+  static const maxColumns = 8;
+  static const maxCellLength = 500;
+  final List<List<String>> rows;
+  final bool headerRow;
+  int get columnCount => rows.first.length;
+
+  Map<String, dynamic> toJson() => {'rows': rows, 'headerRow': headerRow};
+
+  factory SlideTable.fromJson(Map<String, dynamic> json) {
+    final rows = json['rows'];
+    final headerRow = json['headerRow'] ?? true;
+    if (rows is! List ||
+        rows.isEmpty ||
+        rows.length > maxRows ||
+        headerRow is! bool) {
+      throw const FormatException('invalidTable');
+    }
+    final cells = <List<String>>[];
+    for (final row in rows) {
+      if (row is! List ||
+          row.isEmpty ||
+          row.length > maxColumns ||
+          row.any((cell) => cell is! String)) {
+        throw const FormatException('invalidTable');
+      }
+      cells.add(List<String>.from(row));
+    }
+    return SlideTable(rows: cells, headerRow: headerRow);
+  }
 }
 
 /// A deck being built. Held in memory for the session: the workspace reads the
@@ -524,7 +606,10 @@ const createDeckTool = {
     'type': 'object',
     'properties': {
       'title': {'type': 'string'},
-      'aspect_ratio': {'type': 'string', 'enum': ['16:9', '4:3']},
+      'aspect_ratio': {
+        'type': 'string',
+        'enum': ['16:9', '4:3'],
+      },
     },
     'required': ['title', 'aspect_ratio'],
     'additionalProperties': false,
@@ -561,7 +646,7 @@ const addSlideTool = {
 
 const updateSlideTool = {
   'name': 'update_slide',
-  'description': 'Replace the text of one slide, keeping its image.',
+  'description': 'Replace the text of one slide, keeping its image and table.',
   'parameters': {
     'type': 'object',
     'properties': {
@@ -588,6 +673,36 @@ const removeSlideTool = {
       'index': {'type': 'integer', 'description': 'Zero-based slide index.'},
     },
     'required': ['deck', 'index'],
+    'additionalProperties': false,
+  },
+};
+
+const addTableTool = {
+  'name': 'add_table',
+  'description':
+      'Add or replace the editable text table on an existing slide. Each slide '
+      'holds one table. Use 1-12 rectangular rows with 1-8 columns and at most '
+      '500 characters per cell. Keep text concise; split dense data across '
+      'slides. Set header_row to style the first row as a heading.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'index': {'type': 'integer', 'description': 'Zero-based slide index.'},
+      'rows': {
+        'type': 'array',
+        'minItems': 1,
+        'maxItems': SlideTable.maxRows,
+        'items': {
+          'type': 'array',
+          'minItems': 1,
+          'maxItems': SlideTable.maxColumns,
+          'items': {'type': 'string', 'maxLength': SlideTable.maxCellLength},
+        },
+      },
+      'header_row': {'type': 'boolean'},
+    },
+    'required': ['deck', 'index', 'rows', 'header_row'],
     'additionalProperties': false,
   },
 };
@@ -632,6 +747,7 @@ const agentTools = [
   imageTool,
   createDeckTool,
   addSlideTool,
+  addTableTool,
   updateSlideTool,
   removeSlideTool,
   finishDeckTool,
