@@ -377,16 +377,16 @@ void main() {
     final messages = (await received.future)['messages'] as List;
     // DeepSeek rejects a request that carries tools unless every earlier
     // assistant turn brings its reasoning_content along, tool calls included.
-    expect(messages[1], {
+    expect(messages[2], {
       'role': 'assistant',
       'reasoning_content': 'A short greeting is enough.',
       'content': 'hi',
     });
     expect(
-      messages[3]['reasoning_content'],
+      messages[4]['reasoning_content'],
       'The user wants an image, so call generate_image.',
     );
-    expect(messages[4], {
+    expect(messages[5], {
       'role': 'tool',
       'tool_call_id': 'call-1',
       'content': 'a fox',
@@ -427,7 +427,7 @@ void main() {
       CancelToken(),
     );
     final messages = (await received.future)['messages'] as List;
-    expect(messages[1], {'role': 'assistant', 'content': 'hi'});
+    expect(messages[2], {'role': 'assistant', 'content': 'hi'});
     client.close();
     await subscription.cancel();
     await server.close(force: true);
