@@ -3,7 +3,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import '../lib/core/webfetch.dart';
+import 'package:imagyn/core/webfetch.dart';
 
 Future<void> main() async {
   final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
