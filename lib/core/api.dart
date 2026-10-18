@@ -444,6 +444,12 @@ class StudioApi {
       } else {
         messages.add({
           'role': entry.role,
+          // DeepSeek's thinking mode rejects any request that carries `tools`
+          // unless every earlier assistant turn's reasoning comes back too.
+          if (config.protocol == ApiProtocol.openai &&
+              entry.role == 'assistant' &&
+              entry.reasoning.isNotEmpty)
+            'reasoning_content': entry.reasoning,
           'content': entry.text.isEmpty ? '[Image result]' : entry.text,
         });
       }
@@ -550,6 +556,8 @@ class StudioApi {
           {
             'role': 'assistant',
             'content': entry.text.isEmpty ? null : entry.text,
+            if (entry.reasoning.isNotEmpty)
+              'reasoning_content': entry.reasoning,
             'tool_calls': [
               for (final call in entry.calls)
                 {

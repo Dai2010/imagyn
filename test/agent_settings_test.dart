@@ -329,4 +329,70 @@ void main() {
     await subscription.cancel();
     await server.close(force: true);
   });
+
+  test('OpenAI history sends back every assistant reasoning_content', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final received = Completer<Map<String, dynamic>>();
+    final subscription = server.listen((request) async {
+      received.complete(
+        jsonDecode(await utf8.decoder.bind(request).join())
+            as Map<String, dynamic>,
+      );
+      request.response.headers.contentType = ContentType.json;
+      request.response.write('{"choices":[{"message":{"content":"OK"}}]}');
+      await request.response.close();
+    });
+    final client = StudioApi(
+      ServiceConfig(
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        agentModel: 'deepseek-reasoner',
+      ),
+      'key',
+      '',
+      MemoryStore(),
+    );
+    await client.converse(
+      [
+        const ChatEntry('user', 'hello'),
+        const ChatEntry(
+          'assistant',
+          'hi',
+          reasoning: 'A short greeting is enough.',
+        ),
+        const ChatEntry('user', 'draw a fox'),
+        const ChatEntry(
+          'assistant',
+          '',
+          reasoning: 'The user wants an image, so call generate_image.',
+          calls: [
+            AgentCall('call-1', 'generate_image', {'prompt': 'a fox'}),
+          ],
+        ),
+        const ChatEntry('tool', 'a fox', callId: 'call-1'),
+        const ChatEntry('user', 'thanks'),
+      ],
+      [],
+      CancelToken(),
+    );
+    final messages = (await received.future)['messages'] as List;
+    // DeepSeek rejects a request that carries tools unless every earlier
+    // assistant turn brings its reasoning_content along, tool calls included.
+    expect(messages[1], {
+      'role': 'assistant',
+      'reasoning_content': 'A short greeting is enough.',
+      'content': 'hi',
+    });
+    expect(
+      messages[3]['reasoning_content'],
+      'The user wants an image, so call generate_image.',
+    );
+    expect(messages[4], {
+      'role': 'tool',
+      'tool_call_id': 'call-1',
+      'content': 'a fox',
+    });
+    client.close();
+    await subscription.cancel();
+    await server.close(force: true);
+  });
 }
