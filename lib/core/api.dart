@@ -446,7 +446,7 @@ class StudioApi {
           'role': entry.role,
           // DeepSeek's thinking mode rejects any request that carries `tools`
           // unless every earlier assistant turn's reasoning comes back too.
-          if (config.protocol == ApiProtocol.openai &&
+          if (_echoReasoning &&
               entry.role == 'assistant' &&
               entry.reasoning.isNotEmpty)
             'reasoning_content': entry.reasoning,
@@ -517,6 +517,16 @@ class StudioApi {
     },
   };
 
+  /// DeepSeek's thinking mode is the one OpenAI-compatible service known to
+  /// require `reasoning_content` back whenever `tools` is present; echoing it
+  /// to other endpoints can be rejected, so the field follows the provider.
+  bool get _echoReasoning {
+    final host = Uri.tryParse(config.baseUrl.trim())?.host ?? '';
+    return config.protocol == ApiProtocol.openai &&
+        (config.agentModel.toLowerCase().contains('deepseek') ||
+            host.toLowerCase().contains('deepseek'));
+  }
+
   List<Map<String, dynamic>> _assistantCalls(ChatEntry entry) =>
       switch (config.protocol) {
         ApiProtocol.anthropic => [
@@ -556,7 +566,7 @@ class StudioApi {
           {
             'role': 'assistant',
             'content': entry.text.isEmpty ? null : entry.text,
-            if (entry.reasoning.isNotEmpty)
+            if (_echoReasoning && entry.reasoning.isNotEmpty)
               'reasoning_content': entry.reasoning,
             'tool_calls': [
               for (final call in entry.calls)

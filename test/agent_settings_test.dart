@@ -395,4 +395,41 @@ void main() {
     await subscription.cancel();
     await server.close(force: true);
   });
+
+  test('reasoning_content stays off other OpenAI-compatible models', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final received = Completer<Map<String, dynamic>>();
+    final subscription = server.listen((request) async {
+      received.complete(
+        jsonDecode(await utf8.decoder.bind(request).join())
+            as Map<String, dynamic>,
+      );
+      request.response.headers.contentType = ContentType.json;
+      request.response.write('{"choices":[{"message":{"content":"OK"}}]}');
+      await request.response.close();
+    });
+    final client = StudioApi(
+      ServiceConfig(
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        agentModel: 'gpt-4o',
+      ),
+      'key',
+      '',
+      MemoryStore(),
+    );
+    await client.converse(
+      [
+        const ChatEntry('user', 'hello'),
+        const ChatEntry('assistant', 'hi', reasoning: 'A short greeting.'),
+        const ChatEntry('user', 'again'),
+      ],
+      [],
+      CancelToken(),
+    );
+    final messages = (await received.future)['messages'] as List;
+    expect(messages[1], {'role': 'assistant', 'content': 'hi'});
+    client.close();
+    await subscription.cancel();
+    await server.close(force: true);
+  });
 }
