@@ -158,6 +158,37 @@ void main() {
     expect(result.text.length, maxFetchBytes);
     expect(result.truncated, isTrue);
   });
+
+  test('TLS redirects and empty responses close cleanly', () async {
+    final server = await HttpServer.bindSecure(
+      InternetAddress.loopbackIPv4,
+      0,
+      serverContext(),
+    );
+    addTearDown(() => server.close(force: true));
+    var requests = 0;
+    server.listen((request) async {
+      requests++;
+      if (request.uri.path == '/start') {
+        request.response.statusCode = 302;
+        request.response.headers.set(HttpHeaders.locationHeader, '/empty');
+      } else {
+        request.response.headers.contentType = ContentType.text;
+        request.response.contentLength = 0;
+      }
+      await request.response.close();
+    });
+    final result = await fetchUrl(
+      'https://localhost:${server.port}/start',
+      policy: (_) async => InternetAddress.loopbackIPv4,
+      securityContext: clientContext(),
+    );
+    expect(requests, 2);
+    expect(result.url, 'https://localhost:${server.port}/empty');
+    expect(result.bytes, 0);
+    expect(result.text, isEmpty);
+    expect(result.truncated, isFalse);
+  });
 }
 
 final class _DelayedConnection extends IOOverrides {

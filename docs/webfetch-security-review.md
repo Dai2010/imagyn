@@ -48,7 +48,7 @@ executor directly and avoids advertising an unhandled tool to the model.
 
 ## Verification
 
-The 35 WebFetch tests cover private/public address controls, mixed DNS answers,
+The 36 WebFetch tests cover private/public address controls, mixed DNS answers,
 redirects, Host and credential isolation, proxies, whole-operation timeout,
 TLS chain/hostname verification, plaintext-peer rejection, stalled handshake
 cleanup, TLS backpressure, truncation and malformed HTML.
