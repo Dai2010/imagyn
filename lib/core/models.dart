@@ -602,6 +602,28 @@ const finishDeckTool = {
   },
 };
 
+/// Schema for future web-tool protocol integration. The standalone executor
+/// enforces destination rules. Add this to agentTools when dispatch is wired.
+const fetchTool = {
+  'name': 'fetch_url',
+  'description':
+      'Fetch one public http or https page and return its readable text. Use '
+      'it only when the user asks about a page or needs information that is '
+      'not in the conversation. Loopback, private and link-local addresses are '
+      'refused by the app.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'url': {
+        'type': 'string',
+        'description': 'Absolute http or https URL, including the scheme.',
+      },
+    },
+    'required': ['url'],
+    'additionalProperties': false,
+  },
+};
+
 /// Every tool offered to the model. The order is the order of the prompt.
 const agentTools = [
   imageTool,
