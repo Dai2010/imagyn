@@ -229,4 +229,80 @@ void main() {
       isTrue,
     );
   });
+
+  test('a failed tool leaves a result for every call in the turn', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    var chatRequests = 0;
+    final subscription = server.listen((request) async {
+      if (request.uri.path.endsWith('/images/generations')) {
+        await request.drain<void>();
+        request.response.statusCode = 500;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write('{"error":{"message":"upstream"}}');
+        await request.response.close();
+        return;
+      }
+      await request.drain<void>();
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'choices': [
+            {
+              'message': chatRequests++ == 0
+                  ? {
+                      'content': '',
+                      'tool_calls': [
+                        {
+                          'id': 'c1',
+                          'type': 'function',
+                          'function': {
+                            'name': 'generate_image',
+                            'arguments': jsonEncode({
+                              'prompt': 'a',
+                              'aspect_ratio': 'auto',
+                            }),
+                          },
+                        },
+                        {
+                          'id': 'c2',
+                          'type': 'function',
+                          'function': {
+                            'name': 'generate_image',
+                            'arguments': jsonEncode({
+                              'prompt': 'b',
+                              'aspect_ratio': 'auto',
+                            }),
+                          },
+                        },
+                      ],
+                    }
+                  : {'content': 'ok'},
+            },
+          ],
+        }),
+      );
+      await request.response.close();
+    });
+    addTearDown(subscription.cancel);
+    final store = DeckStore()
+      ..savedConfig = ServiceConfig(
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        agentModel: 'agent',
+        imageModel: 'image',
+        streamAgent: false,
+      );
+    final studio = DeckStudio(store);
+    addTearDown(studio.dispose);
+    await studio.initialize();
+
+    await studio.submit('draw two pictures', true, const ImageOptions());
+
+    expect(studio.error, isNotNull);
+    final tools = studio.chat.where((entry) => entry.role == 'tool').toList();
+    expect(tools, hasLength(2));
+    expect(tools.map((entry) => entry.callId), ['c1', 'c2']);
+    expect(tools.first.text, startsWith('Tool failed:'));
+    expect(tools.last.text, contains('Not run'));
+  });
 }

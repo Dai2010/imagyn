@@ -373,7 +373,7 @@ class StudioApi {
   ) async {
     final settings = options ?? config.agentOptions;
     settings.validate(config.protocol);
-    history = settings.selectHistory(history);
+    history = _completeToolCalls(settings.selectHistory(history));
     if (key.isEmpty) throw const FormatException('missingKey');
     if (config.agentModel.trim().isEmpty) {
       throw const FormatException('missingAgentModel');
@@ -449,6 +449,43 @@ class StudioApi {
       }
     }
     return _AgentRequest(settings, messages, settings.systemPrompt);
+  }
+
+  /// Every assistant turn that called a tool has to be followed by one tool
+  /// result per call. A turn cut short — a failed request, a cancel, the
+  /// process being killed — can leave that history half written, and an
+  /// OpenAI-compatible endpoint then rejects every later request for that
+  /// conversation. Filling the holes at send time lets an old session heal
+  /// instead of staying unusable.
+  List<ChatEntry> _completeToolCalls(List<ChatEntry> history) {
+    final repaired = <ChatEntry>[];
+    for (var i = 0; i < history.length; i++) {
+      final entry = history[i];
+      repaired.add(entry);
+      if (entry.role != 'assistant' || entry.calls.isEmpty) continue;
+      final answered = <String>{};
+      var next = i + 1;
+      while (next < history.length && history[next].role == 'tool') {
+        final callId = history[next].callId;
+        if (callId != null) answered.add(callId);
+        repaired.add(history[next]);
+        next++;
+      }
+      for (final call in entry.calls) {
+        if (answered.contains(call.id)) continue;
+        repaired.add(
+          ChatEntry(
+            'tool',
+            'No result was recorded: the turn was interrupted before this '
+            'call finished.',
+            callId: call.id,
+            name: call.name,
+          ),
+        );
+      }
+      i = next - 1;
+    }
+    return repaired;
   }
 
   Map<String, dynamic> _toolResult(ChatEntry entry) => switch (config.protocol) {
