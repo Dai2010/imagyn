@@ -250,16 +250,14 @@ jobs:
             映想 Imagyn ${{ github.ref_name }}
 
             **本次更新**
-            - **DeepSeek 思考模式修复**：Agent 请求带 `tools` 时，历史 assistant 消息的 `reasoning_content` 现在会原样回传。此前第一跳成功后，第二跳会被 DeepSeek 以 400 `The reasoning_content in the thinking mode must be passed back to the API` 拒绝，整轮中断。该字段只对 DeepSeek 端点回传，切到其他严格实现时不会多带。
-            - **画廊记录可删除**：「生成中」「结果未知」「失败」的 job 卡片现在都有删除按钮与确认。删除运行中的记录会先停止请求；取消后迟到的完成回调不会把记录写回。删除记录不会删除已经保存到画廊的图片。
-            - 保留 v0.1.13 的表格与单轮 32 步，以及 v0.1.12 的回合规则：图片/工具失败回给文字模型、`ask_user`、停止保留回答。
+            - **DeepSeek 400 修复（第二轮）**：0.1.14 只在 assistant 有 reasoning 时回传 `reasoning_content`。对照 OpenCode 的 `requireReasoning` 后发现，没有思考的 assistant 回合也必须带这个字段（空字符串）。现在 DeepSeek 端点下每条 assistant 消息都会带 `reasoning_content`，没有思考时写 `""`。
+            - 保留 v0.1.14 的画廊记录删除、v0.1.13 的表格与 32 步、v0.1.12 的回合规则。
 
             **验证范围**
             - 静态分析零告警；**150 项**离线测试通过（CI 实测）。
-            - 新增 DeepSeek 历史回传、运行中/结果未知记录删除、下载重试取消与记录不复活等测试。
-            - **官方 DeepSeek 的实机工具循环尚未实测**；装机后需要跑一次「生成图片 → 插页」确认。
-            - **PowerPoint / WPS 的界面打开与手工编辑仍未实测**；这一点仍需你装机确认。
-            - 图片生成、普通 PPTX 页面未改动。
+            - 新增「无 reasoning 的 assistant 回合仍带空 `reasoning_content`」断言。
+            - **官方 DeepSeek 实机仍未确认**；如果仍 400，请把完整错误体发我。
+            - 上下文压缩与输入区模型选择优化不在本版，随后单独发。
 
             **签名状态 / Signing**
             - Android APK — signed with the release keystore.
