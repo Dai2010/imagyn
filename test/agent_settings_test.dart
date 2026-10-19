@@ -369,6 +369,7 @@ void main() {
           ],
         ),
         const ChatEntry('tool', 'a fox', callId: 'call-1'),
+        const ChatEntry('assistant', 'one more'),
         const ChatEntry('user', 'thanks'),
       ],
       [],
@@ -390,6 +391,12 @@ void main() {
       'role': 'tool',
       'tool_call_id': 'call-1',
       'content': 'a fox',
+    });
+    // An assistant turn with no thinking still has to carry the key.
+    expect(messages[6], {
+      'role': 'assistant',
+      'reasoning_content': '',
+      'content': 'one more',
     });
     client.close();
     await subscription.cancel();
