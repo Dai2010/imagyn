@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:file_selector/file_selector.dart';
@@ -12,6 +14,7 @@ import 'api.dart';
 import 'models.dart';
 import 'pptx.dart';
 import 'store.dart';
+import 'tokens.dart';
 
 class Studio extends ChangeNotifier {
   Studio(this.store);
@@ -57,6 +60,16 @@ class Studio extends ChangeNotifier {
   /// failed/unknown state, so the state alone cannot tell whether cancelling it
   /// is safe.
   String? _activeJob;
+
+  /// The summary of the turns that no longer fit into the request window, and
+  /// how many messages of [chat] it covers. Kept for this conversation only:
+  /// it is a request optimisation, not something the transcript displays.
+  String? _summary;
+  int _summaryUpTo = 0;
+
+  /// Roughly how many tokens the tool schemas cost on every request. Counted
+  /// once because the list is constant.
+  static final int _toolTokens = estimateTokens(jsonEncode(agentTools));
 
   /// The turn arriving right now, so a reply can be read while it is written
   /// instead of appearing all at once when it ends.
@@ -157,6 +170,7 @@ class Studio extends ChangeNotifier {
           as Map<String, dynamic>,
     );
     await _loadConversationSettings();
+    await _loadDecks();
     await refresh();
     await _restoreAgentReferences();
     ready = true;
@@ -267,10 +281,10 @@ class Studio extends ChangeNotifier {
     _conversationSettings = {};
     chat = [];
     agentRefs = [];
-    // Decks live in memory only, so one left over from another conversation
-    // would be a deck the transcript cannot account for.
+    // Decks are stored per conversation; a fresh one starts without any.
     decks.clear();
     activeDeck = null;
+    _resetCompaction();
     notifyListeners();
   }
 
@@ -285,9 +299,32 @@ class Studio extends ChangeNotifier {
     await _loadConversationSettings();
     chat = await store.messages(session);
     await _restoreAgentReferences();
-    decks.clear();
-    activeDeck = null;
+    await _loadDecks();
+    _resetCompaction();
     notifyListeners();
+  }
+
+  /// Restores the decks written in this conversation. The newest becomes the
+  /// active one, so the workspace button keeps working after a restart.
+  Future<void> _loadDecks() async {
+    decks
+      ..clear()
+      ..addEntries(
+        (await store.decks(session)).map((deck) => MapEntry(deck.id, deck)),
+      );
+    activeDeck = decks.isEmpty ? null : decks.values.last;
+  }
+
+  /// Saves the deck in the app's private database. A deck tool returns as soon
+  /// as the in-memory model changes; the write must not block the tool loop or
+  /// the next request, so it runs in the background.
+  void _persistDeck(Deck deck) {
+    unawaited(store.saveDeck(deck, session).catchError((Object _) {}));
+  }
+
+  void _resetCompaction() {
+    _summary = null;
+    _summaryUpTo = 0;
   }
 
   Future<void> _restoreAgentReferences() async {
@@ -373,6 +410,149 @@ class Studio extends ChangeNotifier {
     await store.job(id, state, record);
   }
 
+  static const _summaryPrompt =
+      'You condense a long conversation so another assistant can continue it. '
+      'Reply with the summary only and do not call any tool. Write in the '
+      'language the conversation mostly uses. Keep facts, names, numbers, '
+      'user constraints, decisions and unfinished work; drop pleasantries and '
+      'repeated tool output. Use these headings: Objective, Requirements and '
+      'constraints, Decisions, Done, In progress, Next steps, Relevant files '
+      'or ids.';
+
+  /// Prepares the history for one request. Below the user's token limit the
+  /// conversation goes out untouched. Near it, older turns are replaced by a
+  /// summary written by the same model, while the newest window stays verbatim
+  /// — the same trade OpenCode makes, so tool pairing and recent wording are
+  /// preserved.
+  Future<({List<ChatEntry> history, AgentOptions options})> _prepareRequest(
+    StudioApi client,
+    AgentOptions options,
+  ) async {
+    final limit = options.contextTokens;
+    if (limit <= 0) return (history: chat, options: options);
+    final reserve = math.max(2048, (limit * .15).round());
+    final output =
+        options.maxOutputTokens ??
+        (client.config.protocol == ApiProtocol.anthropic ? 2048 : 1024);
+    final budget = math.max(512, limit - reserve - output);
+    final keep = math.min(15000, math.max(2000, limit ~/ 4));
+
+    int cost(List<ChatEntry> history, AgentOptions settings) =>
+        estimateTokens(settings.requestPrompt) +
+        _toolTokens +
+        estimateHistoryTokens(history) +
+        8;
+
+    if (_summary == null && cost(chat, options) <= budget) {
+      return (history: chat, options: options);
+    }
+
+    var start = _splitForKeep(chat, keep);
+    // The newest message is always sent verbatim: summarizing it would leave
+    // the request without the instruction it exists to answer.
+    if (chat.isNotEmpty) start = math.min(start, chat.length - 1);
+    // A previous checkpoint may sit later than today's keep window; reusing it
+    // avoids summarizing the same turns twice.
+    if (_summaryUpTo > start && _summaryUpTo < chat.length) {
+      start = _summaryUpTo;
+    }
+    while (start < chat.length - 1 && chat[start].role != 'user') {
+      start++;
+    }
+
+    if (start > 0 && (_summary == null || start > _summaryUpTo)) {
+      final from = _summaryUpTo <= chat.length ? _summaryUpTo : 0;
+      final covered = chat.sublist(from, start);
+      if (covered.isNotEmpty) {
+        final previous = _summary == null
+            ? ''
+            : 'Previous summary:\n$_summary\n\n';
+        stage = 'compacting';
+        notifyListeners();
+        try {
+          final result = await client.converse(
+            [ChatEntry('user', '$previous${_transcript(covered)}')],
+            const [],
+            _cancel!,
+            options: const AgentOptions(systemPrompt: '', maxOutputTokens: 3000),
+          );
+          final text = result.text.trim();
+          if (text.isNotEmpty) {
+            _summary = text;
+            _summaryUpTo = start;
+          }
+        } catch (error) {
+          // Stopping is the user's decision and must end the turn. Any other
+          // summary failure falls back to trimming below, so a long
+          // conversation still gets an answer.
+          if (error is DioException && CancelToken.isCancel(error)) rethrow;
+        } finally {
+          stage = 'discussing';
+          notifyListeners();
+        }
+      }
+    }
+
+    var send = chat.sublist(math.min(start, chat.length));
+    var settings = options;
+    final summary = _summary;
+    if (summary != null && summary.isNotEmpty) {
+      final user = settings.systemPrompt.trim();
+      settings = settings.copyWith(
+        systemPrompt: [
+          if (user.isNotEmpty) user,
+          '[Summary of the earlier conversation, condensed because the context '
+              'window is nearly full]\n$summary',
+        ].join('\n\n'),
+      );
+    }
+    // Even a summary plus the newest window can exceed a very small limit; drop
+    // whole turns from the front, never the newest message.
+    while (send.length > 1 && cost(send, settings) > budget) {
+      var drop = 1;
+      while (drop < send.length && send[drop].role != 'user') drop++;
+      if (drop >= send.length) drop = send.length - 1;
+      send = send.sublist(drop);
+      // A tool result whose assistant call was just dropped cannot be sent on
+      // its own; the next request would be rejected for pairing.
+      while (send.length > 1 && send.first.role == 'tool') {
+        send = send.sublist(1);
+      }
+    }
+    return (history: send, options: settings);
+  }
+
+  /// Index where the verbatim window starts: as many newest messages as fit in
+  /// [keepTokens], moved back to a user turn so no tool result is separated
+  /// from the assistant call that produced it.
+  int _splitForKeep(List<ChatEntry> history, int keepTokens) {
+    var tokens = 0;
+    var start = history.length;
+    while (start > 0) {
+      final next = estimateHistoryTokens([history[start - 1]]);
+      if (tokens + next > keepTokens) break;
+      tokens += next;
+      start--;
+    }
+    while (start > 0 && start < history.length && history[start].role != 'user') {
+      start--;
+    }
+    return start;
+  }
+
+  String _transcript(Iterable<ChatEntry> entries) => entries.map((entry) {
+    final calls = entry.calls.isEmpty
+        ? ''
+        : '\nCalls: ${entry.calls.map((call) => '${call.name}(${jsonEncode(call.arguments)})').join('; ')}';
+    final label = entry.role == 'tool'
+        ? 'Tool result${entry.name == null ? '' : ' (${entry.name})'}'
+        : entry.role;
+    final thought = entry.reasoning.isEmpty
+        ? ''
+        : '\nThinking: ${entry.reasoning}';
+    return '$label: ${entry.text}$calls$thought';
+  }).join('\n\n');
+
   Future<void> submit(
     String prompt,
     bool agent,
@@ -443,19 +623,20 @@ class Studio extends ChangeNotifier {
         // multi-page deck to finish while retaining a finite request budget.
         const maxSteps = 32;
         for (var step = 0; step < maxSteps; step++) {
+          final prepared = await _prepareRequest(client, requestAgentOptions);
           final result = requestConfig.streamAgent
               ? await client.converseStream(
-                  chat,
+                  prepared.history,
                   refs,
                   _cancel!,
-                  options: requestAgentOptions,
+                  options: prepared.options,
                   onDelta: _stream,
                 )
               : await client.converse(
-                  chat,
+                  prepared.history,
                   refs,
                   _cancel!,
-                  options: requestAgentOptions,
+                  options: prepared.options,
                 );
           reply = result.text;
           reasoning = result.reasoning;
@@ -708,6 +889,7 @@ class Studio extends ChangeNotifier {
       final deck = Deck(id: id, title: title, aspectRatio: ratio);
       decks[id] = deck;
       activeDeck = deck;
+      _persistDeck(deck);
       notifyListeners();
       return 'Deck "$title" created with id $id ($ratio).';
     } on FormatException {
@@ -744,6 +926,7 @@ class Studio extends ChangeNotifier {
           imageId: image.isEmpty ? null : image,
         ),
       );
+      _persistDeck(deck);
       notifyListeners();
       return 'Slide ${deck.slides.length} added to deck ${deck.id}'
           '${image.isEmpty ? '' : ' with image $image'}.';
@@ -761,8 +944,10 @@ class Studio extends ChangeNotifier {
         title: _argText(call, 'title'),
         bullets: _argBullets(call),
         imageId: previous.imageId,
+        backgroundImageId: previous.backgroundImageId,
         table: previous.table,
       );
+      _persistDeck(deck);
       notifyListeners();
       return 'Slide ${index + 1} updated.';
     } on FormatException {
@@ -775,6 +960,7 @@ class Studio extends ChangeNotifier {
       final deck = _deckOf(call);
       final index = _argIndex(call, 'index', deck.slides.length);
       deck.slides.removeAt(index);
+      _persistDeck(deck);
       notifyListeners();
       return 'Slide ${index + 1} removed. ${deck.slides.length} remain.';
     } on FormatException {
@@ -797,8 +983,10 @@ class Studio extends ChangeNotifier {
         title: previous.title,
         bullets: previous.bullets,
         imageId: previous.imageId,
+        backgroundImageId: previous.backgroundImageId,
         table: table,
       );
+      _persistDeck(deck);
       notifyListeners();
       return 'Table ${table.rows.length}x${table.columnCount} added to '
           'slide ${index + 1} in deck ${deck.id}.';
@@ -813,10 +1001,63 @@ class Studio extends ChangeNotifier {
     try {
       final deck = _deckOf(call);
       deck.finished = true;
+      _persistDeck(deck);
+      unawaited(_snapshotDeck(deck));
       notifyListeners();
       return 'Deck ${deck.id} finished: ${deck.slides.length} slides.';
     } on FormatException {
       return 'Invalid arguments for finish_deck.';
+    }
+  }
+
+  /// Applies a generated picture behind the text. An index of -1 sets the deck
+  /// default; anything else touches one slide. The image has to be one this
+  /// app produced, because the export resolves ids against the asset table.
+  String _setBackground(AgentCall call, List<Asset> created) {
+    try {
+      final deck = _deckOf(call);
+      final index = call.arguments['index'];
+      if (index is! int || index < -1 || index >= deck.slides.length) {
+        return 'Invalid index: use -1 for the whole deck or an existing '
+            'zero-based slide index.';
+      }
+      final known = <Asset>[...created, ...gallery]
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final requested = _argText(call, 'image_id').trim();
+      var image = requested;
+      if (requested == 'last' || requested == 'latest') {
+        if (known.isEmpty) {
+          return 'No image exists yet. Call generate_image first, then pass '
+              'its id or "last" as image_id.';
+        }
+        image = known.first.id;
+      }
+      if (image.isNotEmpty && !known.any((asset) => asset.id == image)) {
+        return 'Unknown image_id "$requested". Use the id returned by '
+            'generate_image, or "last" for the newest image.';
+      }
+      if (index == -1) {
+        deck.backgroundImageId = image.isEmpty ? null : image;
+      } else {
+        final previous = deck.slides[index];
+        deck.slides[index] = Slide(
+          title: previous.title,
+          bullets: previous.bullets,
+          imageId: previous.imageId,
+          // An empty id clears this page's override, so it inherits the deck
+          // background again.
+          backgroundImageId: image.isEmpty ? null : image,
+          table: previous.table,
+        );
+      }
+      _persistDeck(deck);
+      notifyListeners();
+      return image.isEmpty
+          ? 'Background cleared on ${index == -1 ? 'the deck' : 'slide ${index + 1}'}.'
+          : 'Background $image applied to '
+                '${index == -1 ? 'deck ${deck.id}' : 'slide ${index + 1}'}.';
+    } on FormatException {
+      return 'Invalid arguments for set_background.';
     }
   }
 
@@ -909,6 +1150,8 @@ class Studio extends ChangeNotifier {
         return _addSlide(call, created);
       case 'add_table':
         return _addTable(call);
+      case 'set_background':
+        return _setBackground(call, created);
       case 'update_slide':
         return _updateSlide(call);
       case 'remove_slide':
@@ -1118,12 +1361,18 @@ class Studio extends ChangeNotifier {
       await _recordJob(job.id, job.state, {...job.record, 'session': null});
     }
     await store.deleteSession(id);
+    for (final deck in await store.decks(id)) {
+      await store.deleteDeck(deck.id);
+    }
     if (id == session) {
       session = store.newId();
       await store.setSetting('currentSession', session);
       _conversationSettings = {};
       chat = [];
       agentRefs = [];
+      decks.clear();
+      activeDeck = null;
+      _resetCompaction();
     }
     await refresh();
   }
@@ -1152,39 +1401,79 @@ class Studio extends ChangeNotifier {
     }
   }
 
-  /// Exports the deck as a real `.pptx`, not a picture of the slides: each
-  /// page becomes a text frame and, when it has one, an embedded picture, so
-  /// PowerPoint or WPS can keep editing it.
-  Future<void> exportDeck(Deck deck) async {
-    // Snapshot first: the Agent may still be adding or removing slides, and
-    // iterating the live list across the awaits below can throw
-    // ConcurrentModificationError or pair pictures from one revision with the
-    // slides of another.
+  /// Builds the `.pptx` bytes from a snapshot of the deck, so an Agent that is
+  /// still adding slides cannot change the list while the pictures are read.
+  Future<Uint8List> _renderDeck(Deck deck) async {
     final slides = List<Slide>.of(deck.slides);
     final images = <String, PptxImage>{};
     for (final slide in slides) {
-      final id = slide.imageId;
-      if (id == null || images.containsKey(id)) continue;
-      final asset = await store.asset(id);
-      if (asset == null) continue;
-      final bytes = await store.file(asset).readAsBytes();
-      final size = imageSizeOf(bytes)?.split('x') ?? const <String>[];
-      images[id] = PptxImage(
-        bytes: bytes,
-        mime: asset.mime,
-        width: size.isEmpty ? 16 : int.tryParse(size.first) ?? 16,
-        height: size.length < 2 ? 9 : int.tryParse(size.last) ?? 9,
-      );
+      final ids = <String>{
+        if (slide.imageId != null) slide.imageId!,
+        if (deck.backgroundFor(slide) != null) deck.backgroundFor(slide)!,
+      };
+      for (final id in ids) {
+        if (images.containsKey(id)) continue;
+        final asset = await store.asset(id);
+        if (asset == null) continue;
+        final bytes = await store.file(asset).readAsBytes();
+        final size = imageSizeOf(bytes)?.split('x') ?? const <String>[];
+        images[id] = PptxImage(
+          bytes: bytes,
+          mime: asset.mime,
+          width: size.isEmpty ? 16 : int.tryParse(size.first) ?? 16,
+          height: size.length < 2 ? 9 : int.tryParse(size.last) ?? 9,
+        );
+      }
     }
-    final snapshot = Deck(
-      id: deck.id,
-      title: deck.title,
-      aspectRatio: deck.aspectRatio,
-      finished: deck.finished,
-      slides: slides,
+    return buildPptx(
+      Deck(
+        id: deck.id,
+        title: deck.title,
+        aspectRatio: deck.aspectRatio,
+        finished: deck.finished,
+        backgroundImageId: deck.backgroundImageId,
+        slides: slides,
+      ),
+      images,
     );
-    final bytes = buildPptx(snapshot, images);
+  }
+
+  File _privateDeck(Deck deck) =>
+      File(p.join(store.root.path, 'decks', '${_deckFileName(deck.title)}.pptx'));
+
+  Future<void> _writePrivate(File target, Uint8List bytes) async {
+    await target.parent.create(recursive: true);
+    final partial = File('${target.path}.partial');
+    await partial.writeAsBytes(bytes, flush: true);
+    await partial.rename(target.path);
+  }
+
+  /// Keeps a finished deck in the app's private directory, so it can be opened
+  /// or exported after the process is restarted even if the user never tapped
+  /// Export. Failures are silent: the deck JSON is the authority and the export
+  /// path builds a fresh file anyway.
+  Future<void> _snapshotDeck(Deck deck) async {
+    try {
+      final bytes = await _renderDeck(deck);
+      await _writePrivate(_privateDeck(deck), bytes);
+    } catch (_) {
+      // The JSON copy and a later export rebuild this file; a missing snapshot
+      // must not fail the turn that finished the deck.
+    }
+  }
+
+  /// Exports the deck as a real `.pptx`, not a picture of the slides: each
+  /// page becomes a text frame and, when it has one, an embedded picture, so
+  /// PowerPoint or WPS can keep editing it.
+  ///
+  /// The file is written in the app's private directory first and then copied
+  /// to the public folder. If the public write fails, the private copy stays
+  /// and the next export can retry without rebuilding.
+  Future<void> exportDeck(Deck deck) async {
+    final bytes = await _renderDeck(deck);
     final name = '${_deckFileName(deck.title)}.pptx';
+    final staged = _privateDeck(deck);
+    await _writePrivate(staged, bytes);
     const mime =
         'application/vnd.openxmlformats-officedocument.presentationml.presentation';
     if (Platform.isAndroid) {
@@ -1197,9 +1486,17 @@ class Studio extends ChangeNotifier {
       });
     } else {
       final target = await getSaveLocation(suggestedName: name);
-      if (target != null) {
-        await XFile.fromData(bytes, mimeType: mime).saveTo(target.path);
-      }
+      // Cancelling keeps the private copy for a later attempt.
+      if (target == null) return;
+      await XFile.fromData(bytes, mimeType: mime).saveTo(target.path);
+    }
+    // The public copy is now the user's file; the staging copy is deleted so
+    // the deck is not quietly duplicated. A failed delete must not turn a
+    // successful export into an error.
+    try {
+      await staged.delete();
+    } on FileSystemException {
+      // Leftover private file is harmless.
     }
   }
 

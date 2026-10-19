@@ -23,13 +23,14 @@ class LocalStore {
     );
     await root.create(recursive: true);
     await Directory(p.join(root.path, 'assets')).create(recursive: true);
+    await Directory(p.join(root.path, 'decks')).create(recursive: true);
     if (Platform.isLinux || Platform.isWindows) {
       ffi.sqfliteFfiInit();
       databaseFactory = ffi.databaseFactoryFfi;
     }
     final db = await openDatabase(
       p.join(root.path, 'history.sqlite'),
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute(
           'CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
@@ -43,6 +44,16 @@ class LocalStore {
         await db.execute(
           'CREATE TABLE jobs (id TEXT PRIMARY KEY, state TEXT NOT NULL, record TEXT NOT NULL)',
         );
+        await db.execute(
+          'CREATE TABLE decks (id TEXT PRIMARY KEY, session TEXT NOT NULL, record TEXT NOT NULL)',
+        );
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'CREATE TABLE decks (id TEXT PRIMARY KEY, session TEXT NOT NULL, record TEXT NOT NULL)',
+          );
+        }
       },
     );
     return LocalStore._(root, db);
@@ -189,6 +200,36 @@ class LocalStore {
   /// the caller first; the record itself is always deletable.
   Future<void> deleteJob(String id) =>
       db.delete('jobs', where: 'id = ?', whereArgs: [id]).then((_) {});
+
+  /// Stores the deck the Agent is building. The slides stay in the app's
+  /// private directory, so a deck survives the process being killed and can
+  /// still be exported after a restart.
+  Future<void> saveDeck(Deck deck, String session) => db
+      .insert('decks', {
+        'id': deck.id,
+        'session': session,
+        'record': jsonEncode(deck.toJson()),
+      }, conflictAlgorithm: ConflictAlgorithm.replace)
+      .then((_) {});
+
+  /// The decks written in one conversation, oldest first, so the newest can
+  /// become the active deck again after a restart.
+  Future<List<Deck>> decks(String session) async =>
+      (await db.query(
+            'decks',
+            where: 'session = ?',
+            whereArgs: [session],
+            orderBy: 'rowid ASC',
+          ))
+          .map(
+            (row) => Deck.fromJson(
+              jsonDecode(row['record'] as String) as Map<String, dynamic>,
+            ),
+          )
+          .toList();
+
+  Future<void> deleteDeck(String id) =>
+      db.delete('decks', where: 'id = ?', whereArgs: [id]).then((_) {});
 
   /// Removes one conversation's messages and the per-conversation settings that
   /// belong to it. The images it produced stay: they are the user's work, and

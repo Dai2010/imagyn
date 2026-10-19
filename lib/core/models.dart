@@ -145,12 +145,27 @@ const deckAgentPrompt =
     'When the user asks for a shape or aspect ratio, pass it as aspect_ratio; never express the '
     'ratio only in the prompt text.';
 
-const defaultAgentPrompt =
+const tableAgentPrompt =
     '$deckAgentPrompt '
     'For tabular data, call add_table after add_slide with the zero-based slide '
     'index, rectangular string rows, and header_row. This creates editable '
     'table cells. Each slide holds one table; add_table replaces that table. '
     'Keep cells concise and split large tables across slides.';
+
+/// Shipped with the app and never edited by the user: it only explains the
+/// tools. A build that adds a tool adds its instructions here, so the model
+/// cannot lose them by rewriting the user-facing prompt.
+const builtInAgentPrompt =
+    '$tableAgentPrompt '
+    'A page can carry a full-bleed picture behind its text. Generate a '
+    'low-contrast background with generate_image (16:9 for a 16:9 deck), then '
+    'call set_background with the deck id, that image_id (or "last"), and '
+    'index -1 for every page or a zero-based page index for one page. The app '
+    'adds a light scrim, so avoid busy backgrounds that fight the text.';
+
+/// The editable prompt starts empty: the tool instructions above are always
+/// sent, and this is where the user adds their own standing instructions.
+const defaultAgentPrompt = '';
 
 /// The prompt shipped before the deck tools. A saved profile that still holds
 /// it verbatim is upgraded on load; a prompt the user edited is kept as is.
@@ -168,19 +183,50 @@ class AgentOptions {
   const AgentOptions({
     this.systemPrompt = defaultAgentPrompt,
     this.contextMessages = 0,
+    this.contextTokens = 0,
     this.maxOutputTokens,
     this.temperature,
     this.topP,
   });
   final String systemPrompt;
   final int contextMessages;
+
+  /// The model's input window in tokens, when the user knows it. Zero leaves
+  /// compaction off; a positive value makes a long conversation summarize its
+  /// older turns before the request would fail on length.
+  final int contextTokens;
   final int? maxOutputTokens;
   final double? temperature, topP;
+
+  AgentOptions copyWith({
+    String? systemPrompt,
+    int? contextMessages,
+    int? contextTokens,
+    int? maxOutputTokens,
+    double? temperature,
+    double? topP,
+  }) => AgentOptions(
+    systemPrompt: systemPrompt ?? this.systemPrompt,
+    contextMessages: contextMessages ?? this.contextMessages,
+    contextTokens: contextTokens ?? this.contextTokens,
+    maxOutputTokens: maxOutputTokens ?? this.maxOutputTokens,
+    temperature: temperature ?? this.temperature,
+    topP: topP ?? this.topP,
+  );
+
+  /// What actually travels as the system prompt: the built-in tool
+  /// instructions, then the user's own additions when they wrote any.
+  String get requestPrompt {
+    final user = systemPrompt.trim();
+    return user.isEmpty ? builtInAgentPrompt : '$builtInAgentPrompt\n\n$user';
+  }
 
   void validate(ApiProtocol protocol) {
     if (systemPrompt.length > 128000 ||
         contextMessages < 0 ||
         contextMessages > 10000 ||
+        contextTokens < 0 ||
+        contextTokens > 10000000 ||
         (maxOutputTokens != null &&
             (maxOutputTokens! < (protocol == ApiProtocol.responses ? 16 : 1) ||
                 maxOutputTokens! > 1048576)) ||
@@ -211,6 +257,7 @@ class AgentOptions {
   Map<String, dynamic> toJson() => {
     'systemPrompt': systemPrompt,
     'contextMessages': contextMessages,
+    'contextTokens': contextTokens,
     'maxOutputTokens': maxOutputTokens,
     'temperature': temperature,
     'topP': topP,
@@ -218,13 +265,19 @@ class AgentOptions {
   factory AgentOptions.fromJson(Map<String, dynamic> value) {
     final stored = value['systemPrompt'] as String?;
     return AgentOptions(
+      // Older builds shipped the tool instructions inside the editable prompt.
+      // Now that they are built in, the editable half starts empty unless the
+      // user wrote something of their own.
       systemPrompt:
           stored == null ||
               stored == legacyAgentPrompt ||
-              stored == deckAgentPrompt
+              stored == deckAgentPrompt ||
+              stored == tableAgentPrompt ||
+              stored == builtInAgentPrompt
           ? defaultAgentPrompt
           : stored,
       contextMessages: (value['contextMessages'] as num? ?? 0).toInt(),
+      contextTokens: (value['contextTokens'] as num? ?? 0).toInt(),
       maxOutputTokens: (value['maxOutputTokens'] as num?)?.toInt(),
       temperature: (value['temperature'] as num?)?.toDouble(),
       topP: (value['topP'] as num?)?.toDouble(),
@@ -491,22 +544,29 @@ class Slide {
     this.title = '',
     this.bullets = const [],
     this.imageId,
+    this.backgroundImageId,
     this.table,
   });
   final String title;
   final List<String> bullets;
   final String? imageId;
+
+  /// A picture behind the whole page. Null inherits the deck background; an
+  /// empty string means this page has none even when the deck has one.
+  final String? backgroundImageId;
   final SlideTable? table;
   Map<String, dynamic> toJson() => {
     'title': title,
     'bullets': bullets,
     if (imageId != null) 'imageId': imageId,
+    if (backgroundImageId != null) 'backgroundImageId': backgroundImageId,
     if (table != null) 'table': table!.toJson(),
   };
   factory Slide.fromJson(Map<String, dynamic> j) => Slide(
     title: j['title'] as String? ?? '',
     bullets: List<String>.from(j['bullets'] as List? ?? []),
     imageId: j['imageId'] as String?,
+    backgroundImageId: j['backgroundImageId'] as String?,
     table: j['table'] == null
         ? null
         : SlideTable.fromJson(Map<String, dynamic>.from(j['table'] as Map)),
@@ -583,6 +643,7 @@ class Deck {
     required this.title,
     this.aspectRatio = '16:9',
     this.finished = false,
+    this.backgroundImageId,
     List<Slide>? slides,
   }) : slides = slides ?? [];
   final String id;
@@ -590,9 +651,42 @@ class Deck {
   final String aspectRatio;
   final List<Slide> slides;
 
+  /// The picture behind pages that do not name one of their own.
+  String? backgroundImageId;
+
   /// Set once the model says the deck is complete, so the workspace can tell
   /// a deck still being written from one that will not change again.
   bool finished;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'aspectRatio': aspectRatio,
+    'finished': finished,
+    if (backgroundImageId != null) 'backgroundImageId': backgroundImageId,
+    'slides': [for (final slide in slides) slide.toJson()],
+  };
+
+  factory Deck.fromJson(Map<String, dynamic> json) => Deck(
+    id: json['id'] as String,
+    title: json['title'] as String? ?? '',
+    aspectRatio: json['aspectRatio'] as String? ?? '16:9',
+    finished: json['finished'] == true,
+    backgroundImageId: json['backgroundImageId'] as String?,
+    slides: [
+      for (final slide in json['slides'] as List? ?? [])
+        Slide.fromJson(Map<String, dynamic>.from(slide as Map)),
+    ],
+  );
+
+  /// The background this page actually uses: its own override, otherwise the
+  /// deck default. An empty override means deliberately no background.
+  String? backgroundFor(Slide slide) {
+    final own = slide.backgroundImageId;
+    if (own != null) return own.isEmpty ? null : own;
+    final shared = backgroundImageId;
+    return shared == null || shared.isEmpty ? null : shared;
+  }
 }
 
 const createDeckTool = {
@@ -721,6 +815,35 @@ const finishDeckTool = {
   },
 };
 
+const setBackgroundTool = {
+  'name': 'set_background',
+  'description':
+      'Put a generated picture behind the text of one page or the whole deck. '
+      'Generate a low-contrast background with generate_image first, then pass '
+      'its image_id (or "last"). index -1 sets the deck background used by '
+      'every page without its own; a zero-based index sets that page only. '
+      'An empty image_id clears it. The app lays a light scrim over the '
+      'picture so editable text stays readable.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'image_id': {
+        'type': 'string',
+        'description':
+            'The image_id returned by generate_image, "last" for the newest '
+            'image, or an empty string to clear the background.',
+      },
+      'index': {
+        'type': 'integer',
+        'description': 'Zero-based slide index, or -1 for the whole deck.',
+      },
+    },
+    'required': ['deck', 'image_id', 'index'],
+    'additionalProperties': false,
+  },
+};
+
 const askUserTool = {
   'name': 'ask_user',
   'description':
@@ -748,6 +871,7 @@ const agentTools = [
   createDeckTool,
   addSlideTool,
   addTableTool,
+  setBackgroundTool,
   updateSlideTool,
   removeSlideTool,
   finishDeckTool,

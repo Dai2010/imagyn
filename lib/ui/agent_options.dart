@@ -22,6 +22,9 @@ class AgentOptionsEditorState extends State<AgentOptionsEditor> {
   late final _context = TextEditingController(
     text: '${widget.options.contextMessages}',
   );
+  late final _contextTokens = TextEditingController(
+    text: '${widget.options.contextTokens}',
+  );
   late final _tokens = TextEditingController(
     text: widget.options.maxOutputTokens?.toString() ?? '',
   );
@@ -37,6 +40,7 @@ class AgentOptionsEditorState extends State<AgentOptionsEditor> {
     final value = AgentOptions(
       systemPrompt: _prompt.text,
       contextMessages: int.parse(_context.text.trim()),
+      contextTokens: int.parse(_contextTokens.text.trim()),
       maxOutputTokens: int.tryParse(_tokens.text.trim()),
       temperature: double.tryParse(_temperature.text.trim()),
       topP: double.tryParse(_topP.text.trim()),
@@ -57,6 +61,7 @@ class AgentOptionsEditorState extends State<AgentOptionsEditor> {
     for (final controller in [
       _prompt,
       _context,
+      _contextTokens,
       _tokens,
       _temperature,
       _topP,
@@ -137,6 +142,21 @@ class AgentOptionsEditorState extends State<AgentOptionsEditor> {
             padding: const EdgeInsets.only(bottom: 16),
             child: Text(
               s.t('contextNote'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          _number(
+            _contextTokens,
+            'contextTokens',
+            0,
+            10000000,
+            integer: true,
+            optional: false,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Text(
+              s.t('compactionNote'),
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),

@@ -212,7 +212,8 @@ void main() {
       );
       expect(reply.imagePrompt, 'a whale');
       final body = bodies.single;
-      expect(body['instructions'], 'custom');
+      expect(body['instructions'], contains('custom'));
+      expect(body['instructions'], contains('create_deck'));
       expect(body['max_output_tokens'], 4096);
       expect(body['top_p'], .9);
       expect(body['store'], false);
@@ -240,8 +241,8 @@ void main() {
         options: const AgentOptions(systemPrompt: ''),
       );
       final minimal = bodies.last;
+      expect(minimal['instructions'], builtInAgentPrompt);
       for (final key in [
-        'instructions',
         'max_output_tokens',
         'temperature',
         'top_p',

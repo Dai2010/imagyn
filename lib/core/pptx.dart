@@ -40,6 +40,15 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
   for (var i = 0; i < deck.slides.length; i++) {
     final slide = deck.slides[i];
     final used = <String, _Media>{};
+    final backgroundId = deck.backgroundFor(slide);
+    final background = backgroundId == null ? null : images[backgroundId];
+    if (backgroundId != null && background != null) {
+      final part = media.putIfAbsent(
+        backgroundId,
+        () => _Media(media.length + 1, background),
+      );
+      used[backgroundId] = part;
+    }
     final id = slide.imageId;
     final image = id == null ? null : images[id];
     if (id != null && image != null) {
@@ -49,7 +58,14 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
     slides.add(
       _SlideParts(
         number: i + 1,
-        xml: _slideXml(slide, i + 1, size, image, used.values.toList()),
+        xml: _slideXml(
+          slide,
+          i + 1,
+          size,
+          image,
+          used.values.toList(),
+          background: background,
+        ),
         images: used.values.toList(),
       ),
     );
@@ -306,8 +322,9 @@ String _slideXml(
   int number,
   ({int width, int height}) size,
   PptxImage? image,
-  List<_Media> images,
-) {
+  List<_Media> images, {
+  PptxImage? background,
+}) {
   final margin = (size.width * .05).round();
   final contentWidth = size.width - margin * 2;
   final titleTop = (size.height * .055).round();
@@ -324,9 +341,21 @@ String _slideXml(
     <= 5 => 1600,
     _ => 1500,
   };
+  final backgroundIndex = background == null
+      ? -1
+      : images.indexWhere((part) => identical(part.image, background));
+  final backgroundEmbed = backgroundIndex < 0
+      ? null
+      : 'rId${backgroundIndex + 2}';
 
   final shapes = StringBuffer();
   var id = 2;
+  if (backgroundEmbed != null) {
+    // The picture is the page background; a translucent white sheet keeps the
+    // editable dark text readable on any photograph, and stays a separate
+    // shape the user can delete or restyle in PowerPoint.
+    shapes.write(_scrimShape(id++, size));
+  }
   final title = slide.title.trim();
   if (title.isNotEmpty) {
     shapes.write(
@@ -423,8 +452,7 @@ String _slideXml(
       'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
       'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">'
       '<p:cSld>'
-      '<p:bg><p:bgPr><a:solidFill><a:srgbClr val="FBFAFE"/></a:solidFill>'
-      '<a:effectLst/></p:bgPr></p:bg>'
+      '${backgroundEmbed == null ? '<p:bg><p:bgPr><a:solidFill><a:srgbClr val="FBFAFE"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>' : '<p:bg><p:bgPr><a:blipFill dpi="0" rotWithShape="1"><a:blip r:embed="$backgroundEmbed"/><a:stretch><a:fillRect/></a:stretch></a:blipFill><a:effectLst/></p:bgPr></p:bg>'}'
       '<p:spTree>'
       '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/>'
       '</p:nvGrpSpPr>'
@@ -630,6 +658,18 @@ String _bulletParagraph(String text, int size, String color) =>
     '<a:lnSpc><a:spcPct val="115000"/></a:lnSpc>'
     '<a:buFont typeface="Arial"/><a:buChar char="•"/></a:pPr>'
     '<a:r>${_run(text, size, false, color)}</a:r></a:p>';
+
+String _scrimShape(int id, ({int width, int height}) size) =>
+    '<p:sp>'
+    '<p:nvSpPr><p:cNvPr id="$id" name="Background scrim"/>'
+    '<p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
+    '<p:spPr><a:xfrm><a:off x="0" y="0"/>'
+    '<a:ext cx="${size.width}" cy="${size.height}"/></a:xfrm>'
+    '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+    '<a:solidFill><a:srgbClr val="FFFFFF"><a:alpha val="52000"/></a:srgbClr>'
+    '</a:solidFill><a:ln><a:noFill/></a:ln></p:spPr>'
+    '<p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody>'
+    '</p:sp>';
 
 String _pictureShape({
   required int id,

@@ -713,34 +713,6 @@ class _StudioShellState extends State<StudioShell> {
                             ),
                           ),
                   ),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Wrap(
-                      spacing: 4,
-                      children: [
-                        if (agent) _modelButton(true),
-                        _modelButton(false),
-                        if (agent)
-                          IconButton(
-                            key: const ValueKey('agentOptions'),
-                            tooltip: s.t('conversationSettings'),
-                            onPressed: studio.busy
-                                ? null
-                                : () => _guard(() async {
-                                    final value = await showAgentOptions(
-                                      context,
-                                      studio.agentOptions,
-                                      studio.config.protocol,
-                                    );
-                                    if (value != null) {
-                                      await studio.setAgentOptions(value);
-                                    }
-                                  }),
-                            icon: const Icon(Icons.tune_rounded, size: 20),
-                          ),
-                      ],
-                    ),
-                  ),
                   TextField(
                     controller: controller,
                     minLines: 1,
@@ -758,26 +730,41 @@ class _StudioShellState extends State<StudioShell> {
                     children: [
                       IconButton(
                         tooltip: s.t('addReferences'),
+                        visualDensity: VisualDensity.compact,
                         onPressed: studio.busy
                             ? null
                             : () => _guard(() => studio.pickReferences(agent)),
                         icon: const Icon(Icons.add_photo_alternate_outlined),
                       ),
-                      Expanded(
-                        child: Align(
-                          alignment: AlignmentDirectional.centerStart,
-                          child: TextButton.icon(
-                            onPressed: () => _options(),
-                            icon: const Icon(Icons.tune_rounded, size: 18),
-                            label: Text(
-                              '${studio.imageOptions.size == 'auto' ? s.t('auto') : ratioOfSize(studio.imageOptions.size) ?? studio.imageOptions.size} · ${studio.imageOptions.count}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
+                      Flexible(flex: 5, child: _modelButton(agent)),
+                      if (agent)
+                        IconButton(
+                          key: const ValueKey('agentOptions'),
+                          tooltip: s.t('conversationSettings'),
+                          visualDensity: VisualDensity.compact,
+                          onPressed: studio.busy
+                              ? null
+                              : () => _guard(() async {
+                                  final value = await showAgentOptions(
+                                    context,
+                                    studio.agentOptions,
+                                    studio.config.protocol,
+                                  );
+                                  if (value != null) {
+                                    await studio.setAgentOptions(value);
+                                  }
+                                }),
+                          icon: const Icon(Icons.tune_rounded, size: 20),
                         ),
+                      IconButton(
+                        key: const ValueKey('imageOptions'),
+                        tooltip:
+                            '${s.t('imageOptions')} · ${studio.imageOptions.size == 'auto' ? s.t('auto') : ratioOfSize(studio.imageOptions.size) ?? studio.imageOptions.size} · ${studio.imageOptions.count}',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: studio.busy ? null : _options,
+                        icon: const Icon(Icons.aspect_ratio_rounded, size: 20),
                       ),
-                      const SizedBox(width: 8),
+                      const Spacer(),
                       FilledButton.icon(
                         key: const ValueKey('submit'),
                         onPressed: studio.busy
@@ -808,12 +795,21 @@ class _StudioShellState extends State<StudioShell> {
     );
   }
 
+  /// The model chip sits in the action row instead of a separate line above
+  /// the field: on the Agent page only the model that answers is shown, and
+  /// the image model is reached through Settings or the image options.
   Widget _modelButton(bool agent) {
     final model = agent
         ? studio.activeConfig.agentModel
         : studio.activeConfig.imageModel;
-    return TextButton.icon(
+    return TextButton(
       key: ValueKey(agent ? 'switchAgentModel' : 'switchImageModel'),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        minimumSize: const Size(0, 36),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+      ),
       onPressed: studio.busy
           ? null
           : () => _guard(() async {
@@ -826,14 +822,19 @@ class _StudioShellState extends State<StudioShell> {
               );
               if (model != null) await studio.switchModel(model, agent: agent);
             }),
-      icon: Icon(agent ? Icons.forum_outlined : Icons.image_outlined, size: 16),
-      label: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 170),
-        child: Text(
-          model.isEmpty ? s.t(agent ? 'agentModel' : 'imageModel') : model,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(agent ? Icons.forum_outlined : Icons.image_outlined, size: 16),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              model.isEmpty ? s.t(agent ? 'agentModel' : 'imageModel') : model,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }
