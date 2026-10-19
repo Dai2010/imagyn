@@ -213,7 +213,7 @@ void main() {
     expect(first, contains('name="Background scrim"'));
     expect(first, contains('<a:alpha val="52000"/>'));
     // The scrim is a shape the user can delete, not part of the picture.
-    expect(first, contains('<p:pic>'), isFalse);
+    expect(first, isNot(contains('<p:pic>')));
     final firstRels = utf8.decode(files['ppt/slides/_rels/slide1.xml.rels']!);
     expect(firstRels, contains('Target="../media/image1.png"'));
 

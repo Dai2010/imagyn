@@ -474,7 +474,10 @@ class Studio extends ChangeNotifier {
             [ChatEntry('user', '$previous${_transcript(covered)}')],
             const [],
             _cancel!,
-            options: const AgentOptions(systemPrompt: '', maxOutputTokens: 3000),
+            options: const AgentOptions(
+              systemPrompt: _summaryPrompt,
+              maxOutputTokens: 3000,
+            ),
           );
           final text = result.text.trim();
           if (text.isNotEmpty) {
@@ -510,7 +513,9 @@ class Studio extends ChangeNotifier {
     // whole turns from the front, never the newest message.
     while (send.length > 1 && cost(send, settings) > budget) {
       var drop = 1;
-      while (drop < send.length && send[drop].role != 'user') drop++;
+      while (drop < send.length && send[drop].role != 'user') {
+        drop++;
+      }
       if (drop >= send.length) drop = send.length - 1;
       send = send.sublist(drop);
       // A tool result whose assistant call was just dropped cannot be sent on
