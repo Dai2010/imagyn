@@ -453,7 +453,7 @@ class StudioApi {
         });
       }
     }
-    return _AgentRequest(settings, messages, settings.systemPrompt);
+    return _AgentRequest(settings, messages, settings.requestPrompt);
   }
 
   /// Every assistant turn that called a tool has to be followed by one tool

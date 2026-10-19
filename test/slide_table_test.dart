@@ -129,7 +129,7 @@ void main() {
       AgentOptions.fromJson({'systemPrompt': deckAgentPrompt}).systemPrompt,
       defaultAgentPrompt,
     );
-    expect(defaultAgentPrompt, contains('add_table'));
+    expect(builtInAgentPrompt, contains('add_table'));
     expect(
       AgentOptions.fromJson({'systemPrompt': 'Custom'}).systemPrompt,
       'Custom',

@@ -189,7 +189,8 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
   /// immutable per slide object. Streaming a reply notifies this page many
   /// times a second; without this guard each of those would rebuild every page.
   String _signal() =>
-      '${[for (final item in _items) item.key].join(',')}|$_placeholderVisible|'
+      '${[for (final item in _items) '${item.key}:${item.slide.backgroundImageId ?? ''}'].join(',')}'
+      '|${deck.backgroundImageId ?? ''}|$_placeholderVisible|'
       '${deck.finished}|${studio.busy}|${studio.runningTool}|'
       '${studio.activeDeck?.id}';
 
@@ -246,6 +247,12 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
   Future<Asset?> _asset(String id) =>
       _assets[id] ??= studio.store.asset(id);
 
+  /// The background this page uses, if any. Null keeps the plain card.
+  Future<Asset?>? _background(Slide slide) {
+    final id = deck.backgroundFor(slide);
+    return id == null ? null : _asset(id);
+  }
+
   void _open(Slide slide, int number) {
     showDialog<void>(
       context: context,
@@ -264,6 +271,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
                   asset: slide.imageId == null
                       ? null
                       : _asset(slide.imageId!),
+                  background: _background(slide),
                   large: true,
                   studio: studio,
                 ),
@@ -316,6 +324,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
                             asset: item.slide.imageId == null
                                 ? null
                                 : _asset(item.slide.imageId!),
+                            background: _background(item.slide),
                             studio: studio,
                           ),
                         ),
@@ -436,6 +445,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
               asset: item.slide.imageId == null
                   ? null
                   : _asset(item.slide.imageId!),
+              background: _background(item.slide),
               studio: studio,
             ),
           ),
@@ -460,42 +470,73 @@ class _SlideCard extends StatelessWidget {
     required this.number,
     required this.asset,
     required this.studio,
+    this.background,
     this.large = false,
   });
   final Slide slide;
   final int number;
   final Future<Asset?>? asset;
+  final Future<Asset?>? background;
   final Studio studio;
   final bool large;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final content = LayoutBuilder(
+      builder: (context, constraints) {
+        if (slide.table != null) {
+          // A bounded canvas keeps the table's relative layout stable at
+          // thumbnail and dialog size, including on a narrow phone.
+          const width = 960.0;
+          final height = width * constraints.maxHeight / constraints.maxWidth;
+          return FittedBox(
+            fit: BoxFit.contain,
+            child: SizedBox(
+              width: width,
+              height: height,
+              child: _content(context, width),
+            ),
+          );
+        }
+        return _content(context, constraints.maxWidth);
+      },
+    );
     return Material(
       color: scheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(16),
       clipBehavior: Clip.antiAlias,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          if (slide.table != null) {
-            // A bounded canvas keeps the table's relative layout stable at
-            // thumbnail and dialog size, including on a narrow phone.
-            const width = 960.0;
-            final height = width * constraints.maxHeight / constraints.maxWidth;
-            return FittedBox(
-              fit: BoxFit.contain,
-              child: SizedBox(
-                width: width,
-                height: height,
-                child: _content(context, width),
-              ),
-            );
-          }
-          return _content(context, constraints.maxWidth);
-        },
-      ),
+      child: background == null
+          ? content
+          : Stack(
+              fit: StackFit.expand,
+              children: [
+                _backgroundImage(context),
+                // The same idea as the scrim in the exported deck: keep the
+                // themed text readable without hiding the picture entirely.
+                ColoredBox(color: scheme.surface.withValues(alpha: .62)),
+                content,
+              ],
+            ),
     );
   }
+
+  Widget _backgroundImage(BuildContext context) => FutureBuilder<Asset?>(
+    future: background,
+    builder: (context, snapshot) {
+      final image = snapshot.data;
+      if (image == null) {
+        return ColoredBox(color: Theme.of(context).colorScheme.surfaceContainerLow);
+      }
+      return Image.file(
+        File(studio.store.file(image).path),
+        fit: BoxFit.cover,
+        cacheWidth: large ? 1600 : 700,
+        errorBuilder: (_, _, _) =>
+            ColoredBox(color: Theme.of(context).colorScheme.surfaceContainerLow),
+      );
+    },
+  );
 
   Widget _content(BuildContext context, double width) {
     final scheme = Theme.of(context).colorScheme;

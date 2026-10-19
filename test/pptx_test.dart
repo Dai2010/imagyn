@@ -179,6 +179,62 @@ void main() {
     );
   });
 
+  test('a background picture fills the page behind an editable scrim', () {
+    final deck = Deck(
+      id: 'deck',
+      title: '背景',
+      backgroundImageId: 'bg',
+      slides: const [
+        Slide(title: '共用背景', bullets: ['要点']),
+        Slide(title: '单独背景', backgroundImageId: 'own'),
+        Slide(title: '不要背景', backgroundImageId: ''),
+      ],
+    );
+    final files = unzipPptx(
+      buildPptx(deck, {
+        'bg': PptxImage(
+          bytes: png,
+          mime: 'image/png',
+          width: 1600,
+          height: 900,
+        ),
+        'own': PptxImage(
+          bytes: png,
+          mime: 'image/png',
+          width: 900,
+          height: 1600,
+        ),
+      }),
+    );
+
+    final first = utf8.decode(files['ppt/slides/slide1.xml']!);
+    expect(first, contains('<a:blipFill dpi="0" rotWithShape="1">'));
+    expect(first, contains('r:embed="rId2"'));
+    expect(first, contains('name="Background scrim"'));
+    expect(first, contains('<a:alpha val="52000"/>'));
+    // The scrim is a shape the user can delete, not part of the picture.
+    expect(first, isNot(contains('<p:pic>')));
+    final firstRels = utf8.decode(files['ppt/slides/_rels/slide1.xml.rels']!);
+    expect(firstRels, contains('Target="../media/image1.png"'));
+
+    final second = utf8.decode(files['ppt/slides/slide2.xml']!);
+    expect(second, contains('r:embed="rId2"'));
+    final secondRels = utf8.decode(files['ppt/slides/_rels/slide2.xml.rels']!);
+    expect(secondRels, contains('Target="../media/image2.png"'));
+
+    // An explicit empty id cancels the deck background on that page.
+    final third = utf8.decode(files['ppt/slides/slide3.xml']!);
+    expect(third, isNot(contains('a:blipFill')));
+    expect(third, isNot(contains('Background scrim')));
+    expect(third, contains('<a:srgbClr val="FBFAFE"/>'));
+
+    expect(
+      files.keys.where((name) => name.startsWith('ppt/media/')),
+      hasLength(2),
+      reason: 'a deck background shared by pages is stored once',
+    );
+  });
+
   test('writes a native editable table with explicit header styling', () {
     final deck = Deck(
       id: 'table',

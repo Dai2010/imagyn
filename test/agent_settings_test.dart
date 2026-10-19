@@ -46,6 +46,41 @@ void main() {
   );
 
   test(
+    'tool instructions are built in and the user prompt is only appended',
+    () {
+      expect(defaultAgentPrompt, '');
+      expect(builtInAgentPrompt, contains('create_deck'));
+      expect(builtInAgentPrompt, contains('set_background'));
+      const custom = AgentOptions(systemPrompt: '只用中文回答。');
+      expect(custom.requestPrompt, startsWith(builtInAgentPrompt));
+      expect(custom.requestPrompt, endsWith('只用中文回答。'));
+      expect(const AgentOptions().requestPrompt, builtInAgentPrompt);
+      // Old builds stored the tool text as the user prompt; it migrates to an
+      // empty editable half instead of being duplicated after the built-in.
+      for (final old in [
+        legacyAgentPrompt,
+        deckAgentPrompt,
+        tableAgentPrompt,
+        builtInAgentPrompt,
+      ]) {
+        expect(
+          AgentOptions.fromJson({'systemPrompt': old}).systemPrompt,
+          '',
+          reason: old.substring(0, 20),
+        );
+      }
+      expect(
+        AgentOptions.fromJson({'systemPrompt': '保留我'}).systemPrompt,
+        '保留我',
+      );
+      expect(
+        AgentOptions.fromJson({'contextTokens': 32768}).contextTokens,
+        32768,
+      );
+    },
+  );
+
+  test(
     'history selection keeps newest user turn without mutating local history',
     () {
       const history = [
@@ -205,20 +240,21 @@ void main() {
         expect(messages.last['content'], 'latest');
         expect(messages.any((e) => e['content'] == 'old'), isFalse);
         if (protocol == ApiProtocol.responses) {
-          expect(body['instructions'], 'custom instruction');
+          expect(body['instructions'], contains('custom instruction'));
+          expect(body['instructions'], contains('create_deck'));
           expect(body['max_output_tokens'], 4096);
           expect(body['store'], false);
           expect(body.containsKey('messages'), false);
           expect(messages.length, 1);
         } else if (protocol == ApiProtocol.openai) {
-          expect(messages.first, {
-            'role': 'system',
-            'content': 'custom instruction',
-          });
+          expect(messages.first['role'], 'system');
+          expect(messages.first['content'], contains('custom instruction'));
+          expect(messages.first['content'], contains('create_deck'));
           expect(body['max_completion_tokens'], 4096);
           expect(body.containsKey('system'), isFalse);
         } else {
-          expect(body['system'], 'custom instruction');
+          expect(body['system'], contains('custom instruction'));
+          expect(body['system'], contains('create_deck'));
           expect(body['max_tokens'], 4096);
           expect(messages.length, 1);
         }
@@ -231,7 +267,7 @@ void main() {
     );
   }
 
-  test('empty system prompt and unset OpenAI parameters are omitted', () async {
+  test('built-in tool instructions are sent when no custom prompt is set', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final received = Completer<Map<String, dynamic>>();
     final subscription = server.listen((request) async {
@@ -259,9 +295,10 @@ void main() {
       options: const AgentOptions(systemPrompt: ''),
     );
     final body = await received.future;
-    expect(body['messages'], [
-      {'role': 'user', 'content': 'hello'},
-    ]);
+    final messages = body['messages'] as List;
+    expect(messages.first['role'], 'system');
+    expect(messages.first['content'], builtInAgentPrompt);
+    expect(messages.last, {'role': 'user', 'content': 'hello'});
     for (final key in [
       'system',
       'max_tokens',

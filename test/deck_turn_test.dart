@@ -142,7 +142,12 @@ void main() {
           'title': '狐狸与表格',
           'bullets': ['更新要点'],
         }),
-        5 => toolCall('finish_deck', {'deck': deckId}),
+        5 => toolCall('set_background', {
+          'deck': deckId,
+          'image_id': 'last',
+          'index': -1,
+        }),
+        6 => toolCall('finish_deck', {'deck': deckId}),
         _ => {'content': '做好了。'},
       };
       request.response.headers.contentType = ContentType.json;
@@ -175,6 +180,8 @@ void main() {
     expect(deck.slides.single.imageId, studio.gallery.single.id);
     expect(deck.slides.single.table!.rows, [['属性', '值'], ['配图', '狐狸']]);
     expect(deck.slides.single.title, '狐狸与表格');
+    expect(deck.backgroundImageId, studio.gallery.single.id);
+    expect(deck.backgroundFor(deck.slides.single), studio.gallery.single.id);
     expect(
       studio.chat.any(
         (entry) => entry.role == 'tool' && entry.text.contains('with image'),
@@ -384,5 +391,71 @@ void main() {
     );
     expect(messages.last, {'role': 'user', 'content': '16:9'});
     expect(studio.chat.last.text, '好，按 16:9。');
+  });
+
+  test('a deck is stored in the app directory and survives a restart', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    var requests = 0;
+    final subscription = server.listen((request) async {
+      final body =
+          jsonDecode(await utf8.decoder.bind(request).join())
+              as Map<String, dynamic>;
+      String? deckId;
+      for (final message in body['messages'] as List? ?? []) {
+        final content = (message as Map)['content'];
+        if (content is! String) continue;
+        final match = RegExp(r'created with id (\S+) \(').firstMatch(content);
+        if (match != null) deckId = match.group(1);
+      }
+      final message = switch (requests++) {
+        0 => toolCall('create_deck', {
+          'title': '持久演示',
+          'aspect_ratio': '16:9',
+        }),
+        1 => toolCall('add_slide', {
+          'deck': deckId,
+          'title': '第一页',
+          'bullets': ['要点'],
+          'image_id': '',
+        }),
+        2 => toolCall('finish_deck', {'deck': deckId}),
+        _ => {'content': '好了。'},
+      };
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'choices': [
+            {'message': message},
+          ],
+        }),
+      );
+      await request.response.close();
+    });
+    addTearDown(subscription.cancel);
+    final store = DeckStore()
+      ..savedConfig = ServiceConfig(
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        agentModel: 'agent',
+        streamAgent: false,
+      );
+    final studio = DeckStudio(store);
+    await studio.initialize();
+    await studio.submit('做一份演示文稿', true, const ImageOptions());
+    expect(studio.error, isNull);
+    final session = studio.session;
+    final id = studio.decks.values.single.id;
+    studio.dispose();
+
+    final restored = DeckStudio(store);
+    addTearDown(restored.dispose);
+    await restored.initialize();
+    expect(restored.session, session);
+    expect(restored.decks.keys, [id]);
+    final deck = restored.decks[id]!;
+    expect(deck.title, '持久演示');
+    expect(deck.finished, isTrue);
+    expect(deck.slides.single.title, '第一页');
+    expect(restored.activeDeck, same(deck));
   });
 }
