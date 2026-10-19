@@ -444,11 +444,10 @@ class StudioApi {
       } else {
         messages.add({
           'role': entry.role,
-          // DeepSeek's thinking mode rejects any request that carries `tools`
-          // unless every earlier assistant turn's reasoning comes back too.
-          if (_echoReasoning &&
-              entry.role == 'assistant' &&
-              entry.reasoning.isNotEmpty)
+          // DeepSeek's thinking mode requires the field on every assistant
+          // message once `tools` is present, even when there is no thinking
+          // to send; OpenCode writes an empty string in that case too.
+          if (_echoReasoning && entry.role == 'assistant')
             'reasoning_content': entry.reasoning,
           'content': entry.text.isEmpty ? '[Image result]' : entry.text,
         });
@@ -566,8 +565,9 @@ class StudioApi {
           {
             'role': 'assistant',
             'content': entry.text.isEmpty ? null : entry.text,
-            if (_echoReasoning && entry.reasoning.isNotEmpty)
-              'reasoning_content': entry.reasoning,
+            // See the plain-assistant branch: an empty string is required,
+            // not merely a non-empty reasoning from a thinking turn.
+            if (_echoReasoning) 'reasoning_content': entry.reasoning,
             'tool_calls': [
               for (final call in entry.calls)
                 {
