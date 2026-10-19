@@ -250,14 +250,17 @@ jobs:
             映想 Imagyn ${{ github.ref_name }}
 
             **本次更新**
-            - **DeepSeek 400 修复（第二轮）**：0.1.14 只在 assistant 有 reasoning 时回传 `reasoning_content`。对照 OpenCode 的 `requireReasoning` 后发现，没有思考的 assistant 回合也必须带这个字段（空字符串）。现在 DeepSeek 端点下每条 assistant 消息都会带 `reasoning_content`，没有思考时写 `""`。
-            - 保留 v0.1.14 的画廊记录删除、v0.1.13 的表格与 32 步、v0.1.12 的回合规则。
+            - **deck 不再只在内存**：按会话存进应用私有目录；`finish_deck` 会生成一份私有 `.pptx` 快照。点导出时先写私有文件，再复制到 `Download/Imagyn`，成功后删掉暂存副本；取消或失败时私有副本保留，可重试。重启应用后 deck 仍在。
+            - **背景图**：模型可以用新工具 `set_background` 给整份 deck 或单页铺背景图，`image_id` 支持 `generate_image` 返回的 id 或 `last`。工作台和导出的 `.pptx` 都会在图片上叠一层可删除的半透明遮罩，文字仍可编辑。
+            - **上下文压缩**：Agent 设置里新增「上下文上限（Tokens）」。接近上限时用会话同一个模型总结较早的对话，保留最近一段原文；摘要失败退回裁剪，不会卡住回合。
+            - **提示词拆成两版**：工具说明写死在应用里、始终生效；设置里的「自定义指令」只作为附加内容，不会再因为改提示词把工具用法弄丢。旧版本里逐字等于内置文本的配置会自动迁移。
+            - **输入区**：模型选择从输入框上方整行收进底部操作行；Agent 页只显示对话模型，图片模型去设置或图片参数里改。
+            - 保留 v0.1.15 的 DeepSeek `reasoning_content` 回传、v0.1.14 的画廊记录删除、v0.1.13 的表格与 32 步。
 
             **验证范围**
-            - 静态分析零告警；**150 项**离线测试通过（CI 实测）。
-            - 新增「无 reasoning 的 assistant 回合仍带空 `reasoning_content`」断言。
-            - **官方 DeepSeek 实机仍未确认**；如果仍 400，请把完整错误体发我。
-            - 上下文压缩与输入区模型选择优化不在本版，随后单独发。
+            - 静态分析零告警；**156 项**离线测试通过（CI 实测）。
+            - 新增：deck 重启恢复、`set_background`、pptx 背景与遮罩关系、摘要请求与旧消息不再发送、token 估算、提示词拆分与迁移。
+            - **DeepSeek 400 仍需实机确认**：这一版没有改 reasoning 回传逻辑；如果仍报 400，请把完整错误体发我。
 
             **签名状态 / Signing**
             - Android APK — signed with the release keystore.
