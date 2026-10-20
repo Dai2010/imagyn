@@ -117,4 +117,34 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('a model preset fills the two token limits', (tester) async {
+    final key = GlobalKey<AgentOptionsEditorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: AgentOptionsEditor(
+              key: key,
+              options: const AgentOptions(),
+              protocol: ApiProtocol.openai,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('agentPreset')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('deepseek-reasoner').last);
+    await tester.pumpAndSettle();
+
+    final value = key.currentState!.read();
+    expect(value, isNotNull);
+    expect(value!.contextTokens, 128000);
+    expect(value.maxOutputTokens, 65536);
+    // The preset leaves sampling alone.
+    expect(value.temperature, isNull);
+    expect(value.topP, isNull);
+  });
 }

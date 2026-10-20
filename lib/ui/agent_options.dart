@@ -130,6 +130,41 @@ class AgentOptionsEditorState extends State<AgentOptionsEditor> {
               child: Text(s.t('restorePrompt')),
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: DropdownButtonFormField<String>(
+              key: const ValueKey('agentPreset'),
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: s.t('modelPreset'),
+                helperText: s.t('modelPresetNote'),
+                helperMaxLines: 3,
+              ),
+              items: [
+                for (final preset in agentPresets)
+                  DropdownMenuItem(
+                    value: preset.model,
+                    child: Text(
+                      preset.model,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (model) {
+                if (model == null) return;
+                final preset = agentPresets.firstWhere(
+                  (preset) => preset.model == model,
+                );
+                // Only the windows are filled: sampling and the prompt stay as
+                // the user set them, and every value remains editable.
+                setState(() {
+                  _contextTokens.text = '${preset.contextTokens}';
+                  _tokens.text = '${preset.maxOutputTokens}';
+                });
+              },
+            ),
+          ),
           _number(
             _context,
             'contextMessages',
