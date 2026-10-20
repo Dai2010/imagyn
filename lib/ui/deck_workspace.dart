@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -189,7 +190,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
   /// immutable per slide object. Streaming a reply notifies this page many
   /// times a second; without this guard each of those would rebuild every page.
   String _signal() =>
-      '${[for (final item in _items) '${item.key}:${item.slide.backgroundImageId ?? ''}'].join(',')}'
+      '${[for (final item in _items) '${item.key}:${item.slide.backgroundImageId ?? ''}:${Object.hashAll(item.slide.elements)}'].join(',')}'
       '|${deck.backgroundImageId ?? ''}|$_placeholderVisible|'
       '${deck.finished}|${studio.busy}|${studio.runningTool}|'
       '${studio.activeDeck?.id}';
@@ -274,6 +275,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
                   background: _background(slide),
                   large: true,
                   studio: studio,
+                  points: _points,
                 ),
               ),
               PositionedDirectional(
@@ -293,6 +295,10 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
   }
 
   double get _ratio => deck.aspectRatio == '4:3' ? 4 / 3 : 16 / 9;
+
+  /// The page width in points, matching [deckSize] in the writer: element
+  /// font sizes are literal, so this is what makes preview and export agree.
+  double get _points => deck.aspectRatio == '4:3' ? 720 : 960;
 
   @override
   Widget build(BuildContext context) {
@@ -326,6 +332,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
                                 : _asset(item.slide.imageId!),
                             background: _background(item.slide),
                             studio: studio,
+                            points: _points,
                           ),
                         ),
                       ),
@@ -447,6 +454,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
                   : _asset(item.slide.imageId!),
               background: _background(item.slide),
               studio: studio,
+              points: _points,
             ),
           ),
         ),
@@ -470,6 +478,7 @@ class _SlideCard extends StatelessWidget {
     required this.number,
     required this.asset,
     required this.studio,
+    required this.points,
     this.background,
     this.large = false,
   });
@@ -478,7 +487,17 @@ class _SlideCard extends StatelessWidget {
   final Future<Asset?>? asset;
   final Future<Asset?>? background;
   final Studio studio;
+
+  /// The page width in points, 960 for 16:9 and 720 for 4:3. Element font
+  /// sizes are literal points, so this is what keeps the preview and the
+  /// exported `.pptx` the same size.
+  final double points;
   final bool large;
+
+  /// A page with free-form elements follows the exported file's light page
+  /// instead of the themed card, because element colours are literal: dark
+  /// text has to stay readable while the user is building it.
+  bool get _freeForm => slide.elements.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -495,15 +514,19 @@ class _SlideCard extends StatelessWidget {
             child: SizedBox(
               width: width,
               height: height,
-              child: _content(context, width),
+              child: _content(context, width, height),
             ),
           );
         }
-        return _content(context, constraints.maxWidth);
+        return _content(
+          context,
+          constraints.maxWidth,
+          constraints.maxHeight,
+        );
       },
     );
     return Material(
-      color: scheme.surfaceContainerLow,
+      color: _freeForm ? const Color(0xFFFBFAFE) : scheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(16),
       clipBehavior: Clip.antiAlias,
       child: background == null
@@ -520,6 +543,15 @@ class _SlideCard extends StatelessWidget {
             ),
     );
   }
+
+  /// Text inks follow the page: the exported deck is light, so a free-form
+  /// page uses the same dark greys the writer puts into the file.
+  Color _ink(BuildContext context) => _freeForm
+      ? const Color(0xFF1F1B2E)
+      : Theme.of(context).colorScheme.onSurface;
+  Color _mutedInk(BuildContext context) => _freeForm
+      ? const Color(0xFF3B3650)
+      : Theme.of(context).colorScheme.onSurfaceVariant;
 
   Widget _backgroundImage(BuildContext context) => FutureBuilder<Asset?>(
     future: background,
@@ -538,7 +570,141 @@ class _SlideCard extends StatelessWidget {
     },
   );
 
-  Widget _content(BuildContext context, double width) {
+  Widget _content(BuildContext context, double width, double height) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _layout(context, width),
+        if (slide.elements.isNotEmpty) _elements(context, width, height),
+      ],
+    );
+  }
+
+  /// Free-form shapes, positioned by the same fractions the writer uses, so a
+  /// page looks the same here and in PowerPoint.
+  Widget _elements(BuildContext context, double width, double height) {
+    final borderWidth = math.max(1.0, width / points);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        for (final element in slide.elements)
+          Positioned(
+            left: element.x * width,
+            top: element.y * height,
+            width: math.max(1, element.width * width),
+            height: math.max(1, element.height * height),
+            child: element.kind == SlideElementKind.text
+                ? _textElement(context, element, width, height, borderWidth)
+                : _imageElement(
+                    context,
+                    element,
+                    width,
+                    height,
+                    borderWidth,
+                  ),
+          ),
+      ],
+    );
+  }
+
+  Widget _textElement(
+    BuildContext context,
+    SlideElement element,
+    double width,
+    double height,
+    double borderWidth,
+  ) {
+    final boxWidth = element.width * width;
+    final boxHeight = element.height * height;
+    final size = element.fontSize * width / points;
+    final align = switch (element.align) {
+      'center' => TextAlign.center,
+      'right' => TextAlign.right,
+      _ => TextAlign.left,
+    };
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: element.fill == null ? null : _color(element.fill!),
+        border: element.border == null
+            ? null
+            : Border.all(color: _color(element.border!), width: borderWidth),
+        borderRadius: BorderRadius.circular(
+          element.radius * math.min(boxWidth, boxHeight),
+        ),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(math.max(2, size * .25)),
+        child: Align(
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: double.infinity,
+            child: Text(
+              element.text,
+              textAlign: align,
+              style: TextStyle(
+                fontSize: size,
+                height: 1.2,
+                fontWeight: element.bold
+                    ? FontWeight.w700
+                    : FontWeight.w400,
+                color: _color(element.color),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _imageElement(
+    BuildContext context,
+    SlideElement element,
+    double width,
+    double height,
+    double borderWidth,
+  ) {
+    final radius = element.radius *
+        math.min(element.width * width, element.height * height);
+    final scheme = Theme.of(context).colorScheme;
+    final placeholder = ColoredBox(color: scheme.surfaceContainerHighest);
+    return DecoratedBox(
+      position: DecorationPosition.foreground,
+      decoration: BoxDecoration(
+        border: element.border == null
+            ? null
+            : Border.all(color: _color(element.border!), width: borderWidth),
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: FutureBuilder<Asset?>(
+          future: _asset(element.imageId),
+          builder: (context, snapshot) {
+            final image = snapshot.data;
+            if (image == null) return placeholder;
+            return SizedBox.expand(
+              child: Image.file(
+                File(studio.store.file(image).path),
+                fit: element.fit == 'contain'
+                    ? BoxFit.contain
+                    : BoxFit.cover,
+                cacheWidth: large ? 1200 : 520,
+                errorBuilder: (_, _, _) => placeholder,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<Asset?> _asset(String? id) =>
+      id == null ? Future.value() : studio.store.asset(id);
+
+  static Color _color(String hex) =>
+      Color(int.parse('FF$hex', radix: 16));
+
+  Widget _layout(BuildContext context, double width) {
     final scheme = Theme.of(context).colorScheme;
     final pad = (width * .055).clamp(10.0, 44.0);
     final title = slide.table != null
@@ -576,7 +742,7 @@ class _SlideCard extends StatelessWidget {
                     fontSize: title,
                     height: 1.25,
                     fontWeight: FontWeight.w700,
-                    color: scheme.onSurface,
+                    color: _ink(context),
                   ),
                 ),
                 SizedBox(height: pad * .35),
@@ -652,7 +818,7 @@ class _SlideCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: body,
                         height: 1.35,
-                        color: scheme.onSurfaceVariant,
+                        color: _mutedInk(context),
                       ),
                     ),
                   ),
@@ -714,7 +880,7 @@ class _SlideCard extends StatelessWidget {
                                       : FontWeight.w400,
                                   color: table.headerRow && row == 0
                                       ? scheme.onPrimaryContainer
-                                      : scheme.onSurface,
+                                      : _ink(context),
                                 ),
                               ),
                             ),

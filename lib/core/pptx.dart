@@ -55,6 +55,21 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
       final part = media.putIfAbsent(id, () => _Media(media.length + 1, image));
       used[id] = part;
     }
+    // Free-form pictures are embedded the same way, so a page can carry
+    // several of them and every element keeps its own relationship id.
+    final elementImages = <String, PptxImage>{};
+    for (final element in slide.elements) {
+      final elementId = element.imageId;
+      if (elementId == null) continue;
+      final picture = images[elementId];
+      if (picture == null) continue;
+      final part = media.putIfAbsent(
+        elementId,
+        () => _Media(media.length + 1, picture),
+      );
+      used[elementId] = part;
+      elementImages[elementId] = picture;
+    }
     slides.add(
       _SlideParts(
         number: i + 1,
@@ -65,6 +80,7 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
           image,
           used.values.toList(),
           background: background,
+          elementImages: elementImages,
         ),
         images: used.values.toList(),
       ),
@@ -324,6 +340,7 @@ String _slideXml(
   PptxImage? image,
   List<_Media> images, {
   PptxImage? background,
+  Map<String, PptxImage> elementImages = const {},
 }) {
   final margin = (size.width * .05).round();
   final contentWidth = size.width - margin * 2;
@@ -426,6 +443,45 @@ String _slideXml(
         y: bodyTop + (bodyHeight - fit.height) ~/ 2,
         cx: fit.width,
         cy: fit.height,
+      ),
+    );
+  }
+  // Free-form shapes are written last so they sit above the standard slots,
+  // matching the workspace preview's layer order.
+  for (final element in slide.elements) {
+    final x = (element.x * size.width).round();
+    final y = (element.y * size.height).round();
+    final cx = math.max(1, (element.width * size.width).round());
+    final cy = math.max(1, (element.height * size.height).round());
+    if (element.kind == SlideElementKind.text) {
+      shapes.write(
+        _elementTextShape(
+          id: id++,
+          name: 'Text ${number - 1}-${element.id}',
+          element: element,
+          x: x,
+          y: y,
+          cx: cx,
+          cy: cy,
+        ),
+      );
+      continue;
+    }
+    final picture = elementImages[element.imageId];
+    if (picture == null) continue;
+    final embed = images.indexWhere((part) => identical(part.image, picture));
+    if (embed < 0) continue;
+    shapes.write(
+      _elementPictureShape(
+        id: id++,
+        name: 'Picture ${number - 1}-${element.id}',
+        embed: 'rId${embed + 2}',
+        element: element,
+        picture: picture,
+        x: x,
+        y: y,
+        cx: cx,
+        cy: cy,
       ),
     );
   }
@@ -689,6 +745,129 @@ String _pictureShape({
     '<p:spPr><a:xfrm><a:off x="$x" y="$y"/><a:ext cx="$cx" cy="$cy"/>'
     '</a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>'
     '</p:pic>';
+
+/// A rectangle, or a rounded one when the element asked for a curve. The
+/// adjustment is in 1/1000 of a percent, where 50000 is a half-circle corner —
+/// the same range [SlideElement.radius] exposes.
+String _elementGeometry(double radius) => radius <= 0
+    ? '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+    : '<a:prstGeom prst="roundRect"><a:avLst>'
+          '<a:gd name="adj" fmla="val ${(radius * 100000).round()}"/>'
+          '</a:avLst></a:prstGeom>';
+
+String _elementLine(String? color) => color == null
+    ? '<a:ln><a:noFill/></a:ln>'
+    : '<a:ln w="9525"><a:solidFill><a:srgbClr val="$color"/></a:solidFill>'
+          '<a:prstDash val="solid"/></a:ln>';
+
+/// An editable DrawingML text box: the fill and outline are real shape
+/// properties, so the user can restyle it in PowerPoint instead of getting a
+/// picture of a label.
+String _elementTextShape({
+  required int id,
+  required String name,
+  required SlideElement element,
+  required int x,
+  required int y,
+  required int cx,
+  required int cy,
+}) {
+  final size = (element.fontSize * 100).round();
+  final align = switch (element.align) {
+    'center' => 'ctr',
+    'right' => 'r',
+    _ => 'l',
+  };
+  // Proportional insets keep a small label from losing its text to padding.
+  final horizontal = math.min(cx ~/ 12, 91440);
+  final vertical = math.min(cy ~/ 12, 45720);
+  final fill = element.fill == null
+      ? '<a:noFill/>'
+      : '<a:solidFill><a:srgbClr val="${element.fill}"/></a:solidFill>';
+  final lines = element.text
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .split('\n');
+  return '<p:sp>'
+      '<p:nvSpPr><p:cNvPr id="$id" name="${_esc(name)}"/>'
+      '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>'
+      '<p:spPr><a:xfrm><a:off x="$x" y="$y"/><a:ext cx="$cx" cy="$cy"/>'
+      '</a:xfrm>${_elementGeometry(element.radius)}$fill'
+      '${_elementLine(element.border)}</p:spPr>'
+      '<p:txBody><a:bodyPr wrap="square" lIns="$horizontal" '
+      'tIns="$vertical" rIns="$horizontal" bIns="$vertical" anchor="ctr">'
+      '<a:normAutofit/></a:bodyPr><a:lstStyle/>'
+      '${lines.map((line) => '<a:p><a:pPr algn="$align"/><a:r>'
+          '${_run(line, size, element.bold, element.color)}'
+          '</a:r></a:p>').join()}'
+      '</p:txBody></p:sp>';
+}
+
+/// A free-form picture. `cover` fills the box and crops the overflow through
+/// `a:srcRect`, `contain` shrinks the shape to the picture's own ratio inside
+/// the box — both are properties Office understands, not a flattened image.
+String _elementPictureShape({
+  required int id,
+  required String name,
+  required String embed,
+  required SlideElement element,
+  required PptxImage picture,
+  required int x,
+  required int y,
+  required int cx,
+  required int cy,
+}) {
+  var left = x, top = y, width = cx, height = cy;
+  var crop = '';
+  if (element.fit == 'contain') {
+    final fit = _fit(picture, cx, cy);
+    left = x + (cx - fit.width) ~/ 2;
+    top = y + (cy - fit.height) ~/ 2;
+    width = math.max(1, fit.width);
+    height = math.max(1, fit.height);
+  } else {
+    final cut = _coverCrop(picture, cx, cy);
+    if (cut.l > 0 || cut.t > 0 || cut.r > 0 || cut.b > 0) {
+      crop =
+          '<a:srcRect l="${cut.l}" t="${cut.t}" r="${cut.r}" b="${cut.b}"/>';
+    }
+  }
+  return '<p:pic>'
+      '<p:nvPicPr><p:cNvPr id="$id" name="${_esc(name)}"/>'
+      '<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/>'
+      '</p:nvPicPr>'
+      '<p:blipFill><a:blip r:embed="$embed"/>$crop'
+      '<a:stretch><a:fillRect/></a:stretch></p:blipFill>'
+      '<p:spPr><a:xfrm><a:off x="$left" y="$top"/>'
+      '<a:ext cx="$width" cy="$height"/></a:xfrm>'
+      '${_elementGeometry(element.radius)}'
+      '${_elementLine(element.border)}</p:spPr>'
+      '</p:pic>';
+}
+
+/// The crop `cover` needs so a picture fills a box without distortion. Values
+/// are in 1/1000 of a percent of the source, as `a:srcRect` expects.
+({int l, int t, int r, int b}) _coverCrop(
+  PptxImage image,
+  int cx,
+  int cy,
+) {
+  final iw = image.width > 0 ? image.width : 16;
+  final ih = image.height > 0 ? image.height : 9;
+  if (cx <= 0 || cy <= 0) return (l: 0, t: 0, r: 0, b: 0);
+  final imageAspect = iw / ih;
+  final boxAspect = cx / cy;
+  if ((imageAspect - boxAspect).abs() < .0001) {
+    return (l: 0, t: 0, r: 0, b: 0);
+  }
+  final keep = imageAspect > boxAspect
+      ? boxAspect / imageAspect
+      : imageAspect / boxAspect;
+  final cut = ((1 - keep) / 2 * 100000).round();
+  return imageAspect > boxAspect
+      ? (l: cut, t: 0, r: cut, b: 0)
+      : (l: 0, t: cut, r: 0, b: cut);
+}
 
 class _Relationship {
   const _Relationship(this.id, this.type, this.target);
