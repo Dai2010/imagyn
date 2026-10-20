@@ -476,4 +476,28 @@ void main() {
     await subscription.cancel();
     await server.close(force: true);
   });
+
+  test('every model preset fits the option bounds', () {
+    expect(agentPresets, isNotEmpty);
+    expect(
+      agentPresets.map((preset) => preset.model).toSet(),
+      hasLength(agentPresets.length),
+      reason: 'a duplicated model would make the picker ambiguous',
+    );
+    for (final preset in agentPresets) {
+      expect(preset.contextTokens, greaterThan(0), reason: preset.model);
+      expect(preset.maxOutputTokens, greaterThan(0), reason: preset.model);
+      final options = AgentOptions(
+        contextTokens: preset.contextTokens,
+        maxOutputTokens: preset.maxOutputTokens,
+      );
+      for (final protocol in ApiProtocol.values) {
+        expect(
+          () => options.validate(protocol),
+          returnsNormally,
+          reason: '${preset.model} under ${protocol.name}',
+        );
+      }
+    }
+  });
 }

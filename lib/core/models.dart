@@ -187,6 +187,56 @@ const legacyAgentPrompt =
     'When the user asks for a shape or aspect ratio, pass it as aspect_ratio; '
     'never express the ratio only in the prompt text.';
 
+/// A starting point for the two token fields. Only the windows a service
+/// documents are preset; sampling stays with the service, and every value can
+/// still be edited after it is applied.
+class AgentPreset {
+  const AgentPreset({
+    required this.model,
+    required this.contextTokens,
+    required this.maxOutputTokens,
+  });
+  final String model;
+  final int contextTokens, maxOutputTokens;
+}
+
+/// Reference values for the models this app is usually pointed at. Services
+/// change their windows, so these are suggestions rather than guarantees.
+const agentPresets = <AgentPreset>[
+  AgentPreset(
+    model: 'deepseek-chat',
+    contextTokens: 128000,
+    maxOutputTokens: 8192,
+  ),
+  AgentPreset(
+    model: 'deepseek-reasoner',
+    contextTokens: 128000,
+    maxOutputTokens: 65536,
+  ),
+  AgentPreset(model: 'gpt-4o', contextTokens: 128000, maxOutputTokens: 16384),
+  AgentPreset(model: 'gpt-4.1', contextTokens: 1047576, maxOutputTokens: 32768),
+  AgentPreset(
+    model: 'claude-sonnet-4-5',
+    contextTokens: 200000,
+    maxOutputTokens: 64000,
+  ),
+  AgentPreset(
+    model: 'claude-opus-4-1',
+    contextTokens: 200000,
+    maxOutputTokens: 32000,
+  ),
+  AgentPreset(
+    model: 'gemini-2.5-pro',
+    contextTokens: 1048576,
+    maxOutputTokens: 65536,
+  ),
+  AgentPreset(
+    model: 'gemini-2.5-flash',
+    contextTokens: 1048576,
+    maxOutputTokens: 65536,
+  ),
+];
+
 class AgentOptions {
   const AgentOptions({
     this.systemPrompt = defaultAgentPrompt,
