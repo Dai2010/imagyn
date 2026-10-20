@@ -181,7 +181,10 @@ const translations = <String, Map<String, String>>{
   "deckEmpty": "Planning the first slide…",
   "deckFinished": "Deck finished",
   "deckImage": "Illustration",
-  "exportDeck": "Export .pptx"
+  "exportDeck": "Export .pptx",
+  "decks": "Decks in this conversation",
+  "noDecks": "No deck yet. Ask the Agent to build one.",
+  "untitledDeck": "Untitled deck"
 },
 "zh": {
   "gallery": "画廊",
@@ -364,7 +367,10 @@ const translations = <String, Map<String, String>>{
   "deckEmpty": "正在构思第一页……",
   "deckFinished": "已完成",
   "deckImage": "配图",
-  "exportDeck": "导出 .pptx"
+  "exportDeck": "导出 .pptx",
+  "decks": "本次对话的演示文稿",
+  "noDecks": "还没有演示文稿。让 Agent 做一份吧。",
+  "untitledDeck": "未命名演示文稿"
 },
 "fr": {
   "gallery": "Galerie",
@@ -547,7 +553,10 @@ const translations = <String, Map<String, String>>{
   "deckEmpty": "Préparation de la première diapositive…",
   "deckFinished": "Diaporama terminé",
   "deckImage": "Illustration",
-  "exportDeck": "Exporter en .pptx"
+  "exportDeck": "Exporter en .pptx",
+  "decks": "Diaporamas de cette conversation",
+  "noDecks": "Aucun diaporama. Demandez-en un à l’Agent.",
+  "untitledDeck": "Diaporama sans titre"
 },
 "es": {
   "gallery": "Galería",
@@ -730,7 +739,10 @@ const translations = <String, Map<String, String>>{
   "deckEmpty": "Preparando la primera diapositiva…",
   "deckFinished": "Presentación terminada",
   "deckImage": "Ilustración",
-  "exportDeck": "Exportar a .pptx"
+  "exportDeck": "Exportar a .pptx",
+  "decks": "Presentaciones de esta conversación",
+  "noDecks": "Aún no hay presentaciones. Pídele una al Agent.",
+  "untitledDeck": "Presentación sin título"
 },
 "ru": {
   "gallery": "Галерея",
@@ -913,7 +925,10 @@ const translations = <String, Map<String, String>>{
   "deckEmpty": "Готовим первый слайд…",
   "deckFinished": "Презентация готова",
   "deckImage": "Иллюстрация",
-  "exportDeck": "Экспорт в .pptx"
+  "exportDeck": "Экспорт в .pptx",
+  "decks": "Презентации в этом диалоге",
+  "noDecks": "Презентаций пока нет. Попросите Agent её собрать.",
+  "untitledDeck": "Без названия"
 },
 "ar": {
   "gallery": "المعرض",
@@ -1096,6 +1111,9 @@ const translations = <String, Map<String, String>>{
   "deckEmpty": "جارٍ إعداد الشريحة الأولى…",
   "deckFinished": "اكتمل العرض",
   "deckImage": "صورة",
-  "exportDeck": "تصدير .pptx"
+  "exportDeck": "تصدير .pptx",
+  "decks": "العروض في هذه المحادثة",
+  "noDecks": "لا يوجد عرض بعد. اطلب من الوكيل إنشاء واحد.",
+  "untitledDeck": "عرض بلا عنوان"
 },
 };
