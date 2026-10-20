@@ -279,6 +279,12 @@ class _GalleryViewState extends State<GalleryView> {
                 size: 20,
               ),
             ),
+            IconButton(
+              tooltip: s.t('share'),
+              visualDensity: VisualDensity.compact,
+              onPressed: () => studio.shareAsset(asset),
+              icon: const Icon(Icons.ios_share_rounded, size: 20),
+            ),
             PopupMenuButton<String>(
               tooltip: s.t('more'),
               onSelected: (v) => widget.onAction(v, asset),

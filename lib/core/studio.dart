@@ -13,12 +13,15 @@ import '../l10n/strings.dart';
 import 'api.dart';
 import 'models.dart';
 import 'pptx.dart';
+import 'share.dart';
 import 'store.dart';
 import 'tokens.dart';
 
 class Studio extends ChangeNotifier {
-  Studio(this.store);
+  Studio(this.store, {ShareFile shareFile = shareWithSystem})
+    : _shareFile = shareFile;
   final LocalStore store;
+  final ShareFile _shareFile;
   ServiceConfig config = const ServiceConfig();
   String key = '', imageKey = '', session = '', theme = 'system';
 
@@ -1782,6 +1785,27 @@ class Studio extends ChangeNotifier {
     } on FileSystemException {
       // Leftover private file is harmless.
     }
+  }
+
+  /// Opens the system share sheet for one picture. The sheet is also the
+  /// "open with" path: every app that can read the type is offered there.
+  Future<void> shareAsset(Asset asset) async {
+    final prompt = asset.prompt.trim();
+    await _shareFile(store.file(asset).path, prompt.isEmpty ? null : prompt);
+  }
+
+  /// Builds the deck once and hands the `.pptx` to the share sheet, so it can
+  /// be sent on or opened in PowerPoint/WPS without going through Export.
+  Future<void> shareDeck(Deck deck) async {
+    final bytes = await _renderDeck(deck);
+    final directory = Directory(p.join(store.root.path, 'shared'));
+    await directory.create(recursive: true);
+    final file = File(
+      p.join(directory.path, '${_deckFileName(deck.title)}.pptx'),
+    );
+    await file.writeAsBytes(bytes, flush: true);
+    final title = deck.title.trim();
+    await _shareFile(file.path, title.isEmpty ? null : title);
   }
 
   @override
