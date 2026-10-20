@@ -1284,6 +1284,40 @@ class Studio extends ChangeNotifier {
         : '${String.fromCharCodes(runes.take(24))}…';
   }
 
+  /// Fetches one public page for the model. The executor owns the address
+  /// rules; its codes become a readable result instead of ending the turn.
+  Future<String> _fetch(AgentCall call) async {
+    final String url;
+    try {
+      url = _argText(call, 'url');
+    } on FormatException {
+      return 'Invalid arguments for fetch_url: pass an absolute http(s) URL.';
+    }
+    try {
+      final result = await fetchUrl(url);
+      return result.asToolResult();
+    } on FormatException catch (error) {
+      final code = error.message;
+      return switch (code) {
+        'fetchScheme' => 'fetch_url needs an absolute http or https URL.',
+        'fetchPrivate' =>
+          'fetch_url refused: the address is loopback, private or '
+              'link-local. Only public http(s) pages can be fetched.',
+        'fetchContentType' =>
+          'fetch_url refused: the response is not readable text.',
+        'fetchTimeout' => 'fetch_url timed out.',
+        'fetchProxy' => 'fetch_url cannot run through a proxy.',
+        'fetchRedirect' || 'fetchRedirects' =>
+          'fetch_url refused: an invalid or endless redirect.',
+        _ when code.startsWith('fetchStatus ') =>
+          'fetch_url failed: unexpected HTTP ${code.substring(12)}.',
+        _ => 'fetch_url failed: $code.',
+      };
+    } on Object {
+      return 'fetch_url failed: the page could not be reached.';
+    }
+  }
+
   String _askUser(AgentCall call) {
     try {
       final question = _argText(call, 'question').trim();
@@ -1442,6 +1476,8 @@ class Studio extends ChangeNotifier {
         return _removeSlide(call);
       case 'finish_deck':
         return _finishDeck(call);
+      case 'fetch_url':
+        return _fetch(call);
       case 'ask_user':
         return _askUser(call);
     }
