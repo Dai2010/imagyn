@@ -713,19 +713,31 @@ class Studio extends ChangeNotifier {
         notifyListeners();
         // One turn is not one request: the model may call a tool, read the
         // result and decide to call another. The cap keeps a loop that never
-        // settles from spending the whole session; the last text stands as the
-        // answer when it is reached.
+        // settles from spending the whole session.
         // A page with a table takes add_slide + add_table. Allow a normal
         // multi-page deck to finish while retaining a finite request budget.
         const maxSteps = 32;
         for (var step = 0; step < maxSteps; step++) {
-          final prepared = await _prepareRequest(client, requestAgentOptions);
+          // The last request is a wrap-up: tools are left out, so the model has
+          // to say what it finished and what is left instead of starting a call
+          // the loop would cut off without an answer.
+          final wrapUp = step == maxSteps - 1;
+          final stepOptions = wrapUp
+              ? requestAgentOptions.copyWith(
+                  systemPrompt:
+                      '${requestAgentOptions.systemPrompt}\n\n'
+                      '[Turn budget reached: you cannot call more tools. '
+                      'Summarize what you completed and what remains, then stop.]',
+                )
+              : requestAgentOptions;
+          final prepared = await _prepareRequest(client, stepOptions);
           final result = requestConfig.streamAgent
               ? await client.converseStream(
                   prepared.history,
                   refs,
                   _cancel!,
                   options: prepared.options,
+                  allowTools: !wrapUp,
                   onDelta: _stream,
                 )
               : await client.converse(
@@ -733,10 +745,11 @@ class Studio extends ChangeNotifier {
                   refs,
                   _cancel!,
                   options: prepared.options,
+                  allowTools: !wrapUp,
                 );
           reply = result.text;
           reasoning = result.reasoning;
-          if (result.calls.isEmpty) break;
+          if (wrapUp || result.calls.isEmpty) break;
           await store.addMessage(
             session,
             ChatEntry(
