@@ -16,14 +16,18 @@ void main() {
         HttpHeaders.contentTypeHeader,
         'text/event-stream',
       );
-      request.response.write(
-        'data: ${jsonEncode({
-          'choices': [
-            {
-              'delta': {'content': '半句话'},
-            },
-          ],
-        })}\n\n',
+      // `write` encodes as Latin-1 by default, which rejects the Chinese
+      // delta; the response has to be handed over as UTF-8 bytes.
+      request.response.add(
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': '半句话'},
+              },
+            ],
+          })}\n\n',
+        ),
       );
       await request.response.flush();
       // Deliberately no close: the client is supposed to stop this stream.
