@@ -764,6 +764,22 @@ class _StudioShellState extends State<StudioShell> {
                             ),
                           ),
                   ),
+                  // The two models get their own line: sharing the action row
+                  // with four icons squeezed the name down to "de…", and the
+                  // Agent page lost the image model entirely.
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Wrap(
+                        spacing: 4,
+                        children: [
+                          if (agent) _modelButton(true),
+                          _modelButton(false),
+                        ],
+                      ),
+                    ),
+                  ),
                   TextField(
                     controller: controller,
                     minLines: 1,
@@ -787,7 +803,6 @@ class _StudioShellState extends State<StudioShell> {
                             : () => _guard(() => studio.pickReferences(agent)),
                         icon: const Icon(Icons.add_photo_alternate_outlined),
                       ),
-                      Flexible(flex: 5, child: _modelButton(agent)),
                       if (agent)
                         IconButton(
                           key: const ValueKey('agentOptions'),
@@ -861,46 +876,54 @@ class _StudioShellState extends State<StudioShell> {
     );
   }
 
-  /// The model chip sits in the action row instead of a separate line above
-  /// the field: on the Agent page only the model that answers is shown, and
-  /// the image model is reached through Settings or the image options.
+  /// The model chips get their own line above the input: one for the model that
+  /// answers and, on the Agent page, one for the image model, so a generated
+  /// picture can be retargeted without leaving the conversation.
   Widget _modelButton(bool agent) {
     final model = agent
         ? studio.activeConfig.agentModel
         : studio.activeConfig.imageModel;
-    return TextButton(
-      key: ValueKey(agent ? 'switchAgentModel' : 'switchImageModel'),
-      style: TextButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        minimumSize: const Size(0, 36),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        visualDensity: VisualDensity.compact,
-      ),
-      onPressed: studio.busy
-          ? null
-          : () => _guard(() async {
-              final model = await showModalBottomSheet<String>(
-                context: context,
-                isScrollControlled: true,
-                useSafeArea: true,
-                showDragHandle: true,
-                builder: (_) => ModelPicker(studio: studio, agent: agent),
-              );
-              if (model != null) await studio.switchModel(model, agent: agent);
-            }),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(agent ? Icons.forum_outlined : Icons.image_outlined, size: 16),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              model.isEmpty ? s.t(agent ? 'agentModel' : 'imageModel') : model,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 160),
+      child: TextButton(
+        key: ValueKey(agent ? 'switchAgentModel' : 'switchImageModel'),
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          minimumSize: const Size(0, 36),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+        ),
+        onPressed: studio.busy
+            ? null
+            : () => _guard(() async {
+                final model = await showModalBottomSheet<String>(
+                  context: context,
+                  isScrollControlled: true,
+                  useSafeArea: true,
+                  showDragHandle: true,
+                  builder: (_) => ModelPicker(studio: studio, agent: agent),
+                );
+                if (model != null) await studio.switchModel(model, agent: agent);
+              }),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(agent ? Icons.forum_outlined : Icons.image_outlined, size: 16),
+            const SizedBox(width: 6),
+            // A bounded width is what keeps a long model id readable: inside an
+            // unbounded Row the ellipsis collapsed the label to two letters.
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 120),
+              child: Text(
+                model.isEmpty
+                    ? s.t(agent ? 'agentModel' : 'imageModel')
+                    : model,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
