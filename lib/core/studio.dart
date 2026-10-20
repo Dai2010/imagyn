@@ -315,6 +315,13 @@ class Studio extends ChangeNotifier {
     activeDeck = decks.isEmpty ? null : decks.values.last;
   }
 
+  /// Makes an older deck the workspace target, so the app bar and the preview
+  /// agree after the user picks one from the deck list.
+  void openDeck(Deck deck) {
+    activeDeck = deck;
+    notifyListeners();
+  }
+
   /// Saves the deck in the app's private database. A deck tool returns as soon
   /// as the in-memory model changes; the write must not block the tool loop or
   /// the next request, so it runs in the background.

@@ -173,10 +173,11 @@ class _StudioShellState extends State<StudioShell> {
       appBar: AppBar(
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
         actions: [
-          if (studio.activeDeck != null)
+          if (studio.decks.isNotEmpty)
             IconButton(
-              tooltip: s.t('openDeck'),
-              onPressed: () => _deck(studio.activeDeck!),
+              key: const ValueKey('deckList'),
+              tooltip: s.t('decks'),
+              onPressed: () => _decks(),
               icon: const Icon(Icons.slideshow_rounded),
             ),
           if (_page == 1) ...[
@@ -574,6 +575,56 @@ class _StudioShellState extends State<StudioShell> {
       builder: (_) => DeckWorkspacePage(studio: studio, deck: deck),
     ),
   );
+
+  /// Every deck in this conversation, newest first. The newest is already the
+  /// active one; the list is what lets an older deck be reopened after a later
+  /// turn moved the active pointer.
+  void _decks() {
+    final items = studio.decks.values.toList().reversed.toList();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheet) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(sheet).height * .7,
+        ),
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.only(bottom: 16),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(
+                s.t('decks'),
+                style: Theme.of(sheet).textTheme.titleLarge,
+              ),
+            ),
+            for (final deck in items)
+              ListTile(
+                leading: const Icon(Icons.slideshow_rounded),
+                title: Text(
+                  deck.title.trim().isEmpty ? s.t('untitledDeck') : deck.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  '${deck.slides.length} ${s.t('slidesUnit')}'
+                  '${deck.finished ? ' · ${s.t('deckFinished')}' : ''}',
+                ),
+                selected: deck.id == studio.activeDeck?.id,
+                onTap: () {
+                  Navigator.pop(sheet);
+                  studio.openDeck(deck);
+                  _deck(deck);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   /// A finished turn is Markdown; one still arriving is plain text, because
   /// half a table, a formula without its closing `$` or an unfinished code
