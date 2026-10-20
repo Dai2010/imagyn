@@ -184,6 +184,48 @@ def patch_android(target: Path, release_signing: bool) -> None:
             '            <data android:scheme="https" />\n'
             '        </intent>\n'
             '    </queries>\n' + anchor)
+
+    # A turn has to survive the task being swiped away: a dataSync foreground
+    # service holds the process, and the activity reattaches to the engine that
+    # ImagynApplication keeps in memory instead of starting a new isolate.
+    for permission in (
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+    ):
+        if permission not in manifest_text:
+            manifest_text = manifest_text.replace(
+                "<application",
+                f'    <uses-permission android:name="{permission}" />\n<application',
+                1)
+
+    application = re.search(r'<application\b[^>]*>', manifest_text)
+    if application is None:
+        fail("could not find the <application> tag in AndroidManifest.xml; "
+             "the Flutter template changed, update this script")
+    opening = application.group(0)
+    if 'android:name=".ImagynApplication"' not in opening:
+        # The template may already carry android:name="${applicationName}".
+        # Replacing that value keeps the tag valid; adding a second
+        # android:name attribute would make AAPT reject the manifest.
+        if "android:name=" in opening:
+            replaced = re.sub(r'android:name="[^"]*"',
+                              'android:name=".ImagynApplication"', opening, count=1)
+        else:
+            replaced = opening.replace(
+                "<application", '<application\n        android:name=".ImagynApplication"', 1)
+        manifest_text = manifest_text.replace(opening, replaced, 1)
+
+    if ".TurnService" not in manifest_text:
+        manifest_text = manifest_text.replace(
+            "</application>",
+            '        <service\n'
+            '            android:name=".TurnService"\n'
+            '            android:exported="false"\n'
+            '            android:foregroundServiceType="dataSync"\n'
+            '            android:stopWithTask="false" />\n'
+            '    </application>',
+            1)
     manifest.write_text(manifest_text)
 
     # Only one MainActivity may exist: ours replaces the generated one, and any

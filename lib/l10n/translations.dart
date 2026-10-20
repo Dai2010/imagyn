@@ -185,7 +185,10 @@ const translations = <String, Map<String, String>>{
   "exportDeck": "Export .pptx",
   "decks": "Decks in this conversation",
   "noDecks": "No deck yet. Ask the Agent to build one.",
-  "untitledDeck": "Untitled deck"
+  "untitledDeck": "Untitled deck",
+  "turnRunning": "Imagyn is working…",
+  "turnDone": "Task finished",
+  "turnFailed": "Task failed"
 },
 "zh": {
   "gallery": "画廊",
@@ -372,7 +375,10 @@ const translations = <String, Map<String, String>>{
   "exportDeck": "导出 .pptx",
   "decks": "本次对话的演示文稿",
   "noDecks": "还没有演示文稿。让 Agent 做一份吧。",
-  "untitledDeck": "未命名演示文稿"
+  "untitledDeck": "未命名演示文稿",
+  "turnRunning": "映想正在处理……",
+  "turnDone": "任务已完成",
+  "turnFailed": "任务失败"
 },
 "fr": {
   "gallery": "Galerie",
@@ -559,7 +565,10 @@ const translations = <String, Map<String, String>>{
   "exportDeck": "Exporter en .pptx",
   "decks": "Diaporamas de cette conversation",
   "noDecks": "Aucun diaporama. Demandez-en un à l’Agent.",
-  "untitledDeck": "Diaporama sans titre"
+  "untitledDeck": "Diaporama sans titre",
+  "turnRunning": "Imagyn travaille…",
+  "turnDone": "Tâche terminée",
+  "turnFailed": "Tâche échouée"
 },
 "es": {
   "gallery": "Galería",
@@ -746,7 +755,10 @@ const translations = <String, Map<String, String>>{
   "exportDeck": "Exportar a .pptx",
   "decks": "Presentaciones de esta conversación",
   "noDecks": "Aún no hay presentaciones. Pídele una al Agent.",
-  "untitledDeck": "Presentación sin título"
+  "untitledDeck": "Presentación sin título",
+  "turnRunning": "Imagyn está trabajando…",
+  "turnDone": "Tarea terminada",
+  "turnFailed": "Tarea fallida"
 },
 "ru": {
   "gallery": "Галерея",
@@ -933,7 +945,10 @@ const translations = <String, Map<String, String>>{
   "exportDeck": "Экспорт в .pptx",
   "decks": "Презентации в этом диалоге",
   "noDecks": "Презентаций пока нет. Попросите Agent её собрать.",
-  "untitledDeck": "Без названия"
+  "untitledDeck": "Без названия",
+  "turnRunning": "Imagyn работает…",
+  "turnDone": "Задача выполнена",
+  "turnFailed": "Задача не выполнена"
 },
 "ar": {
   "gallery": "المعرض",
@@ -1120,6 +1135,9 @@ const translations = <String, Map<String, String>>{
   "exportDeck": "تصدير .pptx",
   "decks": "العروض في هذه المحادثة",
   "noDecks": "لا يوجد عرض بعد. اطلب من الوكيل إنشاء واحد.",
-  "untitledDeck": "عرض بلا عنوان"
+  "untitledDeck": "عرض بلا عنوان",
+  "turnRunning": "Imagyn يعمل…",
+  "turnDone": "اكتملت المهمة",
+  "turnFailed": "فشلت المهمة"
 },
 };

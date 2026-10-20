@@ -1,11 +1,16 @@
 package app.imagyn
 
+import android.Manifest
 import android.content.ContentValues
+import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
@@ -22,14 +27,39 @@ import io.flutter.plugin.common.MethodChannel
  * from the file managers that know how to open a `.pptx`.
  */
 class MainActivity : FlutterActivity() {
-    private companion object {
-        const val CHANNEL = "app.imagyn/media"
-        const val ALBUM = "Imagyn"
+    companion object {
+        const val ENGINE_ID = "imagyn-engine"
+        private const val CHANNEL = "app.imagyn/media"
+        private const val BACKGROUND = "app.imagyn/background"
+        private const val ALBUM = "Imagyn"
+        private const val NOTIFICATION_REQUEST = 71
         val SUPPORTED_TYPES = setOf("image/png", "image/jpeg", "image/webp")
+
+        /** True while an activity is on screen; a turn only notifies otherwise. */
+        @Volatile var visible = false
     }
 
+    // The engine lives in the process, not in this activity: swiping the task
+    // away detaches the view, and the turn keeps running while TurnService
+    // holds the process. Reopening the app reattaches to the same isolate.
+    override fun provideFlutterEngine(context: Context): FlutterEngine? =
+        FlutterEngineCache.getInstance().get(ENGINE_ID)
+
+    override fun shouldDestroyEngineWithHost(): Boolean = false
+
+    override fun onResume() {
+        super.onResume()
+        visible = true
+    }
+
+    override fun onPause() {
+        visible = false
+        super.onPause()
+    }
+
+    // No super call: ImagynApplication registers the plugins when it creates
+    // the engine, and registering them again only logs duplicate-plugin errors.
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -38,6 +68,42 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BACKGROUND)
+            .setMethodCallHandler { call, result ->
+                val title = call.argument<String>("title") ?: ""
+                val body = call.argument<String>("body") ?: ""
+                when (call.method) {
+                    "start" -> {
+                        askForNotifications()
+                        TurnService.start(applicationContext, title, body)
+                        result.success(null)
+                    }
+                    "stop" -> {
+                        TurnService.stop(applicationContext)
+                        result.success(null)
+                    }
+                    "notify" -> {
+                        // A result the user is already looking at is not worth
+                        // a notification.
+                        if (!visible) TurnService.notify(applicationContext, title, body)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    private fun askForNotifications() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        requestPermissions(
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            NOTIFICATION_REQUEST,
+        )
     }
 
     private fun saveImage(call: MethodCall, result: MethodChannel.Result) {
