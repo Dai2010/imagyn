@@ -431,9 +431,8 @@ class Studio extends ChangeNotifier {
 
   /// Prepares the history for one request. Below the user's token limit the
   /// conversation goes out untouched. Near it, older turns are replaced by a
-  /// summary written by the same model, while the newest window stays verbatim
-  /// — the same trade OpenCode makes, so tool pairing and recent wording are
-  /// preserved.
+  /// summary written by the same model, while the newest window stays verbatim,
+  /// so tool pairing and recent wording survive.
   Future<({List<ChatEntry> history, AgentOptions options})> _prepareRequest(
     StudioApi client,
     AgentOptions options,
@@ -555,10 +554,10 @@ class Studio extends ChangeNotifier {
     );
   }
 
-  /// The manual `/compact` command, modelled on OpenCode's: summarize
-  /// everything before the newest turn and keep that turn verbatim. Unlike the
-  /// automatic pass it does not depend on `contextTokens`, works on a short
-  /// history, and reports how many messages it folded away.
+  /// The manual `/compact` command: summarize everything before the newest
+  /// turn and keep that turn verbatim. Unlike the automatic pass it does not
+  /// depend on `contextTokens`, works on a short history, and reports how many
+  /// messages it folded away.
   ///
   /// The local transcript is untouched — compaction is lossy for the model,
   /// not for the user — and the checkpoint applies to the next request.

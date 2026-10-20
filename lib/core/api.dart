@@ -446,7 +446,7 @@ class StudioApi {
           'role': entry.role,
           // DeepSeek's thinking mode requires the field on every assistant
           // message once `tools` is present, even when there is no thinking
-          // to send; OpenCode writes an empty string in that case too.
+          // to send, so the empty string is deliberate.
           if (_echoReasoning && entry.role == 'assistant')
             'reasoning_content': entry.reasoning,
           'content': entry.text.isEmpty ? '[Image result]' : entry.text,
