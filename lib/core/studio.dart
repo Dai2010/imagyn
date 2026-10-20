@@ -429,7 +429,18 @@ class Studio extends ChangeNotifier {
     AgentOptions options,
   ) async {
     final limit = options.contextTokens;
-    if (limit <= 0) return (history: chat, options: options);
+    final summary = _summary;
+    if (limit <= 0) {
+      // A manual /compact checkpoint has to survive the automatic limit being
+      // off: fold it in and send everything after it.
+      if (summary == null || summary.isEmpty) {
+        return (history: chat, options: options);
+      }
+      return (
+        history: chat.sublist(math.min(_summaryUpTo, chat.length)),
+        options: _withSummary(options, summary),
+      );
+    }
     final reserve = math.max(2048, (limit * .15).round());
     final output =
         options.maxOutputTokens ??
@@ -498,16 +509,8 @@ class Studio extends ChangeNotifier {
 
     var send = chat.sublist(math.min(start, chat.length));
     var settings = options;
-    final summary = _summary;
     if (summary != null && summary.isNotEmpty) {
-      final user = settings.systemPrompt.trim();
-      settings = settings.copyWith(
-        systemPrompt: [
-          if (user.isNotEmpty) user,
-          '[Summary of the earlier conversation, condensed because the context '
-              'window is nearly full]\n$summary',
-        ].join('\n\n'),
-      );
+      settings = _withSummary(settings, summary);
     }
     // Even a summary plus the newest window can exceed a very small limit; drop
     // whole turns from the front, never the newest message.
@@ -525,6 +528,83 @@ class Studio extends ChangeNotifier {
       }
     }
     return (history: send, options: settings);
+  }
+
+  /// Folds the checkpoint into the system prompt, keeping the user's own
+  /// standing instructions first.
+  AgentOptions _withSummary(AgentOptions settings, String summary) {
+    final user = settings.systemPrompt.trim();
+    return settings.copyWith(
+      systemPrompt: [
+        if (user.isNotEmpty) user,
+        '[Summary of the earlier conversation, condensed because the context '
+            'window is nearly full]\n$summary',
+      ].join('\n\n'),
+    );
+  }
+
+  /// The manual `/compact` command, modelled on OpenCode's: summarize
+  /// everything before the newest turn and keep that turn verbatim. Unlike the
+  /// automatic pass it does not depend on `contextTokens`, works on a short
+  /// history, and reports how many messages it folded away.
+  ///
+  /// The local transcript is untouched — compaction is lossy for the model,
+  /// not for the user — and the checkpoint applies to the next request.
+  Future<({int compacted, int kept})> compactNow() async {
+    if (busy) throw const FormatException('busy');
+    if (chat.isEmpty) throw const FormatException('compactEmpty');
+    var start = chat.length - 1;
+    while (start > 0 && chat[start].role != 'user') {
+      start--;
+    }
+    // Nothing older than the newest user turn means there is nothing to fold.
+    if (start <= 0 || chat[start].role != 'user') {
+      throw const FormatException('compactEmpty');
+    }
+    final client = api;
+    final requestConfig = client.config;
+    final options = agentOptions;
+    busy = true;
+    error = null;
+    errorDetail = null;
+    stage = 'compacting';
+    _cancel = CancelToken();
+    _api = client;
+    notifyListeners();
+    try {
+      options.validate(requestConfig.protocol);
+      if (key.isEmpty) throw const FormatException('missingKey');
+      if (requestConfig.agentModel.trim().isEmpty) {
+        throw const FormatException('missingAgentModel');
+      }
+      requestConfig.endpoint(requestConfig.protocol.chatPath);
+      final from = math.min(_summaryUpTo, start);
+      final covered = chat.sublist(from, start);
+      final previous = _summary == null
+          ? ''
+          : 'Previous summary:\n$_summary\n\n';
+      final result = await client.converse(
+        [ChatEntry('user', '$previous${_transcript(covered)}')],
+        const [],
+        _cancel!,
+        options: const AgentOptions(
+          systemPrompt: _summaryPrompt,
+          maxOutputTokens: 3000,
+        ),
+      );
+      final text = result.text.trim();
+      if (text.isEmpty) throw const FormatException('compactFailed');
+      _summary = text;
+      _summaryUpTo = start;
+      return (compacted: covered.length, kept: chat.length - start);
+    } finally {
+      client.close();
+      _api = null;
+      _cancel = null;
+      busy = false;
+      stage = 'discussing';
+      notifyListeners();
+    }
   }
 
   /// Index where the verbatim window starts: as many newest messages as fit in

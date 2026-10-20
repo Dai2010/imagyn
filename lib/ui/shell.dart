@@ -770,8 +770,23 @@ class _StudioShellState extends State<StudioShell> {
                         onPressed: studio.busy
                             ? null
                             : () => _guard(() async {
+                                final text = controller.text;
+                                // A slash command is an action, not a message:
+                                // /compact folds the older turns right away
+                                // instead of waiting for the token limit.
+                                if (agent && text.trim() == '/compact') {
+                                  final result = await studio.compactNow();
+                                  controller.clear();
+                                  _notice(
+                                    s.t('compactDone').replaceFirst(
+                                      '%s',
+                                      '${result.compacted}',
+                                    ),
+                                  );
+                                  return;
+                                }
                                 await studio.submit(
-                                  controller.text,
+                                  text,
                                   agent,
                                   studio.imageOptions,
                                   onAccepted: controller.clear,
