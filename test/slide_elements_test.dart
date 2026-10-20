@@ -188,12 +188,12 @@ void main() {
     expect(slide, contains('<a:srgbClr val="F4F2FA"/>'));
 
     // Two pictures, both pointing at the single embedded file, and the cover
-    // box crops the 16:9 source to 1.42:1 instead of stretching it.
+    // box crops the 16:9 source at the sides instead of stretching it.
     expect('<p:pic>'.allMatches(slide), hasLength(2));
     expect('r:embed="rId2"'.allMatches(slide), hasLength(2));
     expect(
       slide,
-      contains('<a:srcRect l="0" t="10000" r="0" b="10000"/>'),
+      contains('<a:srcRect l="10000" t="0" r="10000" b="0"/>'),
     );
     // `contain` shrinks the shape to the source ratio inside the box.
     expect(slide, contains('cx="4876800" cy="2743200"'));

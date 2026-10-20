@@ -577,6 +577,14 @@ class SlideElement {
     double radius = 0,
     String fit = 'cover',
   }) {
+    // Models habitually write `#RRGGBB` although the schema says RRGGBB;
+    // accepting the prefix is cheaper than answering with an error.
+    String? rgb(String? value) => value == null
+        ? null
+        : (value.startsWith('#') ? value.substring(1) : value);
+    final ink = rgb(color);
+    final fillRgb = rgb(fill);
+    final borderRgb = rgb(border);
     if (id.isEmpty ||
         id.length > 64 ||
         !x.isFinite ||
@@ -601,9 +609,9 @@ class SlideElement {
         radius > .5 ||
         !alignValues.contains(align) ||
         !fitValues.contains(fit) ||
-        !_isHexColor(color) ||
-        (fill != null && !_isHexColor(fill)) ||
-        (border != null && !_isHexColor(border))) {
+        !_isHexColor(ink!) ||
+        (fillRgb != null && !_isHexColor(fillRgb)) ||
+        (borderRgb != null && !_isHexColor(borderRgb))) {
       throw const FormatException('invalidSlideElement');
     }
     return SlideElement._(
@@ -616,11 +624,11 @@ class SlideElement {
       text: text,
       imageId: imageId,
       fontSize: fontSize,
-      color: color.toUpperCase(),
+      color: ink.toUpperCase(),
       bold: bold,
       align: align,
-      fill: fill?.toUpperCase(),
-      border: border?.toUpperCase(),
+      fill: fillRgb?.toUpperCase(),
+      border: borderRgb?.toUpperCase(),
       radius: radius,
       fit: fit,
     );
