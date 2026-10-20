@@ -905,25 +905,11 @@ class Studio extends ChangeNotifier {
   String _addSlide(AgentCall call, List<Asset> created) {
     try {
       final deck = _deckOf(call);
-      // An image id is a long opaque string, so a model that just generated a
-      // picture can easily retype it wrong. "last" is resolved here, and an
-      // id that matches nothing is answered with an error instead of silently
-      // producing a page with a broken picture.
-      final known = <Asset>[...created, ...gallery]
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      final requested = _argText(call, 'image_id').trim();
-      var image = requested;
-      if (requested == 'last' || requested == 'latest') {
-        if (known.isEmpty) {
-          return 'No image exists yet. Call generate_image first, then pass '
-              'its id or "last" as image_id.';
-        }
-        image = known.first.id;
-      }
-      if (image.isNotEmpty && !known.any((asset) => asset.id == image)) {
-        return 'Unknown image_id "$requested". Use the id returned by '
-            'generate_image, or "last" for the newest image.';
-      }
+      // "last" is resolved here, and an id that matches nothing is answered
+      // with an error instead of silently producing a broken picture.
+      final resolved = _imageArg(call, 'image_id', created);
+      if (resolved.error != null) return resolved.error!;
+      final image = resolved.image;
       deck.slides.add(
         Slide(
           title: _argText(call, 'title'),
@@ -951,6 +937,7 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         table: previous.table,
+        elements: previous.elements,
       );
       _persistDeck(deck);
       notifyListeners();
@@ -990,6 +977,7 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         table: table,
+        elements: previous.elements,
       );
       _persistDeck(deck);
       notifyListeners();
@@ -1026,21 +1014,9 @@ class Studio extends ChangeNotifier {
         return 'Invalid index: use -1 for the whole deck or an existing '
             'zero-based slide index.';
       }
-      final known = <Asset>[...created, ...gallery]
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      final requested = _argText(call, 'image_id').trim();
-      var image = requested;
-      if (requested == 'last' || requested == 'latest') {
-        if (known.isEmpty) {
-          return 'No image exists yet. Call generate_image first, then pass '
-              'its id or "last" as image_id.';
-        }
-        image = known.first.id;
-      }
-      if (image.isNotEmpty && !known.any((asset) => asset.id == image)) {
-        return 'Unknown image_id "$requested". Use the id returned by '
-            'generate_image, or "last" for the newest image.';
-      }
+      final resolved = _imageArg(call, 'image_id', created);
+      if (resolved.error != null) return resolved.error!;
+      final image = resolved.image;
       if (index == -1) {
         deck.backgroundImageId = image.isEmpty ? null : image;
       } else {
@@ -1053,6 +1029,7 @@ class Studio extends ChangeNotifier {
           // background again.
           backgroundImageId: image.isEmpty ? null : image,
           table: previous.table,
+          elements: previous.elements,
         );
       }
       _persistDeck(deck);
@@ -1064,6 +1041,156 @@ class Studio extends ChangeNotifier {
     } on FormatException {
       return 'Invalid arguments for set_background.';
     }
+  }
+
+  /// Adds a styled, editable text box at fractional page coordinates. Elements
+  /// sit on top of the standard title/bullets layout, so a page can be built
+  /// from them alone (leave title and bullets empty) or decorated with them.
+  String _addText(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      final index = _argIndex(call, 'index', deck.slides.length);
+      final previous = deck.slides[index];
+      if (previous.elements.length >= SlideElement.maxCount) {
+        return 'Slide ${index + 1} already has ${SlideElement.maxCount} '
+            'elements. Remove one with remove_element or use another page.';
+      }
+      final element = SlideElement(
+        id: _newElementId(previous),
+        kind: SlideElementKind.text,
+        text: _argText(call, 'text'),
+        x: _argNumber(call, 'x'),
+        y: _argNumber(call, 'y'),
+        width: _argNumber(call, 'width'),
+        height: _argNumber(call, 'height'),
+        fontSize: _argNumber(call, 'font_size'),
+        color: _argText(call, 'color'),
+        bold: _argBool(call, 'bold'),
+        align: _argText(call, 'align'),
+        fill: _argOptional(call, 'fill'),
+        border: _argOptional(call, 'border'),
+        radius: _argNumber(call, 'radius'),
+      );
+      deck.slides[index] = Slide(
+        title: previous.title,
+        bullets: previous.bullets,
+        imageId: previous.imageId,
+        backgroundImageId: previous.backgroundImageId,
+        table: previous.table,
+        elements: [...previous.elements, element],
+      );
+      _persistDeck(deck);
+      notifyListeners();
+      return 'Text element ${element.id} added to slide ${index + 1} '
+          '(${_short(element.text)}).';
+    } on FormatException {
+      return 'Invalid arguments for add_text. Use a zero-based slide index, '
+          'x/y/width/height as fractions of the page with x+width and y+height '
+          'at most 1, font_size in points, RRGGBB colours, align '
+          'left/center/right and radius 0-0.5. Pass an empty string for no '
+          'fill or border.';
+    }
+  }
+
+  /// Adds a generated picture as a free-form element, so one page can carry
+  /// several pictures in a grid instead of the single standard image slot.
+  String _addImage(AgentCall call, List<Asset> created) {
+    try {
+      final deck = _deckOf(call);
+      final index = _argIndex(call, 'index', deck.slides.length);
+      final previous = deck.slides[index];
+      if (previous.elements.length >= SlideElement.maxCount) {
+        return 'Slide ${index + 1} already has ${SlideElement.maxCount} '
+            'elements. Remove one with remove_element or use another page.';
+      }
+      final resolved = _imageArg(call, 'image_id', created);
+      if (resolved.error != null) return resolved.error!;
+      if (resolved.image.isEmpty) {
+        return 'add_image needs an image_id: call generate_image first, then '
+            'pass its id or "last".';
+      }
+      final element = SlideElement(
+        id: _newElementId(previous),
+        kind: SlideElementKind.image,
+        imageId: resolved.image,
+        x: _argNumber(call, 'x'),
+        y: _argNumber(call, 'y'),
+        width: _argNumber(call, 'width'),
+        height: _argNumber(call, 'height'),
+        fit: _argText(call, 'fit'),
+        radius: _argNumber(call, 'radius'),
+        border: _argOptional(call, 'border'),
+      );
+      deck.slides[index] = Slide(
+        title: previous.title,
+        bullets: previous.bullets,
+        imageId: previous.imageId,
+        backgroundImageId: previous.backgroundImageId,
+        table: previous.table,
+        elements: [...previous.elements, element],
+      );
+      _persistDeck(deck);
+      notifyListeners();
+      return 'Image element ${element.id} added to slide ${index + 1} '
+          'at x=${element.x}, y=${element.y}, ${element.width}x'
+          '${element.height}, fit ${element.fit}.';
+    } on FormatException {
+      return 'Invalid arguments for add_image. Use a zero-based slide index, '
+          'an image_id returned by generate_image or "last", x/y/width/height '
+          'as fractions of the page with x+width and y+height at most 1, fit '
+          'cover or contain, radius 0-0.5 and an empty border for none.';
+    }
+  }
+
+  String _removeElement(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      final index = _argIndex(call, 'index', deck.slides.length);
+      final id = _argText(call, 'element').trim();
+      final previous = deck.slides[index];
+      final remaining = [
+        for (final element in previous.elements)
+          if (element.id != id) element,
+      ];
+      if (remaining.length == previous.elements.length) {
+        final ids = previous.elements.map((element) => element.id).join(', ');
+        return 'No element "$id" on slide ${index + 1}. Existing ids: '
+            '${ids.isEmpty ? 'none' : ids}.';
+      }
+      deck.slides[index] = Slide(
+        title: previous.title,
+        bullets: previous.bullets,
+        imageId: previous.imageId,
+        backgroundImageId: previous.backgroundImageId,
+        table: previous.table,
+        elements: remaining,
+      );
+      _persistDeck(deck);
+      notifyListeners();
+      return 'Element $id removed from slide ${index + 1}. '
+          '${remaining.length} remain.';
+    } on FormatException {
+      return 'Invalid arguments for remove_element.';
+    }
+  }
+
+  /// Element ids only have to be unique within a slide; a short one keeps the
+  /// transcript and the deck JSON readable.
+  String _newElementId(Slide slide) {
+    final used = {for (final element in slide.elements) element.id};
+    var next = 1;
+    while (used.contains('e$next')) {
+      next++;
+    }
+    return 'e$next';
+  }
+
+  String _short(String text) {
+    final flat = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final runes = flat.runes.toList();
+    return runes.length <= 24
+        ? flat
+        : '${String.fromCharCodes(runes.take(24))}…';
   }
 
   String _askUser(AgentCall call) {
@@ -1110,6 +1237,61 @@ class Studio extends ChangeNotifier {
     return value;
   }
 
+  double _argNumber(AgentCall call, String key) {
+    final value = call.arguments[key];
+    if (value is! num || !value.isFinite) {
+      throw const FormatException('invalidTool');
+    }
+    return value.toDouble();
+  }
+
+  bool _argBool(AgentCall call, String key) {
+    final value = call.arguments[key];
+    if (value is! bool) throw const FormatException('invalidTool');
+    return value;
+  }
+
+  /// An empty string is how a strict tool schema says "no colour": OpenAI
+  /// requires every property, so the field cannot simply be omitted.
+  String? _argOptional(AgentCall call, String key) {
+    final value = _argText(call, key).trim();
+    return value.isEmpty ? null : value;
+  }
+
+  /// Resolves an `image_id` argument: "last"/"latest" becomes the newest
+  /// picture, an empty string stays empty, and an id this app did not produce
+  /// is reported so the model can correct the call instead of writing a page
+  /// with a broken picture.
+  ({String image, String? error}) _imageArg(
+    AgentCall call,
+    String key,
+    List<Asset> created,
+  ) {
+    final known = <Asset>[...created, ...gallery]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final requested = _argText(call, key).trim();
+    if (requested == 'last' || requested == 'latest') {
+      if (known.isEmpty) {
+        return (
+          image: '',
+          error:
+              'No image exists yet. Call generate_image first, then pass '
+              'its id or "last" as image_id.',
+        );
+      }
+      return (image: known.first.id, error: null);
+    }
+    if (requested.isNotEmpty && !known.any((asset) => asset.id == requested)) {
+      return (
+        image: '',
+        error:
+            'Unknown image_id "$requested". Use the id returned by '
+            'generate_image, or "last" for the newest image.',
+      );
+    }
+    return (image: requested, error: null);
+  }
+
   /// Runs one tool call and returns the text the model sees as its result.
   ///
   /// An unknown name is answered as an error result instead of thrown: being
@@ -1153,12 +1335,18 @@ class Studio extends ChangeNotifier {
         return _createDeck(call);
       case 'add_slide':
         return _addSlide(call, created);
+      case 'add_text':
+        return _addText(call);
+      case 'add_image':
+        return _addImage(call, created);
       case 'add_table':
         return _addTable(call);
       case 'set_background':
         return _setBackground(call, created);
       case 'update_slide':
         return _updateSlide(call);
+      case 'remove_element':
+        return _removeElement(call);
       case 'remove_slide':
         return _removeSlide(call);
       case 'finish_deck':
@@ -1415,6 +1603,8 @@ class Studio extends ChangeNotifier {
       final ids = <String>{
         if (slide.imageId != null) slide.imageId!,
         if (deck.backgroundFor(slide) != null) deck.backgroundFor(slide)!,
+        for (final element in slide.elements)
+          if (element.imageId != null) element.imageId!,
       };
       for (final id in ids) {
         if (images.containsKey(id)) continue;

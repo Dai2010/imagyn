@@ -161,7 +161,15 @@ const builtInAgentPrompt =
     'low-contrast background with generate_image (16:9 for a 16:9 deck), then '
     'call set_background with the deck id, that image_id (or "last"), and '
     'index -1 for every page or a zero-based page index for one page. The app '
-    'adds a light scrim, so avoid busy backgrounds that fight the text.';
+    'adds a light scrim, so avoid busy backgrounds that fight the text. '
+    'A page can also hold free-form elements: add_text places a styled, '
+    'editable text box and add_image places a generated picture, both at '
+    'fractional page coordinates, so one page can carry several pictures, '
+    'captions and decoration instead of the default title-and-picture slots. '
+    'The exported page is light (near-white), so default to dark text unless '
+    'you set a fill. Build a cover, a multi-image grid or a poster page that '
+    'way; every element is a real PowerPoint shape the user can still edit, '
+    'and remove_element deletes one by the id the tool returned.';
 
 /// The editable prompt starts empty: the tool instructions above are always
 /// sent, and this is where the user adds their own standing instructions.
@@ -538,6 +546,186 @@ const imageTool = {
   },
 };
 
+enum SlideElementKind { text, image }
+
+bool _isHexColor(String value) =>
+    RegExp(r'^[0-9A-Fa-f]{6}$').hasMatch(value);
+
+/// A shape placed freely on a page: a styled text box or a picture.
+///
+/// Coordinates are fractions of the page (0..1): x/y is the top-left corner
+/// and width/height the box size. One element list therefore renders the same
+/// in the workspace and in the exported `.pptx`, whatever the slide size.
+/// The factory validates every field, so a bad rectangle from the model comes
+/// back as a tool error instead of an archive Office refuses to open.
+class SlideElement {
+  factory SlideElement({
+    required String id,
+    required SlideElementKind kind,
+    required double x,
+    required double y,
+    required double width,
+    required double height,
+    String text = '',
+    String? imageId,
+    double fontSize = 18,
+    String color = '1F1B2E',
+    bool bold = false,
+    String align = 'left',
+    String? fill,
+    String? border,
+    double radius = 0,
+    String fit = 'cover',
+  }) {
+    // Models habitually write `#RRGGBB` although the schema says RRGGBB;
+    // accepting the prefix is cheaper than answering with an error.
+    String? rgb(String? value) => value == null
+        ? null
+        : (value.startsWith('#') ? value.substring(1) : value);
+    final ink = rgb(color);
+    final fillRgb = rgb(fill);
+    final borderRgb = rgb(border);
+    if (id.isEmpty ||
+        id.length > 64 ||
+        !x.isFinite ||
+        !y.isFinite ||
+        !width.isFinite ||
+        !height.isFinite ||
+        x < 0 ||
+        y < 0 ||
+        width <= 0 ||
+        height <= 0 ||
+        x + width > 1.0001 ||
+        y + height > 1.0001 ||
+        text.length > maxTextLength ||
+        (kind == SlideElementKind.text && text.trim().isEmpty) ||
+        (kind == SlideElementKind.image &&
+            (imageId == null || imageId.isEmpty)) ||
+        !fontSize.isFinite ||
+        fontSize < 6 ||
+        fontSize > 200 ||
+        !radius.isFinite ||
+        radius < 0 ||
+        radius > .5 ||
+        !alignValues.contains(align) ||
+        !fitValues.contains(fit) ||
+        !_isHexColor(ink!) ||
+        (fillRgb != null && !_isHexColor(fillRgb)) ||
+        (borderRgb != null && !_isHexColor(borderRgb))) {
+      throw const FormatException('invalidSlideElement');
+    }
+    return SlideElement._(
+      id: id,
+      kind: kind,
+      x: x,
+      y: y,
+      width: width,
+      height: height,
+      text: text,
+      imageId: imageId,
+      fontSize: fontSize,
+      color: ink.toUpperCase(),
+      bold: bold,
+      align: align,
+      fill: fillRgb?.toUpperCase(),
+      border: borderRgb?.toUpperCase(),
+      radius: radius,
+      fit: fit,
+    );
+  }
+
+  const SlideElement._({
+    required this.id,
+    required this.kind,
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+    required this.text,
+    required this.imageId,
+    required this.fontSize,
+    required this.color,
+    required this.bold,
+    required this.align,
+    required this.fill,
+    required this.border,
+    required this.radius,
+    required this.fit,
+  });
+
+  /// Enough shapes to build a poster-like page, few enough that the model
+  /// cannot turn a slide into a thousand-element document.
+  static const maxCount = 12;
+  static const maxTextLength = 2000;
+  static const alignValues = ['left', 'center', 'right'];
+  static const fitValues = ['cover', 'contain'];
+
+  /// Stable within a slide; `remove_element` names an element by this.
+  final String id;
+  final SlideElementKind kind;
+  final double x, y, width, height;
+
+  /// Text content, and the picture to draw, respectively.
+  final String text;
+  final String? imageId;
+
+  /// Points, matching the size the exported text has in PowerPoint.
+  final double fontSize;
+  final String color;
+  final bool bold;
+  final String align;
+
+  /// `RRGGBB` or null for no fill; a text box's background and outline.
+  final String? fill;
+  final String? border;
+
+  /// Corner curve as a fraction of the shorter side, 0..0.5.
+  final double radius;
+
+  /// How a picture fills its box: `cover` crops, `contain` letterboxes.
+  final String fit;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'kind': kind.name,
+    'x': x,
+    'y': y,
+    'width': width,
+    'height': height,
+    if (text.isNotEmpty) 'text': text,
+    if (imageId != null) 'imageId': imageId,
+    'fontSize': fontSize,
+    'color': color,
+    'bold': bold,
+    'align': align,
+    if (fill != null) 'fill': fill,
+    if (border != null) 'border': border,
+    'radius': radius,
+    'fit': fit,
+  };
+
+  factory SlideElement.fromJson(Map<String, dynamic> j) => SlideElement(
+    id: j['id'] as String? ?? '',
+    kind: j['kind'] == 'image'
+        ? SlideElementKind.image
+        : SlideElementKind.text,
+    x: (j['x'] as num? ?? 0).toDouble(),
+    y: (j['y'] as num? ?? 0).toDouble(),
+    width: (j['width'] as num? ?? 0).toDouble(),
+    height: (j['height'] as num? ?? 0).toDouble(),
+    text: j['text'] as String? ?? '',
+    imageId: j['imageId'] as String?,
+    fontSize: (j['fontSize'] as num? ?? 18).toDouble(),
+    color: j['color'] as String? ?? '1F1B2E',
+    bold: j['bold'] == true,
+    align: j['align'] as String? ?? 'left',
+    fill: j['fill'] as String?,
+    border: j['border'] as String?,
+    radius: (j['radius'] as num? ?? 0).toDouble(),
+    fit: j['fit'] as String? ?? 'cover',
+  );
+}
+
 /// One slide: what a deck tool adds, and what the workspace renders.
 class Slide {
   const Slide({
@@ -546,6 +734,7 @@ class Slide {
     this.imageId,
     this.backgroundImageId,
     this.table,
+    this.elements = const [],
   });
   final String title;
   final List<String> bullets;
@@ -555,12 +744,18 @@ class Slide {
   /// empty string means this page has none even when the deck has one.
   final String? backgroundImageId;
   final SlideTable? table;
+
+  /// Shapes layered on top of the title/bullets slots. Empty on a page built
+  /// only with the standard layout.
+  final List<SlideElement> elements;
   Map<String, dynamic> toJson() => {
     'title': title,
     'bullets': bullets,
     if (imageId != null) 'imageId': imageId,
     if (backgroundImageId != null) 'backgroundImageId': backgroundImageId,
     if (table != null) 'table': table!.toJson(),
+    if (elements.isNotEmpty)
+      'elements': [for (final element in elements) element.toJson()],
   };
   factory Slide.fromJson(Map<String, dynamic> j) => Slide(
     title: j['title'] as String? ?? '',
@@ -570,6 +765,10 @@ class Slide {
     table: j['table'] == null
         ? null
         : SlideTable.fromJson(Map<String, dynamic>.from(j['table'] as Map)),
+    elements: [
+      for (final element in j['elements'] as List? ?? [])
+        SlideElement.fromJson(Map<String, dynamic>.from(element as Map)),
+    ],
   );
 }
 
@@ -844,6 +1043,121 @@ const setBackgroundTool = {
   },
 };
 
+const addTextTool = {
+  'name': 'add_text',
+  'description':
+      'Place an editable text box anywhere on a slide. Coordinates are '
+      'fractions of the page: x and y are the top-left corner, width and '
+      'height the box size, all between 0 and 1, and x+width / y+height must '
+      'not exceed 1. Use this for free-form layouts, cover titles, captions, '
+      'labels and stat callouts; use add_slide for the standard '
+      'title-and-bullets page. font_size is in points and stays literal in '
+      'PowerPoint. color, fill and border are RRGGBB hex strings; pass an '
+      'empty string for no fill or border. align is left, center or right and '
+      'radius curves the corners by 0 to 0.5 of the shorter side. The result '
+      'names the element id for remove_element.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'index': {'type': 'integer', 'description': 'Zero-based slide index.'},
+      'text': {'type': 'string', 'maxLength': SlideElement.maxTextLength},
+      'x': {'type': 'number'},
+      'y': {'type': 'number'},
+      'width': {'type': 'number'},
+      'height': {'type': 'number'},
+      'font_size': {'type': 'number'},
+      'color': {'type': 'string'},
+      'bold': {'type': 'boolean'},
+      'align': {'type': 'string', 'enum': SlideElement.alignValues},
+      'fill': {'type': 'string'},
+      'border': {'type': 'string'},
+      'radius': {'type': 'number'},
+    },
+    'required': [
+      'deck',
+      'index',
+      'text',
+      'x',
+      'y',
+      'width',
+      'height',
+      'font_size',
+      'color',
+      'bold',
+      'align',
+      'fill',
+      'border',
+      'radius',
+    ],
+    'additionalProperties': false,
+  },
+};
+
+const addImageTool = {
+  'name': 'add_image',
+  'description':
+      'Place a generated picture anywhere on a slide, independently of the '
+      'standard title/image layout. Generate it with generate_image first, '
+      'then pass its image_id (or "last"). Coordinates are fractions of the '
+      'page: x and y are the top-left corner, width and height the box size, '
+      'all between 0 and 1, and x+width / y+height must not exceed 1. fit '
+      'cover crops the picture to the box, contain keeps all of it and '
+      'letterboxes it. Use several calls for a multi-image page. The result '
+      'names the element id for remove_element.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'index': {'type': 'integer', 'description': 'Zero-based slide index.'},
+      'image_id': {
+        'type': 'string',
+        'description':
+            'The image_id returned by generate_image, or "last" for the '
+            'newest image. Never put a description or a prompt here.',
+      },
+      'x': {'type': 'number'},
+      'y': {'type': 'number'},
+      'width': {'type': 'number'},
+      'height': {'type': 'number'},
+      'fit': {'type': 'string', 'enum': SlideElement.fitValues},
+      'radius': {'type': 'number'},
+      'border': {'type': 'string'},
+    },
+    'required': [
+      'deck',
+      'index',
+      'image_id',
+      'x',
+      'y',
+      'width',
+      'height',
+      'fit',
+      'radius',
+      'border',
+    ],
+    'additionalProperties': false,
+  },
+};
+
+const removeElementTool = {
+  'name': 'remove_element',
+  'description':
+      'Remove one free-form element (text box or picture) from a slide, by the '
+      'element id that add_text or add_image returned. The standard title, '
+      'bullets and table are not elements; use update_slide or remove_slide.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'index': {'type': 'integer', 'description': 'Zero-based slide index.'},
+      'element': {'type': 'string'},
+    },
+    'required': ['deck', 'index', 'element'],
+    'additionalProperties': false,
+  },
+};
+
 const askUserTool = {
   'name': 'ask_user',
   'description':
@@ -870,9 +1184,12 @@ const agentTools = [
   imageTool,
   createDeckTool,
   addSlideTool,
+  addTextTool,
+  addImageTool,
   addTableTool,
   setBackgroundTool,
   updateSlideTool,
+  removeElementTool,
   removeSlideTool,
   finishDeckTool,
   askUserTool,
