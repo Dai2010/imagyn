@@ -169,7 +169,10 @@ const builtInAgentPrompt =
     'The exported page is light (near-white), so default to dark text unless '
     'you set a fill. Build a cover, a multi-image grid or a poster page that '
     'way; every element is a real PowerPoint shape the user can still edit, '
-    'and remove_element deletes one by the id the tool returned.';
+    'and remove_element deletes one by the id the tool returned. '
+    'When the user gives a link or asks about a public page, call fetch_url '
+    'with the absolute URL: it returns readable text and refuses private '
+    'addresses. Never repeat a fetch that failed; say what went wrong.';
 
 /// The editable prompt starts empty: the tool instructions above are always
 /// sent, and this is where the user adds their own standing instructions.
@@ -1229,9 +1232,30 @@ const askUserTool = {
   },
 };
 
+const fetchTool = {
+  'name': 'fetch_url',
+  'description':
+      'Fetch one public http or https page and return its readable text. Use '
+      'it only when the user gives a link or needs information that is not in '
+      'the conversation. Loopback, private and link-local addresses are '
+      'refused by the app, and a long page is truncated.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'url': {
+        'type': 'string',
+        'description': 'Absolute http or https URL, including the scheme.',
+      },
+    },
+    'required': ['url'],
+    'additionalProperties': false,
+  },
+};
+
 /// Every tool offered to the model. The order is the order of the prompt.
 const agentTools = [
   imageTool,
+  fetchTool,
   createDeckTool,
   addSlideTool,
   addTextTool,
