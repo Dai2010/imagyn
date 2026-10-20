@@ -509,8 +509,10 @@ class Studio extends ChangeNotifier {
 
     var send = chat.sublist(math.min(start, chat.length));
     var settings = options;
-    if (summary != null && summary.isNotEmpty) {
-      settings = _withSummary(settings, summary);
+    // Read the checkpoint again: the block above may have just written one.
+    final checkpoint = _summary;
+    if (checkpoint != null && checkpoint.isNotEmpty) {
+      settings = _withSummary(settings, checkpoint);
     }
     // Even a summary plus the newest window can exceed a very small limit; drop
     // whole turns from the front, never the newest message.
