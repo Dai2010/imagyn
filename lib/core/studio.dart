@@ -16,6 +16,7 @@ import 'pptx.dart';
 import 'share.dart';
 import 'store.dart';
 import 'tokens.dart';
+import 'webfetch.dart';
 
 class Studio extends ChangeNotifier {
   Studio(this.store, {this.shareFile = shareWithSystem});
