@@ -11,11 +11,12 @@ import 'support/deck_studio.dart';
 /// MemoryStore implements LocalStore through noSuchMethod, so a test that
 /// really writes a file needs the two members the share path uses.
 class _ShareStore extends DeckStore {
-  _ShareStore(this.root);
+  _ShareStore(this._root);
+  final Directory _root;
   @override
-  final Directory root;
+  Directory get root => _root;
   @override
-  File file(Asset asset) => File(p.join(root.path, asset.path));
+  File file(Asset asset) => File(p.join(_root.path, asset.path));
 }
 
 void main() {

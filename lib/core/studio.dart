@@ -18,10 +18,9 @@ import 'store.dart';
 import 'tokens.dart';
 
 class Studio extends ChangeNotifier {
-  Studio(this.store, {ShareFile shareFile = shareWithSystem})
-    : _shareFile = shareFile;
+  Studio(this.store, {this.shareFile = shareWithSystem});
   final LocalStore store;
-  final ShareFile _shareFile;
+  final ShareFile shareFile;
   ServiceConfig config = const ServiceConfig();
   String key = '', imageKey = '', session = '', theme = 'system';
 
@@ -1791,7 +1790,7 @@ class Studio extends ChangeNotifier {
   /// "open with" path: every app that can read the type is offered there.
   Future<void> shareAsset(Asset asset) async {
     final prompt = asset.prompt.trim();
-    await _shareFile(store.file(asset).path, prompt.isEmpty ? null : prompt);
+    await shareFile(store.file(asset).path, prompt.isEmpty ? null : prompt);
   }
 
   /// Builds the deck once and hands the `.pptx` to the share sheet, so it can
@@ -1805,7 +1804,7 @@ class Studio extends ChangeNotifier {
     );
     await file.writeAsBytes(bytes, flush: true);
     final title = deck.title.trim();
-    await _shareFile(file.path, title.isEmpty ? null : title);
+    await shareFile(file.path, title.isEmpty ? null : title);
   }
 
   @override
