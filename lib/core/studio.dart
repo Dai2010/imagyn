@@ -7,10 +7,12 @@ import 'package:dio/dio.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
 
 import '../l10n/strings.dart';
 import 'api.dart';
+import 'background.dart';
 import 'models.dart';
 import 'pptx.dart';
 import 'share.dart';
@@ -691,6 +693,14 @@ class Studio extends ChangeNotifier {
     Map<String, dynamic>? record;
     final created = <Asset>[];
     var answerSaved = false;
+    // Hold the process while the turn runs, so swiping the task away does not
+    // stop the work; the service is stopped in the finally below.
+    unawaited(
+      Background.begin(
+        title: _backgroundString('turnRunning'),
+        body: _cut(prompt.trim()),
+      ),
+    );
     notifyListeners();
     try {
       String? imagePrompt = prompt.trim();
@@ -917,6 +927,19 @@ class Studio extends ChangeNotifier {
       busy = false;
       _asked = false;
       _clearStream();
+      unawaited(Background.end());
+      // The platform only shows this when no activity is on screen, and it
+      // never posts one for a turn the user stopped on purpose.
+      if (error != 'cancelled') {
+        unawaited(
+          Background.notify(
+            title: _backgroundString(error == null ? 'turnDone' : 'turnFailed'),
+            body: error == null
+                ? _cut(prompt.trim())
+                : _backgroundString(error!),
+          ),
+        );
+      }
       notifyListeners();
     }
   }
@@ -1295,6 +1318,32 @@ class Studio extends ChangeNotifier {
     return runes.length <= 24
         ? flat
         : '${String.fromCharCodes(runes.take(24))}…';
+  }
+
+  /// Notification text in the language the app is showing. A plain unit test
+  /// has no binding, so an unresolvable platform locale falls back to English
+  /// instead of failing the turn.
+  String _backgroundString(String key) {
+    final setting = languageSetting;
+    final code = setting == 'system' ? _platformLanguage() : setting;
+    return Strings(code).t(key);
+  }
+
+  String _platformLanguage() {
+    try {
+      return Strings.resolve([
+        WidgetsBinding.instance.platformDispatcher.locale,
+      ]);
+    } on Object {
+      return 'en';
+    }
+  }
+
+  String _cut(String text) {
+    final runes = text.runes.toList();
+    return runes.length <= 100
+        ? text
+        : '${String.fromCharCodes(runes.take(100))}…';
   }
 
   /// Fetches one public page for the model. The executor owns the address
