@@ -46,6 +46,22 @@ class _DeckWorkspacePageState extends State<DeckWorkspacePage> {
     }
   }
 
+  /// Shares the same bytes Export writes, without leaving a copy in Downloads:
+  /// the share sheet is also how the deck is opened in PowerPoint or WPS.
+  Future<void> _share() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final s = Strings.of(context);
+    try {
+      await studio.shareDeck(deck);
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(s.t(errorCode(e)))));
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = Strings.of(context);
@@ -75,6 +91,11 @@ class _DeckWorkspacePageState extends State<DeckWorkspacePage> {
             ],
           ),
           actions: [
+            IconButton(
+              tooltip: s.t('share'),
+              onPressed: deck.slides.isEmpty || _exporting ? null : _share,
+              icon: const Icon(Icons.ios_share_rounded),
+            ),
             if (_exporting)
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),

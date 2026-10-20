@@ -44,6 +44,7 @@ rows = {
 'save': ['Save','保存','Enregistrer','Guardar','Сохранить','حفظ'],
 'saved': ['Saved','已保存','Enregistré','Guardado','Сохранено','تم الحفظ'],
 'saveImage': ['Save image','保存图片','Enregistrer l’image','Guardar imagen','Сохранить изображение','حفظ الصورة'],
+'share': ['Share','分享','Partager','Compartir','Поделиться','مشاركة'],
 'edit': ['Use as reference','用作参考图','Utiliser comme référence','Usar como referencia','Использовать как образец','استخدام كمرجع'],
 'continueAgent': ['Continue in Agent','在 Agent 中继续','Continuer avec l’agent','Continuar con agente','Продолжить с агентом','المتابعة مع الوكيل'],
 'newChat': ['New conversation','新对话','Nouvelle conversation','Nueva conversación','Новый диалог','محادثة جديدة'],
