@@ -87,6 +87,30 @@ void main() {
     },
   );
 
+  testWidgets('the Agent composer offers the image model as well', (
+    tester,
+  ) async {
+    final studio = Studio(MemoryStore());
+    await studio.initialize();
+    await tester.pumpWidget(ImagynApp(studio: studio));
+    await tester.tap(find.text('Agent').last);
+    await tester.pumpAndSettle();
+
+    // Both chips are on their own line, so neither is squeezed by the actions.
+    expect(find.byKey(const ValueKey('switchAgentModel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('switchImageModel')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('switchImageModel')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('modelId')), 'image-b');
+    await tester.tap(find.text('使用此模型'));
+    await tester.pumpAndSettle();
+
+    expect(studio.activeConfig.imageModel, 'image-b');
+    expect(studio.activeConfig.agentModel, 'agent-a');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('invalid numeric input stays visible in the Agent editor', (
     tester,
   ) async {
