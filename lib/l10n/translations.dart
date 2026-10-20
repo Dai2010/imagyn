@@ -188,7 +188,8 @@ const translations = <String, Map<String, String>>{
   "untitledDeck": "Untitled deck",
   "turnRunning": "Imagyn is working…",
   "turnDone": "Task finished",
-  "turnFailed": "Task failed"
+  "turnFailed": "Task failed",
+  "stopped": "Stopped"
 },
 "zh": {
   "gallery": "画廊",
@@ -378,7 +379,8 @@ const translations = <String, Map<String, String>>{
   "untitledDeck": "未命名演示文稿",
   "turnRunning": "映想正在处理……",
   "turnDone": "任务已完成",
-  "turnFailed": "任务失败"
+  "turnFailed": "任务失败",
+  "stopped": "已停止"
 },
 "fr": {
   "gallery": "Galerie",
@@ -568,7 +570,8 @@ const translations = <String, Map<String, String>>{
   "untitledDeck": "Diaporama sans titre",
   "turnRunning": "Imagyn travaille…",
   "turnDone": "Tâche terminée",
-  "turnFailed": "Tâche échouée"
+  "turnFailed": "Tâche échouée",
+  "stopped": "Arrêté"
 },
 "es": {
   "gallery": "Galería",
@@ -758,7 +761,8 @@ const translations = <String, Map<String, String>>{
   "untitledDeck": "Presentación sin título",
   "turnRunning": "Imagyn está trabajando…",
   "turnDone": "Tarea terminada",
-  "turnFailed": "Tarea fallida"
+  "turnFailed": "Tarea fallida",
+  "stopped": "Detenido"
 },
 "ru": {
   "gallery": "Галерея",
@@ -948,7 +952,8 @@ const translations = <String, Map<String, String>>{
   "untitledDeck": "Без названия",
   "turnRunning": "Imagyn работает…",
   "turnDone": "Задача выполнена",
-  "turnFailed": "Задача не выполнена"
+  "turnFailed": "Задача не выполнена",
+  "stopped": "Остановлено"
 },
 "ar": {
   "gallery": "المعرض",
@@ -1138,6 +1143,7 @@ const translations = <String, Map<String, String>>{
   "untitledDeck": "عرض بلا عنوان",
   "turnRunning": "Imagyn يعمل…",
   "turnDone": "اكتملت المهمة",
-  "turnFailed": "فشلت المهمة"
+  "turnFailed": "فشلت المهمة",
+  "stopped": "تم الإيقاف"
 },
 };

@@ -401,6 +401,16 @@ class _StudioShellState extends State<StudioShell> {
       if (entry.reasoning.isNotEmpty) _thinking(entry.reasoning),
       if (entry.text.isNotEmpty)
         _text(entry.text, user: user, streaming: streaming),
+      if (entry.aborted)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            s.t('stopped'),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+        ),
       for (final id in entry.assetIds)
         FutureBuilder<Asset?>(
           future: studio.store.asset(id),
