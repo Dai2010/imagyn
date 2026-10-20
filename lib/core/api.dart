@@ -276,11 +276,12 @@ class StudioApi {
     List<Asset> refs,
     CancelToken cancel, {
     AgentOptions? options,
+    bool allowTools = true,
   }) async {
     final request = await _agentRequest(history, refs, options);
     final response = await dio.postUri(
       config.endpoint(config.protocol.chatPath),
-      data: _agentBody(request, stream: false),
+      data: _agentBody(request, stream: false, allowTools: allowTools),
       options: Options(headers: agentHeaders),
       cancelToken: cancel,
     );
@@ -300,12 +301,13 @@ class StudioApi {
     List<Asset> refs,
     CancelToken cancel, {
     AgentOptions? options,
+    bool allowTools = true,
     void Function(AgentDelta delta)? onDelta,
   }) async {
     final request = await _agentRequest(history, refs, options);
     final response = await dio.postUri<ResponseBody>(
       config.endpoint(config.protocol.chatPath),
-      data: _agentBody(request, stream: true),
+      data: _agentBody(request, stream: true, allowTools: allowTools),
       options: Options(
         headers: agentHeaders,
         responseType: ResponseType.stream,
@@ -586,6 +588,7 @@ class StudioApi {
   Map<String, dynamic> _agentBody(
     _AgentRequest request, {
     required bool stream,
+    bool allowTools = true,
   }) {
     final settings = request.settings;
     final system = request.system;
@@ -603,10 +606,14 @@ class StudioApi {
             'store': false,
             'parallel_tool_calls': false,
             if (stream) 'stream': true,
-            'tools': [
-              for (final tool in agentTools)
-                {'type': 'function', ...tool, 'strict': true},
-            ],
+            // A wrap-up request leaves the tools out entirely: with no tool to
+            // call, the model has to answer in text, and every protocol accepts
+            // a request without a tools field.
+            if (allowTools)
+              'tools': [
+                for (final tool in agentTools)
+                  {'type': 'function', ...tool, 'strict': true},
+              ],
           }
         : <String, dynamic>{
             'model': config.agentModel,
@@ -623,16 +630,17 @@ class StudioApi {
               'temperature': settings.temperature,
             if (settings.topP != null) 'top_p': settings.topP,
             if (stream) 'stream': true,
-            'tools': [
-              for (final tool in agentTools)
-                anthropic
-                    ? {
-                        'name': tool['name'],
-                        'description': tool['description'],
-                        'input_schema': tool['parameters'],
-                      }
-                    : {'type': 'function', 'function': tool},
-            ],
+            if (allowTools)
+              'tools': [
+                for (final tool in agentTools)
+                  anthropic
+                      ? {
+                          'name': tool['name'],
+                          'description': tool['description'],
+                          'input_schema': tool['parameters'],
+                        }
+                      : {'type': 'function', 'function': tool},
+              ],
             if (!anthropic) 'parallel_tool_calls': false,
           };
   }
