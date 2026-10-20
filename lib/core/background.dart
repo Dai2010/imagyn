@@ -20,10 +20,10 @@ class Background {
   static Future<void> _call(String method, [Map<String, Object?>? arguments]) async {
     try {
       await _channel.invokeMethod<void>(method, arguments);
-    } on MissingPluginException {
-      // Desktop and the test harness have no such channel.
-    } on PlatformException {
-      // A denied permission or a refused service start is not a task failure.
+    } on Object {
+      // Desktop has no such channel, a plain unit test has no binding, and a
+      // denied permission or refused service start is not a task failure.
+      // Background support must never be able to fail a turn.
     }
   }
 }
