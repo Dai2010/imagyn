@@ -394,6 +394,7 @@ class Studio extends ChangeNotifier {
             backgroundImageId: slide.backgroundImageId,
             backgroundColor: slide.backgroundColor,
             tables: slide.allTables,
+            chart: slide.chart,
             elements: [
               for (final element in slide.elements)
                 element.imageId != null && assets.containsKey(element.imageId)
@@ -1231,6 +1232,7 @@ class Studio extends ChangeNotifier {
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
         tables: previous.allTables,
+        chart: previous.chart,
         elements: previous.elements,
       );
       _persistDeck(deck);
@@ -1308,6 +1310,7 @@ class Studio extends ChangeNotifier {
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
         tables: tables,
+        chart: previous.chart,
         elements: previous.elements,
       );
       _persistDeck(deck);
@@ -1320,6 +1323,72 @@ class Studio extends ChangeNotifier {
           'zero-based slide index, table_index (-1 to append, 0 or 1 to '
           'replace), header_row as a boolean, and 1-12 rectangular rows of '
           '1-8 string cells (at most 500 characters each).';
+    }
+  }
+
+  String _addChart(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      final index = _argIndex(call, 'index', deck.slides.length);
+      final kind = call.arguments['kind'];
+      final title = call.arguments['title'];
+      final categories = call.arguments['categories'];
+      final rawSeries = call.arguments['series'];
+      if (kind is! String ||
+          title is! String ||
+          categories is! List ||
+          rawSeries is! List) {
+        throw const FormatException('invalidTool');
+      }
+      final labels = <String>[];
+      for (final category in categories) {
+        if (category is! String) throw const FormatException('invalidTool');
+        labels.add(category);
+      }
+      final series = <ChartSeries>[];
+      for (final item in rawSeries) {
+        if (item is! Map) throw const FormatException('invalidTool');
+        final name = item['name'];
+        final values = item['values'];
+        if (name is! String ||
+            values is! List ||
+            values.any((value) => value is! num)) {
+          throw const FormatException('invalidTool');
+        }
+        series.add(
+          ChartSeries(
+            name: name,
+            values: [for (final value in values) (value as num).toDouble()],
+          ),
+        );
+      }
+      final chart = SlideChart(
+        kind: kind,
+        title: title,
+        categories: labels,
+        series: series,
+      );
+      final previous = deck.slides[index];
+      deck.slides[index] = Slide(
+        title: previous.title,
+        bullets: previous.bullets,
+        bulletLevels: previous.bulletLevels,
+        notes: previous.notes,
+        imageId: previous.imageId,
+        backgroundImageId: previous.backgroundImageId,
+        backgroundColor: previous.backgroundColor,
+        tables: previous.allTables,
+        chart: chart,
+        elements: previous.elements,
+      );
+      _persistDeck(deck);
+      notifyListeners();
+      return '${chart.kind} chart with ${chart.categories.length} categories '
+          'and ${chart.series.length} series placed on slide ${index + 1}.';
+    } on FormatException {
+      return 'Invalid arguments for add_chart. Use an existing deck and '
+          'zero-based slide index, kind bar/line/pie, a title string, 1-12 '
+          'short categories and 1-3 series whose values match the categories.';
     }
   }
 
@@ -1341,6 +1410,7 @@ class Studio extends ChangeNotifier {
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
         tables: previous.allTables,
+        chart: previous.chart,
         elements: previous.elements,
       );
       _persistDeck(deck);
@@ -1399,8 +1469,9 @@ class Studio extends ChangeNotifier {
           backgroundImageId: image.isEmpty ? null : image,
           backgroundColor: color,
           tables: previous.allTables,
-        notes: previous.notes,
-        bulletLevels: previous.bulletLevels,
+          chart: previous.chart,
+          notes: previous.notes,
+          bulletLevels: previous.bulletLevels,
           elements: previous.elements,
         );
       }
@@ -1464,6 +1535,7 @@ class Studio extends ChangeNotifier {
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
         tables: previous.allTables,
+        chart: previous.chart,
         notes: previous.notes,
         bulletLevels: previous.bulletLevels,
         elements: [...previous.elements, element],
@@ -1535,6 +1607,7 @@ class Studio extends ChangeNotifier {
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
         tables: previous.allTables,
+        chart: previous.chart,
         notes: previous.notes,
         bulletLevels: previous.bulletLevels,
         elements: elements,
@@ -1587,6 +1660,7 @@ class Studio extends ChangeNotifier {
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
         tables: previous.allTables,
+        chart: previous.chart,
         notes: previous.notes,
         bulletLevels: previous.bulletLevels,
         elements: [...previous.elements, element],
@@ -1626,6 +1700,7 @@ class Studio extends ChangeNotifier {
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
         tables: previous.allTables,
+        chart: previous.chart,
         notes: previous.notes,
         bulletLevels: previous.bulletLevels,
         elements: remaining,
@@ -1904,6 +1979,8 @@ class Studio extends ChangeNotifier {
         return _addImage(call, created);
       case 'add_table':
         return _addTable(call);
+      case 'add_chart':
+        return _addChart(call);
       case 'set_background':
         return _setBackground(call, created);
       case 'update_slide':

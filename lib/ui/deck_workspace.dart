@@ -530,12 +530,16 @@ class _SlideCard extends StatelessWidget {
   /// text has to stay readable while the user is building it.
   bool get _freeForm => slide.elements.isNotEmpty;
 
+  /// Tables and charts share the bounded canvas, so their layout stays stable
+  /// at thumbnail and dialog sizes.
+  bool get _hasStack => slide.allTables.isNotEmpty || slide.chart != null;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final content = LayoutBuilder(
       builder: (context, constraints) {
-        if (slide.allTables.isNotEmpty) {
+        if (_hasStack) {
           // A bounded canvas keeps the table's relative layout stable at
           // thumbnail and dialog size, including on a narrow phone.
           const width = 960.0;
@@ -775,7 +779,7 @@ class _SlideCard extends StatelessWidget {
   Widget _layout(BuildContext context, double width) {
     final scheme = Theme.of(context).colorScheme;
     final pad = (width * .055).clamp(10.0, 44.0);
-    final title = slide.allTables.isNotEmpty
+    final title = _hasStack
         ? 40.0
         : large
         ? (width * .045).clamp(18.0, 40.0)
@@ -861,23 +865,42 @@ class _SlideCard extends StatelessWidget {
 
   Widget _body(BuildContext context, double fontSize) {
     final tables = slide.allTables;
-    if (tables.isEmpty) return _bullets(context, fontSize);
+    final chart = slide.chart;
+    if (tables.isEmpty && chart == null) return _bullets(context, fontSize);
     final hasBullets = slide.bullets.any((text) => text.trim().isNotEmpty);
+    final shared = tables.isNotEmpty && chart != null;
     return LayoutBuilder(
       builder: (context, constraints) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (hasBullets) ...[
             SizedBox(
-              height: constraints.maxHeight * .35,
+              height: constraints.maxHeight * (shared ? .28 : .35),
               child: _bullets(context, fontSize),
             ),
             const SizedBox(height: 12),
           ],
-          for (var i = 0; i < tables.length; i++) ...[
-            if (i > 0) const SizedBox(height: 10),
-            Expanded(child: _table(context, tables[i])),
-          ],
+          if (shared) ...[
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < tables.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 10),
+                    Expanded(child: _table(context, tables[i])),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Expanded(child: _chart(context, chart!)),
+          ] else if (tables.isNotEmpty) ...[
+            for (var i = 0; i < tables.length; i++) ...[
+              if (i > 0) const SizedBox(height: 10),
+              Expanded(child: _table(context, tables[i])),
+            ],
+          ] else
+            Expanded(child: _chart(context, chart!)),
         ],
       ),
     );
@@ -891,7 +914,7 @@ class _SlideCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (var i = 0; i < slide.bullets.length; i++)
-            if (slide.allTables.isEmpty || slide.bullets[i].trim().isNotEmpty)
+            if (!_hasStack || slide.bullets[i].trim().isNotEmpty)
               Padding(
                 padding: EdgeInsets.only(
                   bottom: body * .55,
@@ -1002,6 +1025,53 @@ class _SlideCard extends StatelessWidget {
     );
   }
 
+  Widget _chart(BuildContext context, SlideChart chart) {
+    final scheme = Theme.of(context).colorScheme;
+    final ink = _ink(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: _freeForm
+            ? const Color(0xFFF4F2FA)
+            : scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (chart.title.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                chart.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 18,
+                  height: 1.2,
+                  fontWeight: FontWeight.w600,
+                  color: ink,
+                ),
+              ),
+            ),
+          Expanded(
+            child: CustomPaint(
+              painter: _ChartPainter(
+                chart: chart,
+                palette: [scheme.primary, scheme.tertiary, scheme.secondary],
+                ink: ink,
+                grid: scheme.outlineVariant,
+                surface: scheme.surface,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _image(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return FutureBuilder<Asset?>(
@@ -1036,4 +1106,224 @@ class _SlideCard extends StatelessWidget {
       },
     );
   }
+}
+
+/// Draws the chart inside the preview card. Values come from the same
+/// [SlideChart] the exporter writes, so shapes and proportions match.
+class _ChartPainter extends CustomPainter {
+  _ChartPainter({
+    required this.chart,
+    required this.palette,
+    required this.ink,
+    required this.grid,
+    required this.surface,
+  });
+
+  final SlideChart chart;
+  final List<Color> palette;
+  final Color ink;
+  final Color grid;
+  final Color surface;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width < 2 || size.height < 2) return;
+    switch (chart.kind) {
+      case 'pie':
+        _pie(canvas, size);
+      case 'line':
+        _line(canvas, size);
+      default:
+        _bars(canvas, size);
+    }
+  }
+
+  double _labelSize(Size size) =>
+      (size.height * .075).clamp(8.0, 13.0).toDouble();
+
+  Rect _plot(Size size) {
+    final label = _labelSize(size);
+    return Rect.fromLTRB(
+      size.width * .04,
+      size.height * .06,
+      size.width * .99,
+      math.max(size.height * .2, size.height - label * 1.8),
+    );
+  }
+
+  ({double min, double max}) _bounds() {
+    var min = 0.0;
+    var max = 0.0;
+    for (final series in chart.series) {
+      for (final value in series.values) {
+        min = math.min(min, value);
+        max = math.max(max, value);
+      }
+    }
+    if (max == min) max = min + 1;
+    return (min: min, max: max);
+  }
+
+  double _y(double value, Rect plot, ({double min, double max}) bounds) =>
+      plot.bottom -
+      (value - bounds.min) / (bounds.max - bounds.min) * plot.height;
+
+  void _grid(Canvas canvas, Rect plot) {
+    final paint = Paint()
+      ..color = grid
+      ..strokeWidth = 1;
+    for (var i = 0; i <= 3; i++) {
+      final y = plot.top + plot.height * i / 3;
+      canvas.drawLine(Offset(plot.left, y), Offset(plot.right, y), paint);
+    }
+  }
+
+  void _category(
+    Canvas canvas,
+    int index,
+    double center,
+    double width,
+    Size size,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: chart.categories[index],
+        style: TextStyle(fontSize: _labelSize(size), color: ink),
+      ),
+      maxLines: 1,
+      ellipsis: '…',
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: math.max(1.0, width));
+    painter.paint(
+      canvas,
+      Offset(center - painter.width / 2, size.height - painter.height),
+    );
+  }
+
+  void _bars(Canvas canvas, Size size) {
+    final bounds = _bounds();
+    final plot = _plot(size);
+    _grid(canvas, plot);
+    final slot = plot.width / chart.categories.length;
+    final barWidth = slot * .7 / chart.series.length;
+    final paint = Paint()..style = PaintingStyle.fill;
+    final zeroY = _y(0, plot, bounds);
+    for (var i = 0; i < chart.categories.length; i++) {
+      final left = plot.left + slot * i + slot * .15;
+      for (var s = 0; s < chart.series.length; s++) {
+        final y = _y(chart.series[s].values[i], plot, bounds);
+        paint.color = palette[s % palette.length];
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(
+              left + barWidth * s,
+              math.min(y, zeroY),
+              math.max(1.0, barWidth * .86),
+              math.max(1.0, (y - zeroY).abs()),
+            ),
+            const Radius.circular(2),
+          ),
+          paint,
+        );
+      }
+      _category(canvas, i, left + slot * .35, slot, size);
+    }
+  }
+
+  void _line(Canvas canvas, Size size) {
+    final bounds = _bounds();
+    final plot = _plot(size);
+    _grid(canvas, plot);
+    final step = plot.width / chart.categories.length;
+    for (var s = 0; s < chart.series.length; s++) {
+      final series = chart.series[s];
+      final color = palette[s % palette.length];
+      final paint = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      final path = Path();
+      final points = <Offset>[];
+      for (var i = 0; i < series.values.length; i++) {
+        final point = Offset(
+          plot.left + step * (i + .5),
+          _y(series.values[i], plot, bounds),
+        );
+        points.add(point);
+        if (i == 0) {
+          path.moveTo(point.dx, point.dy);
+        } else {
+          path.lineTo(point.dx, point.dy);
+        }
+      }
+      canvas.drawPath(path, paint);
+      final dot = Paint()..color = color;
+      for (final point in points) {
+        canvas.drawCircle(point, 3, dot);
+      }
+    }
+    for (var i = 0; i < chart.categories.length; i++) {
+      _category(canvas, i, plot.left + step * (i + .5), step, size);
+    }
+  }
+
+  void _pie(Canvas canvas, Size size) {
+    final values = chart.series.first.values;
+    final total = values.fold(0.0, (sum, value) => sum + math.max(0.0, value));
+    if (total <= 0) return;
+    final legendWidth = size.width * .36;
+    final dial = Rect.fromLTWH(0, 0, size.width - legendWidth, size.height);
+    final rect = Rect.fromCircle(
+      center: dial.center,
+      radius: math.min(dial.width, dial.height) * .42,
+    );
+    final paint = Paint()..style = PaintingStyle.fill;
+    final gap = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = surface;
+    var start = -math.pi / 2;
+    for (var i = 0; i < values.length; i++) {
+      final sweep = math.max(0.0, values[i]) / total * math.pi * 2;
+      if (sweep <= 0) continue;
+      paint.color = palette[i % palette.length];
+      canvas.drawArc(rect, start, sweep, true, paint);
+      canvas.drawArc(rect, start, sweep, true, gap);
+      start += sweep;
+    }
+    final label = _labelSize(size);
+    var y = size.height * .18;
+    for (var i = 0; i < chart.categories.length; i++) {
+      final swatch = Rect.fromLTWH(
+        size.width - legendWidth + 4,
+        y,
+        math.min(10.0, label),
+        math.min(10.0, label),
+      );
+      canvas.drawRect(swatch, Paint()..color = palette[i % palette.length]);
+      final painter = TextPainter(
+        text: TextSpan(
+          text: chart.categories[i],
+          style: TextStyle(fontSize: label, color: ink),
+        ),
+        maxLines: 1,
+        ellipsis: '…',
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: math.max(1.0, legendWidth - label - 12));
+      painter.paint(canvas, Offset(swatch.right + 5, y - 1));
+      y += label * 1.6;
+      if (y > size.height - label) break;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ChartPainter old) =>
+      old.chart != chart ||
+      old.ink != ink ||
+      old.grid != grid ||
+      old.surface != surface ||
+      old.palette.length != palette.length ||
+      (palette.isNotEmpty && old.palette.first != palette.first);
 }
