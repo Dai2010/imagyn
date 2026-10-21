@@ -893,6 +893,7 @@ class Slide {
     this.backgroundImageId,
     this.backgroundColor,
     this.tables = const [],
+    this.table,
     this.elements = const [],
   });
   final String title;
@@ -918,6 +919,13 @@ class Slide {
   /// Native tables, stacked in order below the bullets. Two at most: a third
   /// would leave each too small to read on a phone.
   final List<SlideTable> tables;
+
+  /// The single table older builds stored. Kept so their call sites and JSON
+  /// keep working; [allTables] is what the app reads.
+  final SlideTable? table;
+
+  List<SlideTable> get allTables =>
+      table == null ? tables : [table!, ...tables];
   static const maxTables = 2;
   static const maxNotesLength = 2000;
 
@@ -932,8 +940,8 @@ class Slide {
     if (imageId != null) 'imageId': imageId,
     if (backgroundImageId != null) 'backgroundImageId': backgroundImageId,
     if (backgroundColor != null) 'backgroundColor': backgroundColor,
-    if (tables.isNotEmpty)
-      'tables': [for (final table in tables) table.toJson()],
+    if (allTables.isNotEmpty)
+      'tables': [for (final table in allTables) table.toJson()],
     if (elements.isNotEmpty)
       'elements': [for (final element in elements) element.toJson()],
   };

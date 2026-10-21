@@ -1168,7 +1168,7 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        tables: previous.tables,
+        tables: previous.allTables,
         elements: previous.elements,
       );
       _persistDeck(deck);
@@ -1213,14 +1213,21 @@ class Studio extends ChangeNotifier {
       final index = _argIndex(call, 'index', deck.slides.length);
       final headerRow = call.arguments['header_row'];
       if (headerRow is! bool) throw const FormatException('invalidTool');
-      final slot = call.arguments['table_index'];
-      if (slot is! int) throw const FormatException('invalidTool');
+      final previous = deck.slides[index];
+      final rawSlot = call.arguments['table_index'];
+      if (rawSlot != null && rawSlot is! int) {
+        throw const FormatException('invalidTool');
+      }
+      // Callers that send no table_index keep the old "replace what this page
+      // already has" behaviour; -1 explicitly appends a second table.
+      final slot = rawSlot is int
+          ? rawSlot
+          : (previous.allTables.isEmpty ? -1 : 0);
       final table = SlideTable.fromJson({
         'rows': call.arguments['rows'],
         'headerRow': headerRow,
       });
-      final previous = deck.slides[index];
-      final tables = List<SlideTable>.of(previous.tables);
+      final tables = List<SlideTable>.of(previous.allTables);
       if (slot >= 0 && slot < tables.length) {
         tables[slot] = table;
       } else if (slot < 0 && tables.length < Slide.maxTables) {
@@ -1271,7 +1278,7 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        tables: previous.tables,
+        tables: previous.allTables,
         elements: previous.elements,
       );
       _persistDeck(deck);
@@ -1329,7 +1336,7 @@ class Studio extends ChangeNotifier {
           // background again.
           backgroundImageId: image.isEmpty ? null : image,
           backgroundColor: color,
-          tables: previous.tables,
+          tables: previous.allTables,
         notes: previous.notes,
         bulletLevels: previous.bulletLevels,
           elements: previous.elements,
@@ -1394,7 +1401,7 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        tables: previous.tables,
+        tables: previous.allTables,
         notes: previous.notes,
         bulletLevels: previous.bulletLevels,
         elements: [...previous.elements, element],
@@ -1465,7 +1472,7 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        tables: previous.tables,
+        tables: previous.allTables,
         notes: previous.notes,
         bulletLevels: previous.bulletLevels,
         elements: elements,
@@ -1517,7 +1524,7 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        tables: previous.tables,
+        tables: previous.allTables,
         notes: previous.notes,
         bulletLevels: previous.bulletLevels,
         elements: [...previous.elements, element],
@@ -1556,7 +1563,7 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        tables: previous.tables,
+        tables: previous.allTables,
         notes: previous.notes,
         bulletLevels: previous.bulletLevels,
         elements: remaining,

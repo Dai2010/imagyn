@@ -130,7 +130,7 @@ void main() {
     final table = tester.widget<Table>(find.byType(Table));
     expect(table.children, hasLength(3));
     expect(table.children.every((row) => row.children.length == 2), isTrue);
-    for (final row in deck.slides.single.table!.rows) {
+    for (final row in deck.slides.single.allTables.first.rows) {
       for (final cell in row) {
         expect(find.text(cell), findsOneWidget);
       }
