@@ -825,6 +825,34 @@ class SlideElement {
   /// Paragraph line height as a multiple of the font size.
   final double lineSpacing;
 
+  /// Replaces the asset id after an import has saved the picture bytes.
+  SlideElement withImage(String imageId) => SlideElement._(
+    id: id,
+    kind: kind,
+    x: x,
+    y: y,
+    width: width,
+    height: height,
+    text: text,
+    imageId: imageId,
+    fontSize: fontSize,
+    color: color,
+    bold: bold,
+    italic: italic,
+    align: align,
+    fill: fill,
+    fill2: fill2,
+    border: border,
+    radius: radius,
+    shadow: shadow,
+    rotation: rotation,
+    letterSpacing: letterSpacing,
+    fit: fit,
+    font: font,
+    padding: padding,
+    lineSpacing: lineSpacing,
+  );
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'kind': kind.name,

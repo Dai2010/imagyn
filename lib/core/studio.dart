@@ -16,6 +16,7 @@ import 'background.dart';
 import 'import.dart';
 import 'models.dart';
 import 'pptx.dart';
+import 'pptx_import.dart';
 import 'share.dart';
 import 'store.dart';
 import 'tokens.dart';
@@ -346,6 +347,67 @@ class Studio extends ChangeNotifier {
     }
     documents.addAll(added);
     notifyListeners();
+  }
+
+  /// Opens a .pptx the user already has as an editable deck in this session.
+  /// Pictures are copied into the asset store, because the deck model only
+  /// names images and the export resolves those names later.
+  Future<Deck?> importDeck() async {
+    if (busy) return null;
+    final selected = await openFiles(
+      acceptedTypeGroups: [
+        const XTypeGroup(
+          label: 'PowerPoint',
+          extensions: ['pptx'],
+          mimeTypes: [
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          ],
+        ),
+      ],
+    );
+    if (selected.isEmpty) return null;
+    final file = selected.first;
+    if (await file.length() > 40 * 1024 * 1024) {
+      throw const FormatException('deckTooLarge');
+    }
+    final imported = PptxImport.read(
+      file.name,
+      await file.readAsBytes(),
+      id: store.newId(),
+    );
+    final assets = <String, String>{};
+    for (final entry in imported.media.entries) {
+      assets[entry.key] = (await store.saveAsset(entry.value)).id;
+    }
+    final deck = Deck(
+      id: imported.deck.id,
+      title: imported.deck.title,
+      aspectRatio: imported.deck.aspectRatio,
+      slides: [
+        for (final slide in imported.deck.slides)
+          Slide(
+            title: slide.title,
+            bullets: slide.bullets,
+            bulletLevels: slide.bulletLevels,
+            notes: slide.notes,
+            imageId: slide.imageId,
+            backgroundImageId: slide.backgroundImageId,
+            backgroundColor: slide.backgroundColor,
+            tables: slide.allTables,
+            elements: [
+              for (final element in slide.elements)
+                element.imageId != null && assets.containsKey(element.imageId)
+                    ? element.withImage(assets[element.imageId]!)
+                    : element,
+            ],
+          ),
+      ],
+    );
+    decks[deck.id] = deck;
+    activeDeck = deck;
+    _persistDeck(deck);
+    notifyListeners();
+    return deck;
   }
 
   void removeDocument(int index) {

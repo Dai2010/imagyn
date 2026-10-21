@@ -630,6 +630,22 @@ class _StudioShellState extends State<StudioShell> {
                   _deck(deck);
                 },
               ),
+            const Divider(height: 8),
+            ListTile(
+              key: const ValueKey('importDeck'),
+              leading: const Icon(Icons.upload_file_rounded),
+              title: Text(s.t('importDeck')),
+              onTap: () {
+                Navigator.pop(sheet);
+                _guard(() async {
+                  final deck = await studio.importDeck();
+                  if (deck != null && mounted) {
+                    studio.openDeck(deck);
+                    _deck(deck);
+                  }
+                });
+              },
+            ),
           ],
         ),
       ),

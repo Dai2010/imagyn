@@ -155,7 +155,7 @@ abstract final class DocumentImport {
     for (final match in pattern.allMatches(xml)) {
       final text = match.group(1);
       if (text != null) {
-        buffer.write(_unescape(text));
+        buffer.write(unescape(text));
       } else if (match.group(0)!.startsWith('<w:tab')) {
         buffer.write('\t');
       } else {
@@ -166,7 +166,7 @@ abstract final class DocumentImport {
   }
 
   static String _docx(Uint8List bytes) {
-    final files = _unzip(bytes);
+    final files = unzip(bytes);
     final xml = _xmlOf(files['word/document.xml']);
     final buffer = StringBuffer();
     for (final paragraph in xml.split('</w:p>')) {
@@ -176,7 +176,7 @@ abstract final class DocumentImport {
   }
 
   static String _pptx(Uint8List bytes) {
-    final files = _unzip(bytes);
+    final files = unzip(bytes);
     final slides =
         files.keys
             .where((key) => RegExp(r'^ppt/slides/slide\d+\.xml$').hasMatch(key))
@@ -196,7 +196,7 @@ abstract final class DocumentImport {
   }
 
   static String _xlsx(Uint8List bytes) {
-    final files = _unzip(bytes);
+    final files = unzip(bytes);
     final shared = <String>[];
     final sharedXml = files['xl/sharedStrings.xml'];
     if (sharedXml != null) {
@@ -231,7 +231,7 @@ abstract final class DocumentImport {
             RegExp(r'<v>(.*?)</v>', dotAll: true).allMatches(body),
           );
           if (type == 's') {
-            final index = int.tryParse(_unescape(raw));
+            final index = int.tryParse(unescape(raw));
             values.add(
               index != null && index >= 0 && index < shared.length
                   ? shared[index]
@@ -240,7 +240,7 @@ abstract final class DocumentImport {
           } else if (type == 'inlineStr') {
             values.add(_runs(body, 't').join());
           } else {
-            values.add(_unescape(raw));
+            values.add(unescape(raw));
           }
         }
         if (values.any((value) => value.trim().isNotEmpty)) {
@@ -256,9 +256,9 @@ abstract final class DocumentImport {
   static List<String> _runs(String xml, String name) => RegExp(
     '<$name[^>]*>(.*?)</$name>',
     dotAll: true,
-  ).allMatches(xml).map((match) => _unescape(match.group(1) ?? '')).toList();
+  ).allMatches(xml).map((match) => unescape(match.group(1) ?? '')).toList();
 
-  static String _unescape(String value) => value.replaceAllMapped(
+  static String unescape(String value) => value.replaceAllMapped(
     RegExp(r'&(?:#x([0-9a-fA-F]+)|#(\d+)|(lt|gt|amp|quot|apos));'),
     (match) {
       final named = match.group(3);
@@ -292,7 +292,7 @@ abstract final class DocumentImport {
   /// PowerPoint write, and `ZLibDecoder(raw: true)` is in `dart:io`, so the
   /// reader needs no extra package (the writer in `pptx.dart` is hand-rolled
   /// for the same reason).
-  static Map<String, Uint8List> _unzip(Uint8List bytes) {
+  static Map<String, Uint8List> unzip(Uint8List bytes) {
     if (bytes.length < 22) throw const FormatException('unsupportedFile');
     final data = ByteData.sublistView(bytes);
     var directory = -1;
