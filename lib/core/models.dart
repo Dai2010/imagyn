@@ -685,8 +685,7 @@ class SlideElement {
         radius < 0 ||
         radius > .5 ||
         (family != null &&
-            (family.isEmpty ||
-                family.length > 64 ||
+            (family.length > 64 ||
                 family.contains(RegExp(r'[\x00-\x1F]')))) ||
         (padding != null &&
             (!padding.isFinite || padding < 0 || padding > 72)) ||
