@@ -901,6 +901,8 @@ class Studio extends ChangeNotifier {
             streamingText,
             model: requestConfig.agentModel,
             reasoning: streamingReasoning,
+            // A stopped turn keeps its text, but it is not a finished answer.
+            aborted: error == 'cancelled',
           ),
         );
         chat = await store.messages(session);

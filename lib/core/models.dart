@@ -493,6 +493,7 @@ class ChatEntry {
     this.calls = const [],
     this.callId,
     this.name,
+    this.aborted = false,
   });
   final String role, text;
   final String? model;
@@ -512,6 +513,11 @@ class ChatEntry {
   /// without looking the call up.
   final String? name;
 
+  /// True when the user stopped the turn: the text is what had already
+  /// streamed, not a finished answer. The local transcript keeps it — stopping
+  /// is usually a way to get a word in — but the UI says so.
+  final bool aborted;
+
   Map<String, dynamic> toJson() => {
     'role': role,
     'text': text,
@@ -521,6 +527,7 @@ class ChatEntry {
     if (calls.isNotEmpty) 'calls': calls.map((call) => call.toJson()).toList(),
     if (callId != null) 'callId': callId,
     if (name != null) 'name': name,
+    if (aborted) 'aborted': true,
   };
   factory ChatEntry.fromJson(Map<String, dynamic> j) => ChatEntry(
     j['role'] as String,
@@ -534,6 +541,7 @@ class ChatEntry {
     ],
     callId: j['callId'] as String?,
     name: j['name'] as String?,
+    aborted: j['aborted'] == true,
   );
 }
 
