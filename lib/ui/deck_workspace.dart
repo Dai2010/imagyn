@@ -653,8 +653,8 @@ class _SlideCard extends StatelessWidget {
     final boxHeight = element.height * height;
     final size = element.fontSize * width / points;
     final scale = width / points;
-    final pad = element.padding == null
-        ? math.max(2, size * .25)
+    final double pad = element.padding == null
+        ? math.max(2.0, size * .25)
         : element.padding! * scale;
     final align = switch (element.align) {
       'center' => TextAlign.center,
