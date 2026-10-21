@@ -205,39 +205,54 @@ class AgentPreset {
 
 /// Reference values for the models this app is usually pointed at. Services
 /// change their windows, so these are suggestions rather than guarantees.
+/// Only windows a vendor documents are listed; a model whose output limit is
+/// unpublished stays out rather than carrying a guessed number.
 const agentPresets = <AgentPreset>[
   AgentPreset(
-    model: 'deepseek-chat',
-    contextTokens: 128000,
-    maxOutputTokens: 8192,
+    model: 'deepseek-flash',
+    contextTokens: 1000000,
+    maxOutputTokens: 384000,
   ),
   AgentPreset(
-    model: 'deepseek-reasoner',
-    contextTokens: 128000,
-    maxOutputTokens: 65536,
+    model: 'deepseek-v4-pro',
+    contextTokens: 1000000,
+    maxOutputTokens: 384000,
   ),
-  AgentPreset(model: 'gpt-4o', contextTokens: 128000, maxOutputTokens: 16384),
-  AgentPreset(model: 'gpt-4.1', contextTokens: 1047576, maxOutputTokens: 32768),
   AgentPreset(
-    model: 'claude-sonnet-4-5',
+    model: 'glm-5.3',
+    contextTokens: 1000000,
+    maxOutputTokens: 128000,
+  ),
+  AgentPreset(
+    model: 'glm-5.3-flash',
+    contextTokens: 1000000,
+    maxOutputTokens: 128000,
+  ),
+  AgentPreset(
+    model: 'glm-5.2',
+    contextTokens: 1000000,
+    maxOutputTokens: 128000,
+  ),
+  AgentPreset(
+    model: 'glm-4.7',
     contextTokens: 200000,
-    maxOutputTokens: 64000,
+    maxOutputTokens: 128000,
   ),
-  AgentPreset(
-    model: 'claude-opus-4-1',
-    contextTokens: 200000,
-    maxOutputTokens: 32000,
-  ),
-  AgentPreset(
-    model: 'gemini-2.5-pro',
-    contextTokens: 1048576,
-    maxOutputTokens: 65536,
-  ),
-  AgentPreset(
-    model: 'gemini-2.5-flash',
-    contextTokens: 1048576,
-    maxOutputTokens: 65536,
-  ),
+];
+
+/// A starting point for the image model field. [maxReferences] is filled only
+/// for models whose editing interface documents a reference count.
+class ImagePreset {
+  const ImagePreset({required this.model, this.maxReferences});
+  final String model;
+  final int? maxReferences;
+}
+
+const imagePresets = <ImagePreset>[
+  ImagePreset(model: 'glm-image'),
+  ImagePreset(model: 'qwen-image-3.0-pro', maxReferences: 3),
+  ImagePreset(model: 'qwen-image-2.0-pro', maxReferences: 3),
+  ImagePreset(model: 'wan2.7-image-pro'),
 ];
 
 class AgentOptions {

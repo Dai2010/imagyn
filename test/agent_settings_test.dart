@@ -500,4 +500,24 @@ void main() {
       }
     }
   });
+
+  test('every image preset names a model and fits the reference picker', () {
+    expect(imagePresets, isNotEmpty);
+    expect(
+      imagePresets.map((preset) => preset.model).toSet(),
+      hasLength(imagePresets.length),
+      reason: 'a duplicated model would make the picker ambiguous',
+    );
+    for (final preset in imagePresets) {
+      expect(preset.model.trim(), isNotEmpty);
+      final refs = preset.maxReferences;
+      if (refs != null) {
+        expect(
+          refs,
+          inInclusiveRange(1, 16),
+          reason: '${preset.model} must land inside the reference picker',
+        );
+      }
+    }
+  });
 }
