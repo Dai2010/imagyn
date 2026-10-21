@@ -1065,6 +1065,7 @@ class Studio extends ChangeNotifier {
         bullets: _argBullets(call),
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
+        backgroundColor: previous.backgroundColor,
         table: previous.table,
         elements: previous.elements,
       );
@@ -1086,6 +1087,21 @@ class Studio extends ChangeNotifier {
       return 'Slide ${index + 1} removed. ${deck.slides.length} remain.';
     } on FormatException {
       return 'Invalid arguments for remove_slide.';
+    }
+  }
+
+  String _moveSlide(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      final from = _argIndex(call, 'from', deck.slides.length);
+      final to = _argIndex(call, 'to', deck.slides.length);
+      deck.slides.insert(to, deck.slides.removeAt(from));
+      _persistDeck(deck);
+      notifyListeners();
+      return 'Slide ${from + 1} moved to position ${to + 1}.';
+    } on FormatException {
+      return 'Invalid arguments for move_slide. Use two zero-based indexes '
+          'inside the deck.';
     }
   }
 
@@ -1146,27 +1162,38 @@ class Studio extends ChangeNotifier {
       final resolved = _imageArg(call, 'image_id', created);
       if (resolved.error != null) return resolved.error!;
       final image = resolved.image;
+      // The picture wins when both are given; an empty pair clears the
+      // override so the page inherits the deck again.
+      final color = image.isEmpty ? _argOptional(call, 'color') : null;
       if (index == -1) {
         deck.backgroundImageId = image.isEmpty ? null : image;
+        deck.backgroundColor = color;
       } else {
         final previous = deck.slides[index];
         deck.slides[index] = Slide(
           title: previous.title,
           bullets: previous.bullets,
           imageId: previous.imageId,
-          // An empty id clears this page's override, so it inherits the deck
+          // An empty pair clears this page's override, so it inherits the deck
           // background again.
           backgroundImageId: image.isEmpty ? null : image,
+          backgroundColor: color,
           table: previous.table,
           elements: previous.elements,
         );
       }
       _persistDeck(deck);
       notifyListeners();
-      return image.isEmpty
-          ? 'Background cleared on ${index == -1 ? 'the deck' : 'slide ${index + 1}'}.'
-          : 'Background $image applied to '
-                '${index == -1 ? 'deck ${deck.id}' : 'slide ${index + 1}'}.';
+      if (image.isNotEmpty) {
+        return 'Background $image applied to '
+            '${index == -1 ? 'deck ${deck.id}' : 'slide ${index + 1}'}.';
+      }
+      if (color != null) {
+        return 'Background colour $color applied to '
+            '${index == -1 ? 'deck ${deck.id}' : 'slide ${index + 1}'}.';
+      }
+      return 'Background cleared on '
+          '${index == -1 ? 'the deck' : 'slide ${index + 1}'}.';
     } on FormatException {
       return 'Invalid arguments for set_background.';
     }
@@ -1195,16 +1222,21 @@ class Studio extends ChangeNotifier {
         fontSize: _argNumber(call, 'font_size'),
         color: _argText(call, 'color'),
         bold: _argBool(call, 'bold'),
+        italic: _argBool(call, 'italic'),
         align: _argText(call, 'align'),
         fill: _argOptional(call, 'fill'),
         border: _argOptional(call, 'border'),
         radius: _argNumber(call, 'radius'),
+        font: _argOptional(call, 'font'),
+        padding: _optionalPadding(call),
+        lineSpacing: _argNumber(call, 'line_spacing'),
       );
       deck.slides[index] = Slide(
         title: previous.title,
         bullets: previous.bullets,
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
+        backgroundColor: previous.backgroundColor,
         table: previous.table,
         elements: [...previous.elements, element],
       );
@@ -1218,6 +1250,70 @@ class Studio extends ChangeNotifier {
           'at most 1, font_size in points, RRGGBB colours, align '
           'left/center/right and radius 0-0.5. Pass an empty string for no '
           'fill or border.';
+    }
+  }
+
+  /// Rewrites one existing text box in place. The geometry stays, so a model
+  /// fixing a typo does not have to restate (and risk moving) the rectangle.
+  String _updateText(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      final index = _argIndex(call, 'index', deck.slides.length);
+      final previous = deck.slides[index];
+      final id = _argText(call, 'element').trim();
+      final position = previous.elements.indexWhere(
+        (element) => element.id == id,
+      );
+      if (position < 0) {
+        final ids = previous.elements.map((element) => element.id).join(', ');
+        return 'No element "$id" on slide ${index + 1}. Existing ids: '
+            '${ids.isEmpty ? 'none' : ids}.';
+      }
+      final old = previous.elements[position];
+      if (old.kind != SlideElementKind.text) {
+        return 'Element "$id" is a picture; update_text only edits text '
+            'boxes. Use remove_element and add_image instead.';
+      }
+      final updated = SlideElement(
+        id: old.id,
+        kind: SlideElementKind.text,
+        x: old.x,
+        y: old.y,
+        width: old.width,
+        height: old.height,
+        text: _argText(call, 'text'),
+        fontSize: _argNumber(call, 'font_size'),
+        color: _argText(call, 'color'),
+        bold: _argBool(call, 'bold'),
+        italic: _argBool(call, 'italic'),
+        align: _argText(call, 'align'),
+        fill: _argOptional(call, 'fill'),
+        border: _argOptional(call, 'border'),
+        radius: _argNumber(call, 'radius'),
+        font: _argOptional(call, 'font'),
+        padding: _optionalPadding(call),
+        lineSpacing: _argNumber(call, 'line_spacing'),
+      );
+      final elements = [...previous.elements];
+      elements[position] = updated;
+      deck.slides[index] = Slide(
+        title: previous.title,
+        bullets: previous.bullets,
+        imageId: previous.imageId,
+        backgroundImageId: previous.backgroundImageId,
+        backgroundColor: previous.backgroundColor,
+        table: previous.table,
+        elements: elements,
+      );
+      _persistDeck(deck);
+      notifyListeners();
+      return 'Text element ${updated.id} updated on slide ${index + 1} '
+          '(${_short(updated.text)}).';
+    } on FormatException {
+      return 'Invalid arguments for update_text. Use the element id add_text '
+          'returned, and send every style field (text, font_size, color, '
+          'bold, italic, align, font, padding, line_spacing, fill, border, '
+          'radius) with the current value for the ones you keep.';
     }
   }
 
@@ -1255,6 +1351,7 @@ class Studio extends ChangeNotifier {
         bullets: previous.bullets,
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
+        backgroundColor: previous.backgroundColor,
         table: previous.table,
         elements: [...previous.elements, element],
       );
@@ -1291,6 +1388,7 @@ class Studio extends ChangeNotifier {
         bullets: previous.bullets,
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
+        backgroundColor: previous.backgroundColor,
         table: previous.table,
         elements: remaining,
       );
@@ -1447,6 +1545,13 @@ class Studio extends ChangeNotifier {
     return value.isEmpty ? null : value;
   }
 
+  /// Zero means "use the size-based default", which is what a tool call sends
+  /// when it does not care about insets.
+  double? _optionalPadding(AgentCall call) {
+    final value = _argNumber(call, 'padding');
+    return value <= 0 ? null : value;
+  }
+
   /// Resolves an `image_id` argument: "last"/"latest" becomes the newest
   /// picture, an empty string stays empty, and an id this app did not produce
   /// is reported so the model can correct the call instead of writing a page
@@ -1526,6 +1631,8 @@ class Studio extends ChangeNotifier {
         return _addSlide(call, created);
       case 'add_text':
         return _addText(call);
+      case 'update_text':
+        return _updateText(call);
       case 'add_image':
         return _addImage(call, created);
       case 'add_table':
@@ -1534,6 +1641,8 @@ class Studio extends ChangeNotifier {
         return _setBackground(call, created);
       case 'update_slide':
         return _updateSlide(call);
+      case 'move_slide':
+        return _moveSlide(call);
       case 'remove_element':
         return _removeElement(call);
       case 'remove_slide':

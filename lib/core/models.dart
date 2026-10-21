@@ -643,11 +643,15 @@ class SlideElement {
     double fontSize = 18,
     String color = '1F1B2E',
     bool bold = false,
+    bool italic = false,
     String align = 'left',
     String? fill,
     String? border,
     double radius = 0,
     String fit = 'cover',
+    String? font,
+    double? padding,
+    double lineSpacing = 1.15,
   }) {
     // Models habitually write `#RRGGBB` although the schema says RRGGBB;
     // accepting the prefix is cheaper than answering with an error.
@@ -657,6 +661,7 @@ class SlideElement {
     final ink = rgb(color);
     final fillRgb = rgb(fill);
     final borderRgb = rgb(border);
+    final family = font?.trim();
     if (id.isEmpty ||
         id.length > 64 ||
         !x.isFinite ||
@@ -679,6 +684,14 @@ class SlideElement {
         !radius.isFinite ||
         radius < 0 ||
         radius > .5 ||
+        (family != null &&
+            (family.length > 64 ||
+                family.contains(RegExp(r'[\x00-\x1F]')))) ||
+        (padding != null &&
+            (!padding.isFinite || padding < 0 || padding > 72)) ||
+        !lineSpacing.isFinite ||
+        lineSpacing < .7 ||
+        lineSpacing > 3 ||
         !alignValues.contains(align) ||
         !fitValues.contains(fit) ||
         !_isHexColor(ink!) ||
@@ -698,11 +711,15 @@ class SlideElement {
       fontSize: fontSize,
       color: ink.toUpperCase(),
       bold: bold,
+      italic: italic,
       align: align,
       fill: fillRgb?.toUpperCase(),
       border: borderRgb?.toUpperCase(),
       radius: radius,
       fit: fit,
+      font: family == null || family.isEmpty ? null : family,
+      padding: padding,
+      lineSpacing: lineSpacing,
     );
   }
 
@@ -718,16 +735,20 @@ class SlideElement {
     required this.fontSize,
     required this.color,
     required this.bold,
+    required this.italic,
     required this.align,
     required this.fill,
     required this.border,
     required this.radius,
     required this.fit,
+    required this.font,
+    required this.padding,
+    required this.lineSpacing,
   });
 
   /// Enough shapes to build a poster-like page, few enough that the model
   /// cannot turn a slide into a thousand-element document.
-  static const maxCount = 12;
+  static const maxCount = 24;
   static const maxTextLength = 2000;
   static const alignValues = ['left', 'center', 'right'];
   static const fitValues = ['cover', 'contain'];
@@ -745,6 +766,7 @@ class SlideElement {
   final double fontSize;
   final String color;
   final bool bold;
+  final bool italic;
   final String align;
 
   /// `RRGGBB` or null for no fill; a text box's background and outline.
@@ -756,6 +778,15 @@ class SlideElement {
 
   /// How a picture fills its box: `cover` crops, `contain` letterboxes.
   final String fit;
+
+  /// Typeface for a text box; null keeps the theme font.
+  final String? font;
+
+  /// Point insets inside a text box; null uses a size-proportional default.
+  final double? padding;
+
+  /// Paragraph line height as a multiple of the font size.
+  final double lineSpacing;
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -769,11 +800,15 @@ class SlideElement {
     'fontSize': fontSize,
     'color': color,
     'bold': bold,
+    'italic': italic,
     'align': align,
     if (fill != null) 'fill': fill,
     if (border != null) 'border': border,
     'radius': radius,
     'fit': fit,
+    if (font != null) 'font': font,
+    if (padding != null) 'padding': padding,
+    'lineSpacing': lineSpacing,
   };
 
   factory SlideElement.fromJson(Map<String, dynamic> j) => SlideElement(
@@ -790,11 +825,15 @@ class SlideElement {
     fontSize: (j['fontSize'] as num? ?? 18).toDouble(),
     color: j['color'] as String? ?? '1F1B2E',
     bold: j['bold'] == true,
+    italic: j['italic'] == true,
     align: j['align'] as String? ?? 'left',
     fill: j['fill'] as String?,
     border: j['border'] as String?,
     radius: (j['radius'] as num? ?? 0).toDouble(),
     fit: j['fit'] as String? ?? 'cover',
+    font: j['font'] as String?,
+    padding: (j['padding'] as num?)?.toDouble(),
+    lineSpacing: (j['lineSpacing'] as num? ?? 1.15).toDouble(),
   );
 }
 
@@ -805,6 +844,7 @@ class Slide {
     this.bullets = const [],
     this.imageId,
     this.backgroundImageId,
+    this.backgroundColor,
     this.table,
     this.elements = const [],
   });
@@ -815,6 +855,10 @@ class Slide {
   /// A picture behind the whole page. Null inherits the deck background; an
   /// empty string means this page has none even when the deck has one.
   final String? backgroundImageId;
+
+  /// A solid `RRGGBB` behind the page, used when no picture is resolved.
+  /// Null inherits the deck colour; an empty string means none.
+  final String? backgroundColor;
   final SlideTable? table;
 
   /// Shapes layered on top of the title/bullets slots. Empty on a page built
@@ -825,6 +869,7 @@ class Slide {
     'bullets': bullets,
     if (imageId != null) 'imageId': imageId,
     if (backgroundImageId != null) 'backgroundImageId': backgroundImageId,
+    if (backgroundColor != null) 'backgroundColor': backgroundColor,
     if (table != null) 'table': table!.toJson(),
     if (elements.isNotEmpty)
       'elements': [for (final element in elements) element.toJson()],
@@ -834,6 +879,7 @@ class Slide {
     bullets: List<String>.from(j['bullets'] as List? ?? []),
     imageId: j['imageId'] as String?,
     backgroundImageId: j['backgroundImageId'] as String?,
+    backgroundColor: j['backgroundColor'] as String?,
     table: j['table'] == null
         ? null
         : SlideTable.fromJson(Map<String, dynamic>.from(j['table'] as Map)),
@@ -915,6 +961,7 @@ class Deck {
     this.aspectRatio = '16:9',
     this.finished = false,
     this.backgroundImageId,
+    this.backgroundColor,
     List<Slide>? slides,
   }) : slides = slides ?? [];
   final String id;
@@ -924,6 +971,9 @@ class Deck {
 
   /// The picture behind pages that do not name one of their own.
   String? backgroundImageId;
+
+  /// The solid colour used when a page resolves no background picture.
+  String? backgroundColor;
 
   /// Set once the model says the deck is complete, so the workspace can tell
   /// a deck still being written from one that will not change again.
@@ -935,6 +985,7 @@ class Deck {
     'aspectRatio': aspectRatio,
     'finished': finished,
     if (backgroundImageId != null) 'backgroundImageId': backgroundImageId,
+    if (backgroundColor != null) 'backgroundColor': backgroundColor,
     'slides': [for (final slide in slides) slide.toJson()],
   };
 
@@ -944,6 +995,7 @@ class Deck {
     aspectRatio: json['aspectRatio'] as String? ?? '16:9',
     finished: json['finished'] == true,
     backgroundImageId: json['backgroundImageId'] as String?,
+    backgroundColor: json['backgroundColor'] as String?,
     slides: [
       for (final slide in json['slides'] as List? ?? [])
         Slide.fromJson(Map<String, dynamic>.from(slide as Map)),
@@ -956,6 +1008,14 @@ class Deck {
     final own = slide.backgroundImageId;
     if (own != null) return own.isEmpty ? null : own;
     final shared = backgroundImageId;
+    return shared == null || shared.isEmpty ? null : shared;
+  }
+
+  /// The solid colour a page falls back to when it has no background picture.
+  String? backgroundColorFor(Slide slide) {
+    final own = slide.backgroundColor;
+    if (own != null) return own.isEmpty ? null : own;
+    final shared = backgroundColor;
     return shared == null || shared.isEmpty ? null : shared;
   }
 }
@@ -1024,6 +1084,24 @@ const updateSlideTool = {
       },
     },
     'required': ['deck', 'index', 'title', 'bullets'],
+    'additionalProperties': false,
+  },
+};
+
+const moveSlideTool = {
+  'name': 'move_slide',
+  'description':
+      'Move one slide to another position in the deck. Both indexes are '
+      'zero-based and refer to the order before the move; the moved slide '
+      'then sits at the target index.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'from': {'type': 'integer'},
+      'to': {'type': 'integer'},
+    },
+    'required': ['deck', 'from', 'to'],
     'additionalProperties': false,
   },
 };
@@ -1109,8 +1187,14 @@ const setBackgroundTool = {
         'type': 'integer',
         'description': 'Zero-based slide index, or -1 for the whole deck.',
       },
+      'color': {
+        'type': 'string',
+        'description':
+            'A solid RRGGBB page colour. Pass an empty string for none. A '
+            'non-empty image_id wins over the colour.',
+      },
     },
-    'required': ['deck', 'image_id', 'index'],
+    'required': ['deck', 'image_id', 'index', 'color'],
     'additionalProperties': false,
   },
 };
@@ -1142,6 +1226,23 @@ const addTextTool = {
       'color': {'type': 'string'},
       'bold': {'type': 'boolean'},
       'align': {'type': 'string', 'enum': SlideElement.alignValues},
+      'font': {
+        'type': 'string',
+        'description':
+            'Typeface for this box, for example "Microsoft YaHei" or '
+            '"Georgia". Pass an empty string for the theme font.',
+      },
+      'italic': {'type': 'boolean'},
+      'padding': {
+        'type': 'number',
+        'description':
+            'Point insets inside the box, 0-72. Zero uses a size-based '
+            'default.',
+      },
+      'line_spacing': {
+        'type': 'number',
+        'description': 'Line height as a multiple of the font size, 0.7-3.',
+      },
       'fill': {'type': 'string'},
       'border': {'type': 'string'},
       'radius': {'type': 'number'},
@@ -1157,7 +1258,59 @@ const addTextTool = {
       'font_size',
       'color',
       'bold',
+      'italic',
       'align',
+      'font',
+      'padding',
+      'line_spacing',
+      'fill',
+      'border',
+      'radius',
+    ],
+    'additionalProperties': false,
+  },
+};
+
+const updateTextTool = {
+  'name': 'update_text',
+  'description':
+      'Change the words or styling of one text box that add_text created, '
+      'keeping its position and size. Use the element id add_text returned. '
+      'This is cheaper than remove_element plus a new add_text, and it keeps '
+      'the box on the same layer. Every style field is sent each time; pass '
+      'the current value to keep it.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'index': {'type': 'integer', 'description': 'Zero-based slide index.'},
+      'element': {'type': 'string'},
+      'text': {'type': 'string', 'maxLength': SlideElement.maxTextLength},
+      'font_size': {'type': 'number'},
+      'color': {'type': 'string'},
+      'bold': {'type': 'boolean'},
+      'italic': {'type': 'boolean'},
+      'align': {'type': 'string', 'enum': SlideElement.alignValues},
+      'font': {'type': 'string'},
+      'padding': {'type': 'number'},
+      'line_spacing': {'type': 'number'},
+      'fill': {'type': 'string'},
+      'border': {'type': 'string'},
+      'radius': {'type': 'number'},
+    },
+    'required': [
+      'deck',
+      'index',
+      'element',
+      'text',
+      'font_size',
+      'color',
+      'bold',
+      'italic',
+      'align',
+      'font',
+      'padding',
+      'line_spacing',
       'fill',
       'border',
       'radius',
@@ -1278,10 +1431,12 @@ const agentTools = [
   createDeckTool,
   addSlideTool,
   addTextTool,
+  updateTextTool,
   addImageTool,
   addTableTool,
   setBackgroundTool,
   updateSlideTool,
+  moveSlideTool,
   removeElementTool,
   removeSlideTool,
   finishDeckTool,

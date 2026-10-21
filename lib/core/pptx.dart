@@ -80,6 +80,7 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
           image,
           used.values.toList(),
           background: background,
+          backgroundRgb: deck.backgroundColorFor(slide),
           elementImages: elementImages,
         ),
         images: used.values.toList(),
@@ -340,6 +341,7 @@ String _slideXml(
   PptxImage? image,
   List<_Media> images, {
   PptxImage? background,
+  String? backgroundRgb,
   Map<String, PptxImage> elementImages = const {},
 }) {
   final margin = (size.width * .05).round();
@@ -502,13 +504,21 @@ String _slideXml(
     ),
   );
 
+  final page = backgroundEmbed != null
+      ? '<p:bg><p:bgPr><a:blipFill dpi="0" rotWithShape="1">'
+            '<a:blip r:embed="$backgroundEmbed"/><a:stretch><a:fillRect/>'
+            '</a:stretch></a:blipFill><a:effectLst/></p:bgPr></p:bg>'
+      : '<p:bg><p:bgPr><a:solidFill><a:srgbClr '
+            'val="${backgroundRgb ?? 'FBFAFE'}"/></a:solidFill>'
+            '<a:effectLst/></p:bgPr></p:bg>';
+
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       '<p:sld '
       'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
       'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
       'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">'
       '<p:cSld>'
-      '${backgroundEmbed == null ? '<p:bg><p:bgPr><a:solidFill><a:srgbClr val="FBFAFE"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>' : '<p:bg><p:bgPr><a:blipFill dpi="0" rotWithShape="1"><a:blip r:embed="$backgroundEmbed"/><a:stretch><a:fillRect/></a:stretch></a:blipFill><a:effectLst/></p:bgPr></p:bg>'}'
+      '$page'
       '<p:spTree>'
       '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/>'
       '</p:nvGrpSpPr>'
@@ -552,11 +562,22 @@ String _textShape({
     '</p:txBody>'
     '</p:sp>';
 
-String _run(String text, int size, bool bold, String color) =>
-    '<a:rPr lang="zh-CN" sz="$size" b="${bold ? 1 : 0}" dirty="0">'
-    '<a:solidFill><a:srgbClr val="$color"/></a:solidFill>'
-    '<a:latin typeface="Aptos"/><a:ea typeface="Microsoft YaHei"/>'
-    '</a:rPr><a:t>${_esc(text)}</a:t>';
+String _run(
+  String text,
+  int size,
+  bool bold,
+  String color, {
+  bool italic = false,
+  String? font,
+}) {
+  final latin = _esc(font ?? 'Aptos');
+  final eastAsian = _esc(font ?? 'Microsoft YaHei');
+  return '<a:rPr lang="zh-CN" sz="$size" b="${bold ? 1 : 0}" '
+      'i="${italic ? 1 : 0}" dirty="0">'
+      '<a:solidFill><a:srgbClr val="$color"/></a:solidFill>'
+      '<a:latin typeface="$latin"/><a:ea typeface="$eastAsian"/>'
+      '</a:rPr><a:t>${_esc(text)}</a:t>';
+}
 
 /// Distributes integer EMUs without losing the remainder to rounding. The
 /// grid and row dimensions consequently match the graphic frame exactly.
@@ -778,9 +799,15 @@ String _elementTextShape({
     'right' => 'r',
     _ => 'l',
   };
-  // Proportional insets keep a small label from losing its text to padding.
-  final horizontal = math.min(cx ~/ 12, 91440);
-  final vertical = math.min(cy ~/ 12, 45720);
+  // Proportional insets keep a small label from losing its text to padding;
+  // an explicit padding wins when the model asked for one.
+  final horizontal = element.padding == null
+      ? math.min(cx ~/ 12, 91440)
+      : (element.padding! * 12700).round();
+  final vertical = element.padding == null
+      ? math.min(cy ~/ 12, 45720)
+      : (element.padding! * 12700).round();
+  final spacing = (element.lineSpacing * 100000).round();
   final fill = element.fill == null
       ? '<a:noFill/>'
       : '<a:solidFill><a:srgbClr val="${element.fill}"/></a:solidFill>';
@@ -797,8 +824,9 @@ String _elementTextShape({
       '<p:txBody><a:bodyPr wrap="square" lIns="$horizontal" '
       'tIns="$vertical" rIns="$horizontal" bIns="$vertical" anchor="ctr">'
       '<a:normAutofit/></a:bodyPr><a:lstStyle/>'
-      '${lines.map((line) => '<a:p><a:pPr algn="$align"/><a:r>'
-          '${_run(line, size, element.bold, element.color)}'
+      '${lines.map((line) => '<a:p><a:pPr algn="$align">'
+          '<a:lnSpc><a:spcPct val="$spacing"/></a:lnSpc></a:pPr><a:r>'
+          '${_run(line, size, element.bold, element.color, italic: element.italic, font: element.font)}'
           '</a:r></a:p>').join()}'
       '</p:txBody></p:sp>';
 }
