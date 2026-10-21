@@ -52,10 +52,12 @@ class PptxImport {
   static int _slideNumber(String key) =>
       int.tryParse(RegExp(r'(\d+)\.xml$').firstMatch(key)?.group(1) ?? '') ?? 0;
 
-  static ({int width, int height}) _slideSize(String? xml) {
+  static ({int width, int height}) _slideSize(Uint8List? bytes) {
     final match = RegExp(
       r'<p:sldSz cx="(\d+)" cy="(\d+)"',
-    ).firstMatch(xml ?? '');
+    ).firstMatch(
+      bytes == null ? '' : utf8.decode(bytes, allowMalformed: true),
+    );
     final width = int.tryParse(match?.group(1) ?? '') ?? 12192000;
     final height = int.tryParse(match?.group(2) ?? '') ?? 6858000;
     return (width: width <= 0 ? 12192000 : width, height: height <= 0 ? 6858000 : height);
@@ -112,7 +114,7 @@ class PptxImport {
           counter + 1,
         );
         if (picture != null) {
-          elements.add(picture.element);
+          elements.add(picture);
           counter++;
         }
         continue;
@@ -193,7 +195,7 @@ class PptxImport {
     }
   }
 
-  static ({SlideElement element}?) _picture(
+  static SlideElement? _picture(
     String body,
     int number,
     Map<String, Uint8List> files,
@@ -210,17 +212,15 @@ class PptxImport {
     final key = 'e$id';
     media[key] = bytes;
     try {
-      return (
-        element: SlideElement(
-          id: key,
-          kind: SlideElementKind.image,
-          imageId: key,
-          x: box.x,
-          y: box.y,
-          width: box.width,
-          height: box.height,
-          fit: 'contain',
-        ),
+      return SlideElement(
+        id: key,
+        kind: SlideElementKind.image,
+        imageId: key,
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+        fit: 'contain',
       );
     } on FormatException {
       media.remove(key);
