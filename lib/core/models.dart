@@ -145,6 +145,7 @@ const tableAgentPrompt =
     'For tables call add_table after add_slide with the zero-based index, rectangular '
     'string rows and header_row: cells stay editable. A page holds up to two tables, '
     'stacked in call order; table_index -1 appends, 0 or 1 replaces that table. '
+    'add_chart replaces the page\'s chart; a pie uses only the first series. '
     'Split large tables across pages. bullet_levels on add_slide/update_slide indents '
     'sub-points (0-2). set_notes writes speaker notes that never appear on the slide.';
 
@@ -921,6 +922,7 @@ class Slide {
     this.backgroundImageId,
     this.backgroundColor,
     this.tables = const [],
+    this.chart,
     this.table,
     this.elements = const [],
   });
@@ -948,6 +950,9 @@ class Slide {
   /// would leave each too small to read on a phone.
   final List<SlideTable> tables;
 
+  /// One native chart, sharing the space below the bullets with tables.
+  final SlideChart? chart;
+
   /// The single table older builds stored. Kept so their call sites and JSON
   /// keep working; [allTables] is what the app reads.
   final SlideTable? table;
@@ -970,6 +975,7 @@ class Slide {
     if (backgroundColor != null) 'backgroundColor': backgroundColor,
     if (allTables.isNotEmpty)
       'tables': [for (final table in allTables) table.toJson()],
+    if (chart != null) 'chart': chart!.toJson(),
     if (elements.isNotEmpty)
       'elements': [for (final element in elements) element.toJson()],
   };
@@ -988,6 +994,9 @@ class Slide {
       ])
         SlideTable.fromJson(Map<String, dynamic>.from(table as Map)),
     ],
+    chart: j['chart'] == null
+        ? null
+        : SlideChart.fromJson(Map<String, dynamic>.from(j['chart'] as Map)),
     elements: [
       for (final element in j['elements'] as List? ?? [])
         SlideElement.fromJson(Map<String, dynamic>.from(element as Map)),
@@ -1055,6 +1064,127 @@ class SlideTable {
     }
     return SlideTable(rows: cells, headerRow: headerRow);
   }
+}
+
+/// A bounded native chart on a slide. Values are doubles so the preview and
+/// the exported chart draw exactly what validation accepted.
+class SlideChart {
+  factory SlideChart({
+    String kind = 'bar',
+    String title = '',
+    required List<String> categories,
+    required List<ChartSeries> series,
+  }) {
+    if (!kinds.contains(kind) ||
+        categories.isEmpty ||
+        categories.length > maxCategories ||
+        series.isEmpty ||
+        series.length > maxSeries) {
+      throw const FormatException('invalidChart');
+    }
+    final labels = <String>[];
+    for (final category in categories) {
+      final label = category.trim();
+      if (label.isEmpty || label.length > maxLabelLength) {
+        throw const FormatException('invalidChart');
+      }
+      labels.add(label);
+    }
+    for (final item in series) {
+      if (item.values.length != labels.length) {
+        throw const FormatException('invalidChart');
+      }
+    }
+    return SlideChart._(
+      kind,
+      title.trim(),
+      List<String>.unmodifiable(labels),
+      List<ChartSeries>.unmodifiable(series),
+    );
+  }
+
+  const SlideChart._(this.kind, this.title, this.categories, this.series);
+
+  static const kinds = ['bar', 'line', 'pie'];
+  static const maxCategories = 12;
+  static const maxSeries = 3;
+  static const maxLabelLength = 40;
+
+  final String kind;
+  final String title;
+  final List<String> categories;
+  final List<ChartSeries> series;
+
+  Map<String, dynamic> toJson() => {
+    'kind': kind,
+    if (title.isNotEmpty) 'title': title,
+    'categories': categories,
+    'series': [for (final item in series) item.toJson()],
+  };
+
+  factory SlideChart.fromJson(Map<String, dynamic> json) {
+    final kind = json['kind'];
+    final title = json['title'] ?? '';
+    final categories = json['categories'];
+    final series = json['series'];
+    if (kind is! String ||
+        title is! String ||
+        categories is! List ||
+        series is! List) {
+      throw const FormatException('invalidChart');
+    }
+    final labels = <String>[];
+    for (final category in categories) {
+      if (category is! String) throw const FormatException('invalidChart');
+      labels.add(category);
+    }
+    final parsed = <ChartSeries>[];
+    for (final item in series) {
+      if (item is! Map) throw const FormatException('invalidChart');
+      final name = item['name'];
+      final values = item['values'];
+      if (name is! String ||
+          values is! List ||
+          values.any((value) => value is! num)) {
+        throw const FormatException('invalidChart');
+      }
+      parsed.add(
+        ChartSeries(
+          name: name,
+          values: [for (final value in values) (value as num).toDouble()],
+        ),
+      );
+    }
+    return SlideChart(
+      kind: kind,
+      title: title,
+      categories: labels,
+      series: parsed,
+    );
+  }
+}
+
+/// One named series in a [SlideChart]. The value bounds keep the chart XML
+/// valid and the preview's scaling finite for any model output.
+class ChartSeries {
+  factory ChartSeries({required String name, required List<double> values}) {
+    final label = name.trim();
+    if (label.length > SlideChart.maxLabelLength ||
+        values.isEmpty ||
+        values.any((value) => !value.isFinite || value.abs() > maxValue)) {
+      throw const FormatException('invalidChart');
+    }
+    return ChartSeries._(label, List<double>.unmodifiable(values));
+  }
+
+  const ChartSeries._(this.name, this.values);
+
+  static const maxValue = 1e9;
+
+  final String name;
+  final List<double> values;
+
+  Map<String, dynamic> toJson() => {'name': name, 'values': values};
 }
 
 /// A deck being built. Held in memory for the session: the workspace reads the
@@ -1272,6 +1402,55 @@ const addTableTool = {
       'header_row': {'type': 'boolean'},
     },
     'required': ['deck', 'index', 'table_index', 'rows', 'header_row'],
+    'additionalProperties': false,
+  },
+};
+
+const addChartTool = {
+  'name': 'add_chart',
+  'description':
+      'Add or replace the chart on a slide. Bars, lines and pies stay native, '
+      'editable charts in PowerPoint. Use 1-12 short categories and 1-3 '
+      'series whose values match the categories. Calling add_chart again on '
+      'the same page replaces its chart instead of stacking a second one. A '
+      'pie chart draws only the first series.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'index': {'type': 'integer', 'description': 'Zero-based slide index.'},
+      'kind': {'type': 'string', 'enum': SlideChart.kinds},
+      'title': {
+        'type': 'string',
+        'description': 'Chart title; an empty string leaves it out.',
+      },
+      'categories': {
+        'type': 'array',
+        'minItems': 1,
+        'maxItems': SlideChart.maxCategories,
+        'items': {'type': 'string', 'maxLength': SlideChart.maxLabelLength},
+      },
+      'series': {
+        'type': 'array',
+        'minItems': 1,
+        'maxItems': SlideChart.maxSeries,
+        'items': {
+          'type': 'object',
+          'properties': {
+            'name': {'type': 'string', 'maxLength': SlideChart.maxLabelLength},
+            'values': {
+              'type': 'array',
+              'minItems': 1,
+              'maxItems': SlideChart.maxCategories,
+              'items': {'type': 'number'},
+            },
+          },
+          'required': ['name', 'values'],
+          'additionalProperties': false,
+        },
+      },
+    },
+    'required': ['deck', 'index', 'kind', 'title', 'categories', 'series'],
     'additionalProperties': false,
   },
 };
@@ -1615,6 +1794,7 @@ const agentTools = [
   updateTextTool,
   addImageTool,
   addTableTool,
+  addChartTool,
   setBackgroundTool,
   updateSlideTool,
   moveSlideTool,

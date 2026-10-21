@@ -70,6 +70,13 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
       used[elementId] = part;
       elementImages[elementId] = picture;
     }
+    final usedImages = used.values.toList();
+    final hasNotes = slide.notes.trim().isNotEmpty;
+    // The chart relationship follows layout, pictures and the notes slide, so
+    // existing relationship ids never shift when a chart is added.
+    final chartEmbed = slide.chart == null
+        ? null
+        : 'rId${usedImages.length + 2 + (hasNotes ? 1 : 0)}';
     slides.add(
       _SlideParts(
         number: i + 1,
@@ -78,12 +85,13 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
           i + 1,
           size,
           image,
-          used.values.toList(),
+          usedImages,
           background: background,
           backgroundRgb: deck.backgroundColorFor(slide),
           elementImages: elementImages,
+          chartEmbed: chartEmbed,
         ),
-        images: used.values.toList(),
+        images: usedImages,
       ),
     );
   }
@@ -93,6 +101,11 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
       if (deck.slides[i].notes.trim().isNotEmpty) i + 1,
   ];
 
+  final charted = [
+    for (var i = 0; i < deck.slides.length; i++)
+      if (deck.slides[i].chart != null) i + 1,
+  ];
+
   final zip = _ZipBuilder()
     ..add(
       '[Content_Types].xml',
@@ -100,6 +113,7 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
         media.values.map((part) => part.image.mime).toSet(),
         slides.length,
         notesSlides: noted,
+        charts: charted,
       ),
     )
     ..add('_rels/.rels', _rootRels())
@@ -128,6 +142,7 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
     );
 
   for (final slide in slides) {
+    final hasNotes = deck.slides[slide.number - 1].notes.trim().isNotEmpty;
     zip.add('ppt/slides/slide${slide.number}.xml', slide.xml);
     zip.add(
       'ppt/slides/_rels/slide${slide.number}.xml.rels',
@@ -143,14 +158,24 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
             'image',
             '../media/image${slide.images[i].number}.${_extension(slide.images[i].image.mime)}',
           ),
-        if (deck.slides[slide.number - 1].notes.trim().isNotEmpty)
+        if (hasNotes)
           _Relationship(
             'rId${slide.images.length + 2}',
             'notesSlide',
             '../notesSlides/notesSlide${slide.number}.xml',
           ),
+        if (deck.slides[slide.number - 1].chart != null)
+          _Relationship(
+            'rId${slide.images.length + 2 + (hasNotes ? 1 : 0)}',
+            'chart',
+            '../charts/chart${slide.number}.xml',
+          ),
       ]),
     );
+    final chart = deck.slides[slide.number - 1].chart;
+    if (chart != null) {
+      zip.add('ppt/charts/chart${slide.number}.xml', _chartXml(chart));
+    }
   }
   for (final number in noted) {
     zip.add(
@@ -205,6 +230,7 @@ String _contentTypes(
   Set<String> imageMimes,
   int slideCount, {
   Iterable<int> notesSlides = const [],
+  Iterable<int> charts = const [],
 }) {
   final extensions = <String, String>{
     'rels': 'application/vnd.openxmlformats-package.relationships+xml',
@@ -259,6 +285,14 @@ String _contentTypes(
       [for (final number in notesSlides)
         '<Override PartName="/ppt/notesSlides/notesSlide$number.xml" '
             'ContentType="$presentation.notesSlide+xml"/>'].join(),
+    );
+  }
+  if (charts.isNotEmpty) {
+    buffer.write(
+      [for (final number in charts)
+        '<Override PartName="/ppt/charts/chart$number.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.'
+            'drawingml.chart+xml"/>'].join(),
     );
   }
   buffer.write('</Types>');
@@ -401,6 +435,7 @@ String _slideXml(
   PptxImage? background,
   String? backgroundRgb,
   Map<String, PptxImage> elementImages = const {},
+  String? chartEmbed,
 }) {
   final margin = (size.width * .05).round();
   final contentWidth = size.width - margin * 2;
@@ -461,11 +496,16 @@ String _slideXml(
         ),
   ];
   final tables = slide.allTables;
-  final bulletHeight = tables.isEmpty
-      ? bodyHeight
-      : tables.length == 1
-      ? (bodyHeight * .35).round()
-      : (bodyHeight * .3).round();
+  final chart = slide.chart;
+  final stacked = tables.isNotEmpty || chart != null;
+  final bulletShare = chart != null && tables.isNotEmpty
+      ? .28
+      : tables.length <= 1
+      ? .35
+      : .3;
+  final bulletHeight = stacked
+      ? (bodyHeight * bulletShare).round()
+      : bodyHeight;
   if (bullets.isNotEmpty) {
     shapes.write(
       _textShape(
@@ -487,13 +527,20 @@ String _slideXml(
       ),
     );
   }
+  final stackGap = (size.height * .02).round();
+  final stackTop = bullets.isEmpty
+      ? bodyTop
+      : bodyTop + bulletHeight + stackGap;
+  final stackBottom = bodyTop + bodyHeight;
+  // With both a table and a chart, tables keep the upper half of the body and
+  // the chart takes the lower half; a page without a chart keeps its old
+  // table layout.
+  final tablesBottom = chart == null || tables.isEmpty
+      ? stackBottom
+      : stackTop + (stackBottom - stackTop) ~/ 2 - stackGap ~/ 2;
   if (tables.isNotEmpty) {
-    final tableGap = bullets.isEmpty ? 0 : (size.height * .02).round();
-    final tableTop = bullets.isEmpty
-        ? bodyTop
-        : bodyTop + bulletHeight + tableGap;
-    final parts = _equalParts(bodyTop + bodyHeight - tableTop, tables.length);
-    var top = tableTop;
+    final parts = _equalParts(tablesBottom - stackTop, tables.length);
+    var top = stackTop;
     for (var i = 0; i < tables.length; i++) {
       shapes.write(
         _tableShape(
@@ -510,6 +557,20 @@ String _slideXml(
       );
       top += parts[i];
     }
+  }
+  if (chart != null && chartEmbed != null) {
+    final chartTop = tables.isEmpty ? stackTop : tablesBottom + stackGap;
+    shapes.write(
+      _chartShape(
+        id: id++,
+        name: 'Chart ${number - 1}',
+        embed: chartEmbed,
+        x: margin,
+        y: chartTop,
+        cx: textWidth,
+        cy: stackBottom - chartTop,
+      ),
+    );
   }
   final picture = hasImage ? image : null;
   if (picture != null) {
@@ -810,6 +871,185 @@ String _tableShape({
   }
   buffer.write('</a:tbl></a:graphicData></a:graphic></p:graphicFrame>');
   return buffer.toString();
+}
+
+/// A native DrawingML chart frame. The relationship points at a chart part,
+/// so PowerPoint treats the result as a chart the user can edit, not a picture.
+String _chartShape({
+  required int id,
+  required String name,
+  required String embed,
+  required int x,
+  required int y,
+  required int cx,
+  required int cy,
+}) =>
+    '<p:graphicFrame>'
+    '<p:nvGraphicFramePr><p:cNvPr id="$id" name="${_esc(name)}"/>'
+    '<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/>'
+    '</p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>'
+    '<p:xfrm><a:off x="$x" y="$y"/><a:ext cx="$cx" cy="$cy"/></p:xfrm>'
+    '<a:graphic><a:graphicData '
+    'uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
+    '<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" '
+    'r:id="$embed"/>'
+    '</a:graphicData></a:graphic></p:graphicFrame>';
+
+const _chartColors = ['7863C7', '4C9BE8', '61B884'];
+
+const _chartAxisIds =
+    '<c:axId val="111111111"/><c:axId val="222222222"/>';
+
+/// Category and value axes. Pie charts have neither, so only bar and line
+/// chart types include these.
+const _chartAxes =
+    '<c:catAx><c:axId val="111111111"/>'
+    '<c:scaling><c:orientation val="minMax"/></c:scaling>'
+    '<c:delete val="0"/><c:axPos val="b"/>'
+    '<c:numFmt formatCode="General" sourceLinked="1"/>'
+    '<c:majorTickMark val="none"/><c:minorTickMark val="none"/>'
+    '<c:tickLblPos val="nextTo"/><c:crossAx val="222222222"/>'
+    '<c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/>'
+    '<c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>'
+    '<c:valAx><c:axId val="222222222"/>'
+    '<c:scaling><c:orientation val="minMax"/></c:scaling>'
+    '<c:delete val="0"/><c:axPos val="l"/><c:majorGridlines/>'
+    '<c:numFmt formatCode="General" sourceLinked="1"/>'
+    '<c:majorTickMark val="none"/><c:minorTickMark val="none"/>'
+    '<c:tickLblPos val="nextTo"/><c:crossAx val="111111111"/>'
+    '<c:crosses val="autoZero"/><c:crossBetween val="between"/></c:valAx>';
+
+String _chartXml(SlideChart chart) {
+  final pie = chart.kind == 'pie';
+  final line = chart.kind == 'line';
+  // A pie has one data series; extra series would be invisible in PowerPoint,
+  // so only the first is written.
+  final series = pie ? chart.series.take(1) : chart.series;
+  final buffer = StringBuffer(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<c:chartSpace '
+    'xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" '
+    'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    '<c:lang val="en-US"/><c:chart>',
+  );
+  final title = chart.title.trim();
+  if (title.isEmpty) {
+    buffer.write('<c:autoTitleDeleted val="1"/>');
+  } else {
+    buffer.write(
+      '<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr>'
+      '<a:defRPr sz="1400" b="1"/></a:pPr><a:r>'
+      '<a:rPr lang="en-US" sz="1400" b="1" dirty="0"/>'
+      '<a:t>${_esc(title)}</a:t></a:r></a:p></c:rich></c:tx>'
+      '<c:overlay val="0"/></c:title>',
+    );
+  }
+  buffer.write('<c:plotArea><c:layout/>');
+  if (pie) {
+    buffer.write('<c:pieChart><c:varyColors val="1"/>');
+    _chartSeries(buffer, chart, series, pie: true);
+    buffer.write('<c:firstSliceAng val="0"/></c:pieChart>');
+  } else if (line) {
+    buffer.write(
+      '<c:lineChart><c:grouping val="standard"/>'
+      '<c:varyColors val="0"/>',
+    );
+    _chartSeries(buffer, chart, series, line: true);
+    buffer.write('<c:marker val="1"/><c:smooth val="0"/>');
+    buffer
+      ..write(_chartAxisIds)
+      ..write('</c:lineChart>')
+      ..write(_chartAxes);
+  } else {
+    buffer.write(
+      '<c:barChart><c:barDir val="col"/>'
+      '<c:grouping val="clustered"/><c:varyColors val="0"/>',
+    );
+    _chartSeries(buffer, chart, series);
+    buffer
+      ..write('<c:gapWidth val="80"/><c:overlap val="-10"/>')
+      ..write(_chartAxisIds)
+      ..write('</c:barChart>')
+      ..write(_chartAxes);
+  }
+  buffer.write('</c:plotArea>');
+  if (chart.series.length > 1) {
+    buffer.write(
+      '<c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend>',
+    );
+  }
+  buffer.write(
+    '<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/>'
+    '</c:chart></c:chartSpace>',
+  );
+  return buffer.toString();
+}
+
+/// Series caches let PowerPoint draw the chart without an embedded workbook;
+/// editing the data later creates a fresh sheet in Office.
+void _chartSeries(
+  StringBuffer buffer,
+  SlideChart chart,
+  Iterable<ChartSeries> series, {
+  bool pie = false,
+  bool line = false,
+}) {
+  var index = 0;
+  for (final item in series) {
+    final color = _chartColors[index % _chartColors.length];
+    buffer.write(
+      '<c:ser><c:idx val="$index"/><c:order val="$index"/>'
+      '<c:tx><c:strRef><c:f>Sheet1!\$B\$1</c:f><c:strCache>'
+      '<c:ptCount val="1"/><c:pt idx="0"><c:v>${_esc(item.name)}</c:v>'
+      '</c:pt></c:strCache></c:strRef></c:tx>',
+    );
+    if (!pie) {
+      buffer.write(
+        '<c:spPr><a:solidFill><a:srgbClr val="$color"/></a:solidFill>'
+        '<a:ln w="19050"><a:solidFill><a:srgbClr val="$color"/>'
+        '</a:solidFill></a:ln></c:spPr>',
+      );
+    }
+    if (line) {
+      buffer.write(
+        '<c:marker><c:symbol val="circle"/><c:size val="5"/></c:marker>',
+      );
+    }
+    buffer.write(
+      '<c:cat><c:strRef><c:f>Sheet1!\$A\$2:\$A\$${chart.categories.length + 1}'
+      '</c:f><c:strCache><c:ptCount val="${chart.categories.length}"/>',
+    );
+    for (var i = 0; i < chart.categories.length; i++) {
+      buffer.write(
+        '<c:pt idx="$i"><c:v>${_esc(chart.categories[i])}</c:v></c:pt>',
+      );
+    }
+    buffer.write('</c:strCache></c:strRef></c:cat>');
+    buffer.write(
+      '<c:val><c:numRef><c:f>Sheet1!\$B\$2:\$B\$${item.values.length + 1}'
+      '</c:f><c:numCache><c:formatCode>General</c:formatCode>'
+      '<c:ptCount val="${item.values.length}"/>',
+    );
+    for (var i = 0; i < item.values.length; i++) {
+      buffer.write(
+        '<c:pt idx="$i"><c:v>${_chartNumber(item.values[i])}</c:v></c:pt>',
+      );
+    }
+    buffer.write('</c:numCache></c:numRef></c:val>');
+    if (line) buffer.write('<c:smooth val="0"/>');
+    buffer.write('</c:ser>');
+    index++;
+  }
+}
+
+/// Chart axes spell large integers with a trailing `.0` awkwardly; whole
+/// values stay integers so the cached XML reads the same as the user's data.
+String _chartNumber(double value) {
+  if (value == value.truncateToDouble() && value.abs() < 1e15) {
+    return value.toInt().toString();
+  }
+  return value.toString();
 }
 
 String _bulletParagraph(
