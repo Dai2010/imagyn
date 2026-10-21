@@ -450,6 +450,40 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                       _field(_imageKey, 'imageKey', secret: true),
                       _field(_imageModel, 'imageModel'),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: DropdownButtonFormField<String>(
+                          key: const ValueKey('imagePreset'),
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: s.t('modelPreset'),
+                            helperText: s.t('imagePresetNote'),
+                            helperMaxLines: 3,
+                          ),
+                          items: [
+                            for (final preset in imagePresets)
+                              DropdownMenuItem(
+                                value: preset.model,
+                                child: Text(
+                                  preset.model,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: (model) {
+                            if (model == null) return;
+                            final preset = imagePresets.firstWhere(
+                              (preset) => preset.model == model,
+                            );
+                            setState(() {
+                              _imageModel.text = preset.model;
+                              final refs = preset.maxReferences;
+                              if (refs != null) _limit = refs;
+                            });
+                          },
+                        ),
+                      ),
                       DropdownButtonFormField<int>(
                         initialValue: _limit,
                         decoration: InputDecoration(labelText: s.t('limit')),
