@@ -254,7 +254,7 @@ abstract final class DocumentImport {
   /// Text inside `name` elements. Runs are concatenated without a separator:
   /// Office splits a sentence across runs wherever formatting changes.
   static List<String> _runs(String xml, String name) => RegExp(
-    '<$name[^>]*>(.*?)</$name>',
+    '<$name(?:\\s[^>]*)?>(.*?)</$name>',
     dotAll: true,
   ).allMatches(xml).map((match) => unescape(match.group(1) ?? '')).toList();
 

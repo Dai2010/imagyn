@@ -1447,12 +1447,12 @@ class Studio extends ChangeNotifier {
         italic: _argBool(call, 'italic'),
         align: _argText(call, 'align'),
         fill: _argOptional(call, 'fill'),
-        fill2: _argOptional(call, 'fill2'),
+        fill2: _argOptionalOrNull(call, 'fill2'),
         border: _argOptional(call, 'border'),
         radius: _argNumber(call, 'radius'),
-        shadow: _argBool(call, 'shadow'),
-        rotation: _argNumber(call, 'rotation'),
-        letterSpacing: _argNumber(call, 'letter_spacing'),
+        shadow: call.arguments['shadow'] == true,
+        rotation: _argNumberOr(call, 'rotation', 0),
+        letterSpacing: _argNumberOr(call, 'letter_spacing', 0),
         font: _argOptional(call, 'font'),
         padding: _optionalPadding(call),
         lineSpacing: _argNumber(call, 'line_spacing'),
@@ -1516,12 +1516,12 @@ class Studio extends ChangeNotifier {
         italic: _argBool(call, 'italic'),
         align: _argText(call, 'align'),
         fill: _argOptional(call, 'fill'),
-        fill2: _argOptional(call, 'fill2'),
+        fill2: _argOptionalOrNull(call, 'fill2'),
         border: _argOptional(call, 'border'),
         radius: _argNumber(call, 'radius'),
-        shadow: _argBool(call, 'shadow'),
-        rotation: _argNumber(call, 'rotation'),
-        letterSpacing: _argNumber(call, 'letter_spacing'),
+        shadow: call.arguments['shadow'] == true,
+        rotation: _argNumberOr(call, 'rotation', 0),
+        letterSpacing: _argNumberOr(call, 'letter_spacing', 0),
         font: _argOptional(call, 'font'),
         padding: _optionalPadding(call),
         lineSpacing: _argNumber(call, 'line_spacing'),
@@ -1797,6 +1797,19 @@ class Studio extends ChangeNotifier {
   String? _argOptional(AgentCall call, String key) {
     final value = _argText(call, key).trim();
     return value.isEmpty ? null : value;
+  }
+
+  /// A field added after older callers were written: absent is not an error.
+  String? _argOptionalOrNull(AgentCall call, String key) {
+    final value = call.arguments[key];
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  double _argNumberOr(AgentCall call, String key, double fallback) {
+    final value = call.arguments[key];
+    return value is num && value.isFinite ? value.toDouble() : fallback;
   }
 
   /// Zero means "use the size-based default", which is what a tool call sends

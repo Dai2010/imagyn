@@ -288,7 +288,7 @@ class PptxImport {
   ];
 
   static String _runs(String xml) => RegExp(
-    r'<a:t[^>]*>(.*?)</a:t>',
+    r'<a:t(?:\s[^>]*)?>(.*?)</a:t>',
     dotAll: true,
   ).allMatches(xml).map((match) => DocumentImport.unescape(match.group(1) ?? '')).join();
 
@@ -300,12 +300,12 @@ class PptxImport {
     if (table == null) return null;
     final rows = <List<String>>[];
     for (final row in RegExp(
-      r'<a:tr[^>]*>(.*?)</a:tr>',
+      r'<a:tr(?:\s[^>]*)?>(.*?)</a:tr>',
       dotAll: true,
     ).allMatches(table)) {
       final cells = <String>[
         for (final cell in RegExp(
-          r'<a:tc[^>]*>(.*?)</a:tc>',
+          r'<a:tc(?:\s[^>]*)?>(.*?)</a:tc>',
           dotAll: true,
         ).allMatches(row.group(1)!))
           _runs(cell.group(1)!).trim(),

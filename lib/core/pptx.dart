@@ -461,8 +461,11 @@ String _slideXml(
         ),
   ];
   final tables = slide.allTables;
-  final tableArea = tables.isEmpty ? 0 : (bodyHeight * .42).round();
-  final bulletHeight = tables.isEmpty ? bodyHeight : bodyHeight - tableArea;
+  final bulletHeight = tables.isEmpty
+      ? bodyHeight
+      : tables.length == 1
+      ? (bodyHeight * .35).round()
+      : (bodyHeight * .3).round();
   if (bullets.isNotEmpty) {
     shapes.write(
       _textShape(
@@ -495,7 +498,9 @@ String _slideXml(
       shapes.write(
         _tableShape(
           id: id++,
-          name: 'Table ${number - 1}.${i + 1}',
+          name: tables.length == 1
+              ? 'Table ${number - 1}'
+              : 'Table ${number - 1}.${i + 1}',
           table: tables[i],
           x: margin,
           y: top,
