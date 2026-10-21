@@ -774,6 +774,55 @@ class _StudioShellState extends State<StudioShell> {
                             ),
                           ),
                   ),
+                  if (agent)
+                    AnimatedSize(
+                      duration: _motion,
+                      alignment: AlignmentDirectional.topStart,
+                      child: studio.documents.isEmpty
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: [
+                                    for (
+                                      var i = 0;
+                                      i < studio.documents.length;
+                                      i++
+                                    )
+                                      InputChip(
+                                        key: ValueKey('imported-$i'),
+                                        visualDensity: VisualDensity.compact,
+                                        avatar: const Icon(
+                                          Icons.description_outlined,
+                                          size: 16,
+                                        ),
+                                        label: ConstrainedBox(
+                                          constraints: const BoxConstraints(
+                                            maxWidth: 180,
+                                          ),
+                                          child: Text(
+                                            studio.documents[i].name,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        onDeleted: studio.busy
+                                            ? null
+                                            : () =>
+                                                  studio.removeDocument(i),
+                                        deleteIcon: const Icon(
+                                          Icons.close,
+                                          size: 16,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                    ),
                   // The two models get their own line: sharing the action row
                   // with four icons squeezed the name down to "de…", and the
                   // Agent page lost the image model entirely.
@@ -805,6 +854,16 @@ class _StudioShellState extends State<StudioShell> {
                   ),
                   Row(
                     children: [
+                      if (agent)
+                        IconButton(
+                          key: const ValueKey('importFiles'),
+                          tooltip: s.t('importFiles'),
+                          visualDensity: VisualDensity.compact,
+                          onPressed: studio.busy
+                              ? null
+                              : () => _guard(studio.importFiles),
+                          icon: const Icon(Icons.attach_file_rounded, size: 20),
+                        ),
                       IconButton(
                         tooltip: s.t('addReferences'),
                         visualDensity: VisualDensity.compact,

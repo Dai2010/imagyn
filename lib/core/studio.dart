@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 import '../l10n/strings.dart';
 import 'api.dart';
 import 'background.dart';
+import 'import.dart';
 import 'models.dart';
 import 'pptx.dart';
 import 'share.dart';
@@ -47,6 +48,11 @@ class Studio extends ChangeNotifier {
   /// tool result, and the user's next message is the answer.
   bool _asked = false;
   List<Asset> gallery = [], galleryRefs = [], agentRefs = [];
+
+  /// Files the user imported for the next message. Their text is folded into
+  /// that message when it is sent, so the transcript keeps the source and the
+  /// model sees it again on every later request.
+  List<ImportedDocument> documents = [];
   List<ChatEntry> chat = [];
   List<ImageJob> jobs = [];
   Set<String> favorites = {};
@@ -263,6 +269,92 @@ class Studio extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Imports files for the Agent: pictures join the references, text and
+  /// Office documents are read now so the next message carries their content.
+  Future<void> importFiles() async {
+    if (busy) return;
+    final selected = await openFiles(
+      acceptedTypeGroups: [
+        const XTypeGroup(
+          label: 'Images',
+          extensions: ['png', 'jpg', 'jpeg', 'webp'],
+          mimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
+        ),
+        const XTypeGroup(
+          label: 'Files',
+          extensions: [
+            'txt', 'md', 'markdown', 'rst', 'log', 'csv', 'tsv', 'json', //
+            'jsonl', 'toml', 'yaml', 'yml', 'ini', 'conf', 'properties',
+            'xml', 'html', 'htm', 'css', 'dart', 'js', 'jsx', 'ts', 'tsx',
+            'py', 'java', 'kt', 'kts', 'swift', 'go', 'rs', 'c', 'h', 'cc',
+            'cpp', 'hpp', 'cs', 'rb', 'php', 'sh', 'bash', 'zsh', 'bat',
+            'ps1', 'sql', 'tex', 'srt', 'vtt', 'docx', 'pptx', 'xlsx',
+          ],
+          mimeTypes: [
+            'text/*',
+            'application/json',
+            'application/xml',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ],
+        ),
+      ],
+    );
+    if (selected.isEmpty) return;
+    final documentCount = selected
+        .where((file) => !DocumentImport.isImage(file.name))
+        .length;
+    if (documents.length + documentCount > DocumentImport.maxFiles) {
+      throw const FormatException('documentLimit');
+    }
+    // Everything is checked and decoded before anything is kept, so a bad file
+    // in the middle does not leave half an import behind.
+    final images = <Uint8List>[];
+    final added = <ImportedDocument>[];
+    for (final file in selected) {
+      final size = await file.length();
+      if (DocumentImport.isImage(file.name)) {
+        if (size > StudioApi.maxImageBytes) {
+          throw const FormatException('imageTooLarge');
+        }
+        final bytes = await file.readAsBytes();
+        sniffMime(bytes);
+        images.add(bytes);
+        continue;
+      }
+      if (!DocumentImport.isDocument(file.name)) {
+        throw const FormatException('unsupportedFile');
+      }
+      if (size > DocumentImport.maxBytes) {
+        throw const FormatException('documentTooLarge');
+      }
+      added.add(
+        DocumentImport.read(file.name, await file.readAsBytes()),
+      );
+    }
+    if (agentRefs.length + images.length > config.maxReferences) {
+      throw const FormatException('referenceLimit');
+    }
+    final total = documents.fold<int>(0, (sum, doc) => sum + doc.text.length);
+    if (total + added.fold<int>(0, (sum, doc) => sum + doc.text.length) >
+        DocumentImport.totalCharacters) {
+      throw const FormatException('documentLimit');
+    }
+    for (final bytes in images) {
+      agentRefs.add(await store.saveAsset(bytes));
+    }
+    documents.addAll(added);
+    notifyListeners();
+  }
+
+  void removeDocument(int index) {
+    if (busy) return;
+    documents.removeAt(index);
+    notifyListeners();
+  }
+
   void removeReference(bool agent, int index) {
     if (busy) return;
     (agent ? agentRefs : galleryRefs).removeAt(index);
@@ -286,6 +378,7 @@ class Studio extends ChangeNotifier {
     _conversationSettings = {};
     chat = [];
     agentRefs = [];
+    documents = [];
     // Decks are stored per conversation; a fresh one starts without any.
     decks.clear();
     activeDeck = null;
@@ -304,6 +397,7 @@ class Studio extends ChangeNotifier {
     await _loadConversationSettings();
     chat = await store.messages(session);
     await _restoreAgentReferences();
+    documents = [];
     await _loadDecks();
     _resetCompaction();
     notifyListeners();
@@ -658,7 +752,12 @@ class Studio extends ChangeNotifier {
     VoidCallback? onAccepted,
   }) async {
     if (busy) return;
-    if (prompt.trim().isEmpty) throw const FormatException('emptyPrompt');
+    // Imported files become part of the message, so a later request replays the
+    // source along with the question that referred to it.
+    final message = agent
+        ? DocumentImport.compose(prompt, documents)
+        : prompt.trim();
+    if (message.isEmpty) throw const FormatException('emptyPrompt');
     final refs = List<Asset>.of(agent ? agentRefs : galleryRefs);
     final client = api;
     final requestConfig = client.config;
@@ -698,12 +797,12 @@ class Studio extends ChangeNotifier {
     unawaited(
       Background.begin(
         title: _backgroundString('turnRunning'),
-        body: _cut(prompt.trim()),
+        body: _cut(message),
       ),
     );
     notifyListeners();
     try {
-      String? imagePrompt = prompt.trim();
+      String? imagePrompt = message;
       String reply = '';
       String reasoning = '';
       // What the gallery path asks the image service for. The Agent derives
@@ -714,10 +813,11 @@ class Studio extends ChangeNotifier {
           session,
           ChatEntry(
             'user',
-            prompt.trim(),
+            message,
             assetIds: refs.map((a) => a.id).toList(),
           ),
         );
+        documents = [];
         onAccepted?.call();
         chat = await store.messages(session);
         notifyListeners();
