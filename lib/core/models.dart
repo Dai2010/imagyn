@@ -161,7 +161,8 @@ const builtInAgentPrompt =
     'the tool returned. '
     'For a public link or page call fetch_url with an absolute URL: it returns '
     'readable text and refuses private addresses. Do not repeat a failed fetch; '
-    'say what went wrong.';
+    'say what went wrong. A user message may carry <file name="…"> blocks: '
+    'treat their contents as source material for the request.';
 
 /// The editable prompt starts empty: the tool instructions above are always
 /// sent, and this is where the user adds their own standing instructions.
