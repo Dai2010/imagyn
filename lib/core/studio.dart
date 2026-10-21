@@ -1142,6 +1142,7 @@ class Studio extends ChangeNotifier {
         Slide(
           title: _argText(call, 'title'),
           bullets: _argBullets(call),
+          bulletLevels: _argLevels(call),
           imageId: image.isEmpty ? null : image,
         ),
       );
@@ -1162,10 +1163,12 @@ class Studio extends ChangeNotifier {
       deck.slides[index] = Slide(
         title: _argText(call, 'title'),
         bullets: _argBullets(call),
+        bulletLevels: _argLevels(call),
+        notes: previous.notes,
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        table: previous.table,
+        tables: previous.tables,
         elements: previous.elements,
       );
       _persistDeck(deck);
@@ -1210,27 +1213,76 @@ class Studio extends ChangeNotifier {
       final index = _argIndex(call, 'index', deck.slides.length);
       final headerRow = call.arguments['header_row'];
       if (headerRow is! bool) throw const FormatException('invalidTool');
+      final slot = call.arguments['table_index'];
+      if (slot is! int) throw const FormatException('invalidTool');
       final table = SlideTable.fromJson({
         'rows': call.arguments['rows'],
         'headerRow': headerRow,
       });
       final previous = deck.slides[index];
+      final tables = List<SlideTable>.of(previous.tables);
+      if (slot >= 0 && slot < tables.length) {
+        tables[slot] = table;
+      } else if (slot < 0 && tables.length < Slide.maxTables) {
+        tables.add(table);
+      } else {
+        return 'Slide ${index + 1} already has ${tables.length} tables '
+            '(max ${Slide.maxTables}). Pass table_index 0 or 1 to replace '
+            'one, or split the data across pages.';
+      }
       deck.slides[index] = Slide(
         title: previous.title,
         bullets: previous.bullets,
+        bulletLevels: previous.bulletLevels,
+        notes: previous.notes,
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
-        table: table,
+        backgroundColor: previous.backgroundColor,
+        tables: tables,
         elements: previous.elements,
       );
       _persistDeck(deck);
       notifyListeners();
-      return 'Table ${table.rows.length}x${table.columnCount} added to '
-          'slide ${index + 1} in deck ${deck.id}.';
+      return 'Table ${table.rows.length}x${table.columnCount} '
+          '${slot >= 0 ? 'replaced' : 'added'} on slide ${index + 1} '
+          'in deck ${deck.id}.';
     } on FormatException {
       return 'Invalid arguments for add_table. Use an existing deck and '
-          'zero-based slide index, header_row as a boolean, and 1-12 '
-          'rectangular rows of 1-8 string cells (at most 500 characters each).';
+          'zero-based slide index, table_index (-1 to append, 0 or 1 to '
+          'replace), header_row as a boolean, and 1-12 rectangular rows of '
+          '1-8 string cells (at most 500 characters each).';
+    }
+  }
+
+  String _setNotes(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      final index = _argIndex(call, 'index', deck.slides.length);
+      final notes = _argText(call, 'notes');
+      if (notes.length > Slide.maxNotesLength) {
+        return 'Notes are limited to ${Slide.maxNotesLength} characters.';
+      }
+      final previous = deck.slides[index];
+      deck.slides[index] = Slide(
+        title: previous.title,
+        bullets: previous.bullets,
+        bulletLevels: previous.bulletLevels,
+        notes: notes.trim(),
+        imageId: previous.imageId,
+        backgroundImageId: previous.backgroundImageId,
+        backgroundColor: previous.backgroundColor,
+        tables: previous.tables,
+        elements: previous.elements,
+      );
+      _persistDeck(deck);
+      notifyListeners();
+      return notes.trim().isEmpty
+          ? 'Notes cleared on slide ${index + 1}.'
+          : 'Notes saved on slide ${index + 1} '
+                '(${notes.trim().length} characters).';
+    } on FormatException {
+      return 'Invalid arguments for set_notes. Use an existing deck and a '
+          'zero-based slide index, with notes as a string.';
     }
   }
 
@@ -1277,7 +1329,9 @@ class Studio extends ChangeNotifier {
           // background again.
           backgroundImageId: image.isEmpty ? null : image,
           backgroundColor: color,
-          table: previous.table,
+          tables: previous.tables,
+        notes: previous.notes,
+        bulletLevels: previous.bulletLevels,
           elements: previous.elements,
         );
       }
@@ -1324,8 +1378,12 @@ class Studio extends ChangeNotifier {
         italic: _argBool(call, 'italic'),
         align: _argText(call, 'align'),
         fill: _argOptional(call, 'fill'),
+        fill2: _argOptional(call, 'fill2'),
         border: _argOptional(call, 'border'),
         radius: _argNumber(call, 'radius'),
+        shadow: _argBool(call, 'shadow'),
+        rotation: _argNumber(call, 'rotation'),
+        letterSpacing: _argNumber(call, 'letter_spacing'),
         font: _argOptional(call, 'font'),
         padding: _optionalPadding(call),
         lineSpacing: _argNumber(call, 'line_spacing'),
@@ -1336,7 +1394,9 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        table: previous.table,
+        tables: previous.tables,
+        notes: previous.notes,
+        bulletLevels: previous.bulletLevels,
         elements: [...previous.elements, element],
       );
       _persistDeck(deck);
@@ -1387,8 +1447,12 @@ class Studio extends ChangeNotifier {
         italic: _argBool(call, 'italic'),
         align: _argText(call, 'align'),
         fill: _argOptional(call, 'fill'),
+        fill2: _argOptional(call, 'fill2'),
         border: _argOptional(call, 'border'),
         radius: _argNumber(call, 'radius'),
+        shadow: _argBool(call, 'shadow'),
+        rotation: _argNumber(call, 'rotation'),
+        letterSpacing: _argNumber(call, 'letter_spacing'),
         font: _argOptional(call, 'font'),
         padding: _optionalPadding(call),
         lineSpacing: _argNumber(call, 'line_spacing'),
@@ -1401,7 +1465,9 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        table: previous.table,
+        tables: previous.tables,
+        notes: previous.notes,
+        bulletLevels: previous.bulletLevels,
         elements: elements,
       );
       _persistDeck(deck);
@@ -1451,7 +1517,9 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        table: previous.table,
+        tables: previous.tables,
+        notes: previous.notes,
+        bulletLevels: previous.bulletLevels,
         elements: [...previous.elements, element],
       );
       _persistDeck(deck);
@@ -1488,7 +1556,9 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        table: previous.table,
+        tables: previous.tables,
+        notes: previous.notes,
+        bulletLevels: previous.bulletLevels,
         elements: remaining,
       );
       _persistDeck(deck);
@@ -1613,6 +1683,22 @@ class Studio extends ChangeNotifier {
     final value = call.arguments[key];
     if (value is! List) throw const FormatException('invalidTool');
     return [for (final item in value) if (item is String) item];
+  }
+
+  /// Indent levels parallel to the bullets. Missing or short lists mean the
+  /// remaining lines sit at the top level.
+  List<int> _argLevels(AgentCall call) {
+    final value = call.arguments['bullet_levels'];
+    if (value == null) return const [];
+    if (value is! List) throw const FormatException('invalidTool');
+    final levels = <int>[];
+    for (final item in value) {
+      if (item is! int || item < 0 || item > 2) {
+        throw const FormatException('invalidTool');
+      }
+      levels.add(item);
+    }
+    return levels;
   }
 
   int _argIndex(AgentCall call, String key, int length) {
@@ -1742,6 +1828,8 @@ class Studio extends ChangeNotifier {
         return _updateSlide(call);
       case 'move_slide':
         return _moveSlide(call);
+      case 'set_notes':
+        return _setNotes(call);
       case 'remove_element':
         return _removeElement(call);
       case 'remove_slide':

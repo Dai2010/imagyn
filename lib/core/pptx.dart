@@ -393,11 +393,18 @@ String _slideXml(
     );
   }
   final bullets = [
-    for (final bullet in slide.bullets)
-      if (bullet.trim().isNotEmpty) bullet.trim(),
+    for (var i = 0; i < slide.bullets.length; i++)
+      if (slide.bullets[i].trim().isNotEmpty)
+        (
+          text: slide.bullets[i].trim(),
+          level: i < slide.bulletLevels.length
+              ? slide.bulletLevels[i]
+              : 0,
+        ),
   ];
-  final table = slide.table;
-  final bulletHeight = table == null ? bodyHeight : (bodyHeight * .35).round();
+  final tables = slide.tables;
+  final tableArea = tables.isEmpty ? 0 : (bodyHeight * .42).round();
+  final bulletHeight = tables.isEmpty ? bodyHeight : bodyHeight - tableArea;
   if (bullets.isNotEmpty) {
     shapes.write(
       _textShape(
@@ -409,27 +416,37 @@ String _slideXml(
         cy: bulletHeight,
         paragraphs: [
           for (final bullet in bullets)
-            _bulletParagraph(bullet, bodySize, '3B3650'),
+            _bulletParagraph(
+              bullet.text,
+              bodySize,
+              '3B3650',
+              level: bullet.level,
+            ),
         ],
       ),
     );
   }
-  if (table != null) {
-    final tableGap = bullets.isEmpty ? 0 : (size.height * .025).round();
+  if (tables.isNotEmpty) {
+    final tableGap = bullets.isEmpty ? 0 : (size.height * .02).round();
     final tableTop = bullets.isEmpty
         ? bodyTop
         : bodyTop + bulletHeight + tableGap;
-    shapes.write(
-      _tableShape(
-        id: id++,
-        name: 'Table ${number - 1}',
-        table: table,
-        x: margin,
-        y: tableTop,
-        cx: textWidth,
-        cy: bodyTop + bodyHeight - tableTop,
-      ),
-    );
+    final parts = _equalParts(bodyTop + bodyHeight - tableTop, tables.length);
+    var top = tableTop;
+    for (var i = 0; i < tables.length; i++) {
+      shapes.write(
+        _tableShape(
+          id: id++,
+          name: 'Table ${number - 1}.${i + 1}',
+          table: tables[i],
+          x: margin,
+          y: top,
+          cx: textWidth,
+          cy: parts[i],
+        ),
+      );
+      top += parts[i];
+    }
   }
   final picture = hasImage ? image : null;
   if (picture != null) {
@@ -730,11 +747,18 @@ String _tableShape({
   return buffer.toString();
 }
 
-String _bulletParagraph(String text, int size, String color) =>
-    '<a:p><a:pPr marL="342900" indent="-342900">'
-    '<a:lnSpc><a:spcPct val="115000"/></a:lnSpc>'
-    '<a:buFont typeface="Arial"/><a:buChar char="•"/></a:pPr>'
-    '<a:r>${_run(text, size, false, color)}</a:r></a:p>';
+String _bulletParagraph(
+  String text,
+  int size,
+  String color, {
+  int level = 0,
+}) {
+  final indent = 342900 + level * 342900;
+  return '<a:p><a:pPr marL="$indent" indent="-342900" lvl="$level">'
+      '<a:lnSpc><a:spcPct val="115000"/></a:lnSpc>'
+      '<a:buFont typeface="Arial"/><a:buChar char="•"/></a:pPr>'
+      '<a:r>${_run(text, size, false, color)}</a:r></a:p>';
+}
 
 String _scrimShape(int id, ({int width, int height}) size) =>
     '<p:sp>'
