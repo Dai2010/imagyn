@@ -250,14 +250,17 @@ jobs:
             映想 Imagyn ${{ github.ref_name }}
 
             **本次更新**
-            - **模型预设**：换成当前主力 —— `deepseek-flash`（V4.1 Flash）、`deepseek-v4-pro`、`glm-5.3`、`glm-5.3-flash`、`glm-5.2`、`glm-4.7`，按各家文档填入上下文与输出上限。过时的 `deepseek-chat` / `deepseek-reasoner` 已移除。
-            - **图片模型预设**：图片接口设置新增下拉 —— `glm-image`、`qwen-image-3.0-pro`、`qwen-image-2.0-pro`、`wan2.7-image-pro`；文档写明参考图数量的（Qwen 两个 1–3 张）一并填入上限。
-            - **生图质量**：`generate_image` 新增 `quality`（`low` / `medium` / `high`，`auto` 沿用应用里的选择），模型可以只给这一次任务定质量，不改全局设置。
-            - **提示词精简**：内置工具说明压缩到原来的六成左右，保留 deck 流程与硬约束，少占上下文。
+            - **演示文稿编辑**：`move_slide` 调页序、`update_text` 改文案与样式、纯色页背景；文本框支持字体、斜体、内边距与行距，单页自由元素上限提升到 24。
+            - **艺术文本框**：`add_text` / `update_text` 新增渐变第二色、阴影、±45° 旋转与字距，导出的 .pptx 与预览一致。
+            - **一页两张表**：`add_table` 新增 `table_index`（-1 追加、0/1 替换），两张表上下堆叠。
+            - **演讲者备注**：新工具 `set_notes`，备注显示在工作台大图下方，并写入 .pptx 的备注页。
+            - **项目符号层级**：`bullet_levels`（0–2）导出为 DrawingML 的层级与缩进。
+            - **导入 .pptx**：演示文稿列表新增入口，把已有演示文稿的文本、图片、表格、备注与纯色背景读回可编辑 deck；图片存入本地资源库，单文件上限 40 MB。
+            - **导入文件**：Agent 输入区可导入图片、纯文本（txt/json/toml/markdown/yaml/csv/代码等）与 .docx/.pptx/.xlsx；文字以 `<file>` 块随消息送入，单文件 4 MB / 2 万字符，一次最多 6 个。
 
             **验证范围**
-            - 静态分析零告警；**185 项**离线测试通过（CI 实测）。
-            - **未实机验证**：新预设的模型 ID 是否与你所用服务一致、`quality` 是否被中转站接受、图片预设的参考图上限是否与服务一致。装好后各试一次。
+            - 静态分析零告警；**209 项**离线测试通过（CI 实测）。
+            - **未实机验证**：导入的 .pptx 在 WPS / PowerPoint 里的版式保真度、备注页显示、复杂母版占位符页面的回读；文件导入的中文编码与大文件截断。装好后各试一次。
 
             **签名状态 / Signing**
             - Android APK — signed with the release keystore.
