@@ -90,7 +90,7 @@ jobs:
           mv "$RUNNER_TEMP/signed.apk" "$apk"
           "$tools/apksigner" verify --print-certs "$apk"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android
           path: build/app/outputs/flutter-apk/app-release.apk
@@ -124,7 +124,7 @@ jobs:
       - run: flutter build linux --release
       - run: scripts/package_linux.sh build/linux/x64/release/bundle "${{ steps.version.outputs.value }}" dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: dist/*
@@ -165,7 +165,7 @@ jobs:
           ./scripts/package_windows.ps1 -Bundle build/windows/x64/runner/Release `
             -Version $version -Out dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: dist/*
@@ -190,7 +190,7 @@ jobs:
       - run: flutter build macos --release
       - run: scripts/package_macos.sh build/macos/Build/Products/Release/imagyn.app "${{ steps.version.outputs.value }}" dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: dist/*
