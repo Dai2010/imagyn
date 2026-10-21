@@ -179,7 +179,7 @@ void main() {
     final deck = studio.decks.values.single;
     expect(studio.gallery, hasLength(1));
     expect(deck.slides.single.imageId, studio.gallery.single.id);
-    expect(deck.slides.single.table!.rows, [['属性', '值'], ['配图', '狐狸']]);
+    expect(deck.slides.single.allTables.first.rows, [['属性', '值'], ['配图', '狐狸']]);
     expect(deck.slides.single.title, '狐狸与表格');
     expect(deck.backgroundImageId, studio.gallery.single.id);
     expect(deck.backgroundFor(deck.slides.single), studio.gallery.single.id);

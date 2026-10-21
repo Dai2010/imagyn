@@ -30,8 +30,8 @@ void main() {
       jsonDecode(jsonEncode(slide.toJson())) as Map<String, dynamic>,
     );
     expect(copy.toJson(), slide.toJson());
-    expect(copy.table!.headerRow, isFalse);
-    expect(copy.table!.columnCount, 2);
+    expect(copy.allTables.first.headerRow, isFalse);
+    expect(copy.allTables.first.columnCount, 2);
   });
 
   test('table deeply copies and protects the validated row structure', () {

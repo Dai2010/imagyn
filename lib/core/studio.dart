@@ -16,6 +16,7 @@ import 'background.dart';
 import 'import.dart';
 import 'models.dart';
 import 'pptx.dart';
+import 'pptx_import.dart';
 import 'share.dart';
 import 'store.dart';
 import 'tokens.dart';
@@ -346,6 +347,67 @@ class Studio extends ChangeNotifier {
     }
     documents.addAll(added);
     notifyListeners();
+  }
+
+  /// Opens a .pptx the user already has as an editable deck in this session.
+  /// Pictures are copied into the asset store, because the deck model only
+  /// names images and the export resolves those names later.
+  Future<Deck?> importDeck() async {
+    if (busy) return null;
+    final selected = await openFiles(
+      acceptedTypeGroups: [
+        const XTypeGroup(
+          label: 'PowerPoint',
+          extensions: ['pptx'],
+          mimeTypes: [
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          ],
+        ),
+      ],
+    );
+    if (selected.isEmpty) return null;
+    final file = selected.first;
+    if (await file.length() > 40 * 1024 * 1024) {
+      throw const FormatException('deckTooLarge');
+    }
+    final imported = PptxImport.read(
+      file.name,
+      await file.readAsBytes(),
+      id: store.newId(),
+    );
+    final assets = <String, String>{};
+    for (final entry in imported.media.entries) {
+      assets[entry.key] = (await store.saveAsset(entry.value)).id;
+    }
+    final deck = Deck(
+      id: imported.deck.id,
+      title: imported.deck.title,
+      aspectRatio: imported.deck.aspectRatio,
+      slides: [
+        for (final slide in imported.deck.slides)
+          Slide(
+            title: slide.title,
+            bullets: slide.bullets,
+            bulletLevels: slide.bulletLevels,
+            notes: slide.notes,
+            imageId: slide.imageId,
+            backgroundImageId: slide.backgroundImageId,
+            backgroundColor: slide.backgroundColor,
+            tables: slide.allTables,
+            elements: [
+              for (final element in slide.elements)
+                element.imageId != null && assets.containsKey(element.imageId)
+                    ? element.withImage(assets[element.imageId]!)
+                    : element,
+            ],
+          ),
+      ],
+    );
+    decks[deck.id] = deck;
+    activeDeck = deck;
+    _persistDeck(deck);
+    notifyListeners();
+    return deck;
   }
 
   void removeDocument(int index) {
@@ -1142,6 +1204,7 @@ class Studio extends ChangeNotifier {
         Slide(
           title: _argText(call, 'title'),
           bullets: _argBullets(call),
+          bulletLevels: _argLevels(call),
           imageId: image.isEmpty ? null : image,
         ),
       );
@@ -1162,10 +1225,12 @@ class Studio extends ChangeNotifier {
       deck.slides[index] = Slide(
         title: _argText(call, 'title'),
         bullets: _argBullets(call),
+        bulletLevels: _argLevels(call),
+        notes: previous.notes,
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        table: previous.table,
+        tables: previous.allTables,
         elements: previous.elements,
       );
       _persistDeck(deck);
@@ -1210,27 +1275,83 @@ class Studio extends ChangeNotifier {
       final index = _argIndex(call, 'index', deck.slides.length);
       final headerRow = call.arguments['header_row'];
       if (headerRow is! bool) throw const FormatException('invalidTool');
+      final previous = deck.slides[index];
+      final rawSlot = call.arguments['table_index'];
+      if (rawSlot != null && rawSlot is! int) {
+        throw const FormatException('invalidTool');
+      }
+      // Callers that send no table_index keep the old "replace what this page
+      // already has" behaviour; -1 explicitly appends a second table.
+      final slot = rawSlot is int
+          ? rawSlot
+          : (previous.allTables.isEmpty ? -1 : 0);
       final table = SlideTable.fromJson({
         'rows': call.arguments['rows'],
         'headerRow': headerRow,
       });
-      final previous = deck.slides[index];
+      final tables = List<SlideTable>.of(previous.allTables);
+      if (slot >= 0 && slot < tables.length) {
+        tables[slot] = table;
+      } else if (slot < 0 && tables.length < Slide.maxTables) {
+        tables.add(table);
+      } else {
+        return 'Slide ${index + 1} already has ${tables.length} tables '
+            '(max ${Slide.maxTables}). Pass table_index 0 or 1 to replace '
+            'one, or split the data across pages.';
+      }
       deck.slides[index] = Slide(
         title: previous.title,
         bullets: previous.bullets,
+        bulletLevels: previous.bulletLevels,
+        notes: previous.notes,
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
-        table: table,
+        backgroundColor: previous.backgroundColor,
+        tables: tables,
         elements: previous.elements,
       );
       _persistDeck(deck);
       notifyListeners();
-      return 'Table ${table.rows.length}x${table.columnCount} added to '
-          'slide ${index + 1} in deck ${deck.id}.';
+      return 'Table ${table.rows.length}x${table.columnCount} '
+          '${slot >= 0 ? 'replaced' : 'added'} on slide ${index + 1} '
+          'in deck ${deck.id}.';
     } on FormatException {
       return 'Invalid arguments for add_table. Use an existing deck and '
-          'zero-based slide index, header_row as a boolean, and 1-12 '
-          'rectangular rows of 1-8 string cells (at most 500 characters each).';
+          'zero-based slide index, table_index (-1 to append, 0 or 1 to '
+          'replace), header_row as a boolean, and 1-12 rectangular rows of '
+          '1-8 string cells (at most 500 characters each).';
+    }
+  }
+
+  String _setNotes(AgentCall call) {
+    try {
+      final deck = _deckOf(call);
+      final index = _argIndex(call, 'index', deck.slides.length);
+      final notes = _argText(call, 'notes');
+      if (notes.length > Slide.maxNotesLength) {
+        return 'Notes are limited to ${Slide.maxNotesLength} characters.';
+      }
+      final previous = deck.slides[index];
+      deck.slides[index] = Slide(
+        title: previous.title,
+        bullets: previous.bullets,
+        bulletLevels: previous.bulletLevels,
+        notes: notes.trim(),
+        imageId: previous.imageId,
+        backgroundImageId: previous.backgroundImageId,
+        backgroundColor: previous.backgroundColor,
+        tables: previous.allTables,
+        elements: previous.elements,
+      );
+      _persistDeck(deck);
+      notifyListeners();
+      return notes.trim().isEmpty
+          ? 'Notes cleared on slide ${index + 1}.'
+          : 'Notes saved on slide ${index + 1} '
+                '(${notes.trim().length} characters).';
+    } on FormatException {
+      return 'Invalid arguments for set_notes. Use an existing deck and a '
+          'zero-based slide index, with notes as a string.';
     }
   }
 
@@ -1277,7 +1398,9 @@ class Studio extends ChangeNotifier {
           // background again.
           backgroundImageId: image.isEmpty ? null : image,
           backgroundColor: color,
-          table: previous.table,
+          tables: previous.allTables,
+        notes: previous.notes,
+        bulletLevels: previous.bulletLevels,
           elements: previous.elements,
         );
       }
@@ -1324,8 +1447,12 @@ class Studio extends ChangeNotifier {
         italic: _argBool(call, 'italic'),
         align: _argText(call, 'align'),
         fill: _argOptional(call, 'fill'),
+        fill2: _argOptionalOrNull(call, 'fill2'),
         border: _argOptional(call, 'border'),
         radius: _argNumber(call, 'radius'),
+        shadow: call.arguments['shadow'] == true,
+        rotation: _argNumberOr(call, 'rotation', 0),
+        letterSpacing: _argNumberOr(call, 'letter_spacing', 0),
         font: _argOptional(call, 'font'),
         padding: _optionalPadding(call),
         lineSpacing: _argNumber(call, 'line_spacing'),
@@ -1336,7 +1463,9 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        table: previous.table,
+        tables: previous.allTables,
+        notes: previous.notes,
+        bulletLevels: previous.bulletLevels,
         elements: [...previous.elements, element],
       );
       _persistDeck(deck);
@@ -1387,8 +1516,12 @@ class Studio extends ChangeNotifier {
         italic: _argBool(call, 'italic'),
         align: _argText(call, 'align'),
         fill: _argOptional(call, 'fill'),
+        fill2: _argOptionalOrNull(call, 'fill2'),
         border: _argOptional(call, 'border'),
         radius: _argNumber(call, 'radius'),
+        shadow: call.arguments['shadow'] == true,
+        rotation: _argNumberOr(call, 'rotation', 0),
+        letterSpacing: _argNumberOr(call, 'letter_spacing', 0),
         font: _argOptional(call, 'font'),
         padding: _optionalPadding(call),
         lineSpacing: _argNumber(call, 'line_spacing'),
@@ -1401,7 +1534,9 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        table: previous.table,
+        tables: previous.allTables,
+        notes: previous.notes,
+        bulletLevels: previous.bulletLevels,
         elements: elements,
       );
       _persistDeck(deck);
@@ -1451,7 +1586,9 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        table: previous.table,
+        tables: previous.allTables,
+        notes: previous.notes,
+        bulletLevels: previous.bulletLevels,
         elements: [...previous.elements, element],
       );
       _persistDeck(deck);
@@ -1488,7 +1625,9 @@ class Studio extends ChangeNotifier {
         imageId: previous.imageId,
         backgroundImageId: previous.backgroundImageId,
         backgroundColor: previous.backgroundColor,
-        table: previous.table,
+        tables: previous.allTables,
+        notes: previous.notes,
+        bulletLevels: previous.bulletLevels,
         elements: remaining,
       );
       _persistDeck(deck);
@@ -1615,6 +1754,22 @@ class Studio extends ChangeNotifier {
     return [for (final item in value) if (item is String) item];
   }
 
+  /// Indent levels parallel to the bullets. Missing or short lists mean the
+  /// remaining lines sit at the top level.
+  List<int> _argLevels(AgentCall call) {
+    final value = call.arguments['bullet_levels'];
+    if (value == null) return const [];
+    if (value is! List) throw const FormatException('invalidTool');
+    final levels = <int>[];
+    for (final item in value) {
+      if (item is! int || item < 0 || item > 2) {
+        throw const FormatException('invalidTool');
+      }
+      levels.add(item);
+    }
+    return levels;
+  }
+
   int _argIndex(AgentCall call, String key, int length) {
     final value = call.arguments[key];
     if (value is! int || value < 0 || value >= length) {
@@ -1642,6 +1797,19 @@ class Studio extends ChangeNotifier {
   String? _argOptional(AgentCall call, String key) {
     final value = _argText(call, key).trim();
     return value.isEmpty ? null : value;
+  }
+
+  /// A field added after older callers were written: absent is not an error.
+  String? _argOptionalOrNull(AgentCall call, String key) {
+    final value = call.arguments[key];
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  double _argNumberOr(AgentCall call, String key, double fallback) {
+    final value = call.arguments[key];
+    return value is num && value.isFinite ? value.toDouble() : fallback;
   }
 
   /// Zero means "use the size-based default", which is what a tool call sends
@@ -1742,6 +1910,8 @@ class Studio extends ChangeNotifier {
         return _updateSlide(call);
       case 'move_slide':
         return _moveSlide(call);
+      case 'set_notes':
+        return _setNotes(call);
       case 'remove_element':
         return _removeElement(call);
       case 'remove_slide':

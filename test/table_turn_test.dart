@@ -149,7 +149,7 @@ void main() {
       final deck = studio.activeDeck!;
       expect(deck.finished, isTrue);
       expect(deck.slides.single.title, '更新标题');
-      expect(deck.slides.single.table!.rows, [
+      expect(deck.slides.single.allTables.first.rows, [
         ['列一', '列二'],
         ['A&B', '中\n文'],
       ]);
@@ -259,7 +259,7 @@ void main() {
           call('finish_deck', {'deck': deck}),
         ],
       );
-      expect(studio.activeDeck!.slides.single.table!.rows, [
+      expect(studio.activeDeck!.slides.single.allTables.first.rows, [
         ['保留'],
       ]);
       expect(

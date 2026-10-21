@@ -535,7 +535,7 @@ class _SlideCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final content = LayoutBuilder(
       builder: (context, constraints) {
-        if (slide.table != null) {
+        if (slide.allTables.isNotEmpty) {
           // A bounded canvas keeps the table's relative layout stable at
           // thumbnail and dialog size, including on a narrow phone.
           const width = 960.0;
@@ -661,15 +661,35 @@ class _SlideCard extends StatelessWidget {
       'right' => TextAlign.right,
       _ => TextAlign.left,
     };
-    return DecoratedBox(
+    final fill = element.fill == null ? null : _color(element.fill!);
+    final gradientEnd = element.fill2 == null
+        ? null
+        : _color(element.fill2!);
+    final box = DecoratedBox(
       decoration: BoxDecoration(
-        color: element.fill == null ? null : _color(element.fill!),
+        color: gradientEnd == null ? fill : null,
+        gradient: gradientEnd == null || fill == null
+            ? null
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [fill, gradientEnd],
+              ),
         border: element.border == null
             ? null
             : Border.all(color: _color(element.border!), width: borderWidth),
         borderRadius: BorderRadius.circular(
           element.radius * math.min(boxWidth, boxHeight),
         ),
+        boxShadow: element.shadow
+            ? [
+                BoxShadow(
+                  color: const Color(0x33000000),
+                  blurRadius: size * .6,
+                  offset: Offset(0, size * .12),
+                ),
+              ]
+            : null,
       ),
       child: Padding(
         padding: EdgeInsets.all(pad),
@@ -688,6 +708,7 @@ class _SlideCard extends StatelessWidget {
                 fontWeight: element.bold
                     ? FontWeight.w700
                     : FontWeight.w400,
+                letterSpacing: element.letterSpacing * scale,
                 color: _color(element.color),
               ),
             ),
@@ -695,6 +716,12 @@ class _SlideCard extends StatelessWidget {
         ),
       ),
     );
+    return element.rotation == 0
+        ? box
+        : Transform.rotate(
+            angle: element.rotation * math.pi / 180,
+            child: box,
+          );
   }
 
   Widget _imageElement(
@@ -748,7 +775,7 @@ class _SlideCard extends StatelessWidget {
   Widget _layout(BuildContext context, double width) {
     final scheme = Theme.of(context).colorScheme;
     final pad = (width * .055).clamp(10.0, 44.0);
-    final title = slide.table != null
+    final title = slide.allTables.isNotEmpty
         ? 40.0
         : large
         ? (width * .045).clamp(18.0, 40.0)
@@ -788,6 +815,32 @@ class _SlideCard extends StatelessWidget {
                 ),
                 SizedBox(height: pad * .35),
                 Expanded(child: _body(context, body)),
+                if (large && slide.notes.isNotEmpty) ...[
+                  SizedBox(height: pad * .35),
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: pad * .4,
+                      vertical: pad * .3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest.withValues(
+                        alpha: .7,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      slide.notes,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: body * .8,
+                        height: 1.35,
+                        color: _mutedInk(context),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -807,8 +860,8 @@ class _SlideCard extends StatelessWidget {
   }
 
   Widget _body(BuildContext context, double fontSize) {
-    final table = slide.table;
-    if (table == null) return _bullets(context, fontSize);
+    final tables = slide.allTables;
+    if (tables.isEmpty) return _bullets(context, fontSize);
     final hasBullets = slide.bullets.any((text) => text.trim().isNotEmpty);
     return LayoutBuilder(
       builder: (context, constraints) => Column(
@@ -821,7 +874,10 @@ class _SlideCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
           ],
-          Expanded(child: _table(context, table)),
+          for (var i = 0; i < tables.length; i++) ...[
+            if (i > 0) const SizedBox(height: 10),
+            Expanded(child: _table(context, tables[i])),
+          ],
         ],
       ),
     );
@@ -834,38 +890,47 @@ class _SlideCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final bullet in slide.bullets.where(
-            (text) => slide.table == null || text.trim().isNotEmpty,
-          ))
-            Padding(
-              padding: EdgeInsets.only(bottom: body * .55),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: EdgeInsets.only(top: body * .55, right: body * .7),
-                    child: Container(
-                      width: body * .3,
-                      height: body * .3,
-                      decoration: BoxDecoration(
-                        color: scheme.primary,
-                        shape: BoxShape.circle,
+          for (var i = 0; i < slide.bullets.length; i++)
+            if (slide.allTables.isEmpty || slide.bullets[i].trim().isNotEmpty)
+              Padding(
+                padding: EdgeInsets.only(
+                  bottom: body * .55,
+                  left: body *
+                      .9 *
+                      (i < slide.bulletLevels.length
+                          ? slide.bulletLevels[i]
+                          : 0),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.only(
+                        top: body * .55,
+                        right: body * .7,
+                      ),
+                      child: Container(
+                        width: body * .3,
+                        height: body * .3,
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          shape: BoxShape.circle,
+                        ),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      bullet,
-                      style: TextStyle(
-                        fontSize: body,
-                        height: 1.35,
-                        color: _mutedInk(context),
+                    Expanded(
+                      child: Text(
+                        slide.bullets[i],
+                        style: TextStyle(
+                          fontSize: body,
+                          height: 1.35,
+                          color: _mutedInk(context),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
         ],
       ),
     );

@@ -88,12 +88,18 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
     );
   }
 
+  final noted = [
+    for (var i = 0; i < deck.slides.length; i++)
+      if (deck.slides[i].notes.trim().isNotEmpty) i + 1,
+  ];
+
   final zip = _ZipBuilder()
     ..add(
       '[Content_Types].xml',
       _contentTypes(
         media.values.map((part) => part.image.mime).toSet(),
         slides.length,
+        notesSlides: noted,
       ),
     )
     ..add('_rels/.rels', _rootRels())
@@ -112,7 +118,14 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
         ),
       ]),
     )
-    ..add('ppt/theme/theme1.xml', _themeXml());
+    ..add('ppt/theme/theme1.xml', _themeXml())
+    ..add('ppt/notesMasters/notesMaster1.xml', _notesMasterXml())
+    ..add(
+      'ppt/notesMasters/_rels/notesMaster1.xml.rels',
+      _relationshipXml([
+        _Relationship('rId1', 'theme', '../theme/theme1.xml'),
+      ]),
+    );
 
   for (final slide in slides) {
     zip.add('ppt/slides/slide${slide.number}.xml', slide.xml);
@@ -130,6 +143,29 @@ Uint8List buildPptx(Deck deck, Map<String, PptxImage> images) {
             'image',
             '../media/image${slide.images[i].number}.${_extension(slide.images[i].image.mime)}',
           ),
+        if (deck.slides[slide.number - 1].notes.trim().isNotEmpty)
+          _Relationship(
+            'rId${slide.images.length + 2}',
+            'notesSlide',
+            '../notesSlides/notesSlide${slide.number}.xml',
+          ),
+      ]),
+    );
+  }
+  for (final number in noted) {
+    zip.add(
+      'ppt/notesSlides/notesSlide$number.xml',
+      _notesSlideXml(deck.slides[number - 1].notes),
+    );
+    zip.add(
+      'ppt/notesSlides/_rels/notesSlide$number.xml.rels',
+      _relationshipXml([
+        _Relationship('rId1', 'slide', '../slides/slide$number.xml'),
+        _Relationship(
+          'rId2',
+          'notesMaster',
+          '../notesMasters/notesMaster1.xml',
+        ),
       ]),
     );
   }
@@ -165,7 +201,11 @@ String _extension(String mime) => switch (mime) {
   _ => 'png',
 };
 
-String _contentTypes(Set<String> imageMimes, int slideCount) {
+String _contentTypes(
+  Set<String> imageMimes,
+  int slideCount, {
+  Iterable<int> notesSlides = const [],
+}) {
   final extensions = <String, String>{
     'rels': 'application/vnd.openxmlformats-package.relationships+xml',
     'xml': 'application/xml',
@@ -210,6 +250,17 @@ String _contentTypes(Set<String> imageMimes, int slideCount) {
       'ContentType="$presentation.slide+xml"/>',
     );
   }
+  buffer.write(
+    '<Override PartName="/ppt/notesMasters/notesMaster1.xml" '
+    'ContentType="$presentation.notesMaster+xml"/>',
+  );
+  if (notesSlides.isNotEmpty) {
+    buffer.write(
+      [for (final number in notesSlides)
+        '<Override PartName="/ppt/notesSlides/notesSlide$number.xml" '
+            'ContentType="$presentation.notesSlide+xml"/>'].join(),
+    );
+  }
   buffer.write('</Types>');
   return buffer.toString();
 }
@@ -226,7 +277,9 @@ String _presentationXml(int count, ({int width, int height}) size) {
     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
     'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">'
     '<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/>'
-    '</p:sldMasterIdLst>',
+    '</p:sldMasterIdLst>'
+    '<p:notesMasterIdLst><p:notesMasterId r:id="rId${count + 3}"/>'
+    '</p:notesMasterIdLst>',
   );
   if (count > 0) {
     buffer.write('<p:sldIdLst>');
@@ -248,6 +301,11 @@ String _presentationRels(int count) => _relationshipXml([
   _Relationship('rId2', 'theme', 'theme/theme1.xml'),
   for (var i = 0; i < count; i++)
     _Relationship('rId${i + 3}', 'slide', 'slides/slide${i + 1}.xml'),
+  _Relationship(
+    'rId${count + 3}',
+    'notesMaster',
+    'notesMasters/notesMaster1.xml',
+  ),
 ]);
 
 String _slideMasterXml() =>
@@ -393,11 +451,21 @@ String _slideXml(
     );
   }
   final bullets = [
-    for (final bullet in slide.bullets)
-      if (bullet.trim().isNotEmpty) bullet.trim(),
+    for (var i = 0; i < slide.bullets.length; i++)
+      if (slide.bullets[i].trim().isNotEmpty)
+        (
+          text: slide.bullets[i].trim(),
+          level: i < slide.bulletLevels.length
+              ? slide.bulletLevels[i]
+              : 0,
+        ),
   ];
-  final table = slide.table;
-  final bulletHeight = table == null ? bodyHeight : (bodyHeight * .35).round();
+  final tables = slide.allTables;
+  final bulletHeight = tables.isEmpty
+      ? bodyHeight
+      : tables.length == 1
+      ? (bodyHeight * .35).round()
+      : (bodyHeight * .3).round();
   if (bullets.isNotEmpty) {
     shapes.write(
       _textShape(
@@ -409,27 +477,39 @@ String _slideXml(
         cy: bulletHeight,
         paragraphs: [
           for (final bullet in bullets)
-            _bulletParagraph(bullet, bodySize, '3B3650'),
+            _bulletParagraph(
+              bullet.text,
+              bodySize,
+              '3B3650',
+              level: bullet.level,
+            ),
         ],
       ),
     );
   }
-  if (table != null) {
-    final tableGap = bullets.isEmpty ? 0 : (size.height * .025).round();
+  if (tables.isNotEmpty) {
+    final tableGap = bullets.isEmpty ? 0 : (size.height * .02).round();
     final tableTop = bullets.isEmpty
         ? bodyTop
         : bodyTop + bulletHeight + tableGap;
-    shapes.write(
-      _tableShape(
-        id: id++,
-        name: 'Table ${number - 1}',
-        table: table,
-        x: margin,
-        y: tableTop,
-        cx: textWidth,
-        cy: bodyTop + bodyHeight - tableTop,
-      ),
-    );
+    final parts = _equalParts(bodyTop + bodyHeight - tableTop, tables.length);
+    var top = tableTop;
+    for (var i = 0; i < tables.length; i++) {
+      shapes.write(
+        _tableShape(
+          id: id++,
+          name: tables.length == 1
+              ? 'Table ${number - 1}'
+              : 'Table ${number - 1}.${i + 1}',
+          table: tables[i],
+          x: margin,
+          y: top,
+          cx: textWidth,
+          cy: parts[i],
+        ),
+      );
+      top += parts[i];
+    }
   }
   final picture = hasImage ? image : null;
   if (picture != null) {
@@ -569,11 +649,13 @@ String _run(
   String color, {
   bool italic = false,
   String? font,
+  double spacing = 0,
 }) {
   final latin = _esc(font ?? 'Aptos');
   final eastAsian = _esc(font ?? 'Microsoft YaHei');
+  final tracking = spacing == 0 ? '' : ' spc="${(spacing * 100).round()}"';
   return '<a:rPr lang="zh-CN" sz="$size" b="${bold ? 1 : 0}" '
-      'i="${italic ? 1 : 0}" dirty="0">'
+      'i="${italic ? 1 : 0}"$tracking dirty="0">'
       '<a:solidFill><a:srgbClr val="$color"/></a:solidFill>'
       '<a:latin typeface="$latin"/><a:ea typeface="$eastAsian"/>'
       '</a:rPr><a:t>${_esc(text)}</a:t>';
@@ -730,11 +812,18 @@ String _tableShape({
   return buffer.toString();
 }
 
-String _bulletParagraph(String text, int size, String color) =>
-    '<a:p><a:pPr marL="342900" indent="-342900">'
-    '<a:lnSpc><a:spcPct val="115000"/></a:lnSpc>'
-    '<a:buFont typeface="Arial"/><a:buChar char="•"/></a:pPr>'
-    '<a:r>${_run(text, size, false, color)}</a:r></a:p>';
+String _bulletParagraph(
+  String text,
+  int size,
+  String color, {
+  int level = 0,
+}) {
+  final indent = 342900 + level * 342900;
+  return '<a:p><a:pPr marL="$indent" indent="-342900" lvl="$level">'
+      '<a:lnSpc><a:spcPct val="115000"/></a:lnSpc>'
+      '<a:buFont typeface="Arial"/><a:buChar char="•"/></a:pPr>'
+      '<a:r>${_run(text, size, false, color)}</a:r></a:p>';
+}
 
 String _scrimShape(int id, ({int width, int height}) size) =>
     '<p:sp>'
@@ -810,7 +899,20 @@ String _elementTextShape({
   final spacing = (element.lineSpacing * 100000).round();
   final fill = element.fill == null
       ? '<a:noFill/>'
-      : '<a:solidFill><a:srgbClr val="${element.fill}"/></a:solidFill>';
+      : element.fill2 == null
+      ? '<a:solidFill><a:srgbClr val="${element.fill}"/></a:solidFill>'
+      : '<a:gradFill rotWithShape="1"><a:gsLst>'
+            '<a:gs pos="0"><a:srgbClr val="${element.fill}"/></a:gs>'
+            '<a:gs pos="100000"><a:srgbClr val="${element.fill2}"/></a:gs>'
+            '</a:gsLst><a:lin ang="2700000" scaled="0"/></a:gradFill>';
+  final shadow = element.shadow
+      ? '<a:effectLst><a:outerShdw blurRad="63500" dist="25400" '
+            'dir="5400000" rotWithShape="0"><a:srgbClr val="000000">'
+            '<a:alpha val="24000"/></a:srgbClr></a:outerShdw></a:effectLst>'
+      : '';
+  final rotation = element.rotation == 0
+      ? ''
+      : ' rot="${(element.rotation * 60000).round()}"';
   final lines = element.text
       .replaceAll('\r\n', '\n')
       .replaceAll('\r', '\n')
@@ -818,15 +920,16 @@ String _elementTextShape({
   return '<p:sp>'
       '<p:nvSpPr><p:cNvPr id="$id" name="${_esc(name)}"/>'
       '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>'
-      '<p:spPr><a:xfrm><a:off x="$x" y="$y"/><a:ext cx="$cx" cy="$cy"/>'
-      '</a:xfrm>${_elementGeometry(element.radius)}$fill'
-      '${_elementLine(element.border)}</p:spPr>'
+      '<p:spPr><a:xfrm$rotation><a:off x="$x" y="$y"/>'
+      '<a:ext cx="$cx" cy="$cy"/></a:xfrm>'
+      '${_elementGeometry(element.radius)}$fill'
+      '${_elementLine(element.border)}$shadow</p:spPr>'
       '<p:txBody><a:bodyPr wrap="square" lIns="$horizontal" '
       'tIns="$vertical" rIns="$horizontal" bIns="$vertical" anchor="ctr">'
       '<a:normAutofit/></a:bodyPr><a:lstStyle/>'
       '${lines.map((line) => '<a:p><a:pPr algn="$align">'
           '<a:lnSpc><a:spcPct val="$spacing"/></a:lnSpc></a:pPr><a:r>'
-          '${_run(line, size, element.bold, element.color, italic: element.italic, font: element.font)}'
+          '${_run(line, size, element.bold, element.color, italic: element.italic, font: element.font, spacing: element.letterSpacing)}'
           '</a:r></a:p>').join()}'
       '</p:txBody></p:sp>';
 }
@@ -895,6 +998,54 @@ String _elementPictureShape({
   return imageAspect > boxAspect
       ? (l: cut, t: 0, r: cut, b: 0)
       : (l: 0, t: cut, r: 0, b: cut);
+}
+
+String _notesMasterXml() =>
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<p:notesMaster '
+    'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+    'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">'
+    '<p:cSld>${_emptyTree()}</p:cSld>'
+    '<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" '
+    'accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" '
+    'accent6="accent6" hlink="hlink" folHlink="folHlink"/>'
+    '<p:notesStyle><a:lvl1pPr><a:defRPr sz="1200"/></a:lvl1pPr>'
+    '</p:notesStyle></p:notesMaster>';
+
+/// The notes page PowerPoint shows below the slide: the text is a real
+/// placeholder, editable in the app the user opens the export with.
+String _notesSlideXml(String notes) {
+  final paragraphs = notes
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .split('\n')
+      .map(
+        (line) =>
+            '<a:p><a:r><a:rPr lang="zh-CN" sz="1200" dirty="0"/>'
+            '<a:t>${_esc(line)}</a:t></a:r></a:p>',
+      )
+      .join();
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      '<p:notes '
+      'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+      'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">'
+      '<p:cSld><p:spTree>'
+      '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/>'
+      '</p:nvGrpSpPr>'
+      '<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/>'
+      '<a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>'
+      '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Slide Image Placeholder"/>'
+      '<p:cNvSpPr><a:spLocks noGrp="1" noRot="1" noChangeAspect="1"/>'
+      '</p:cNvSpPr><p:nvPr><p:ph type="sldImg"/></p:nvPr></p:nvSpPr>'
+      '<p:spPr/></p:sp>'
+      '<p:sp><p:nvSpPr><p:cNvPr id="3" name="Notes Placeholder"/>'
+      '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>'
+      '<p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>'
+      '<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>$paragraphs</p:txBody>'
+      '</p:sp></p:spTree></p:cSld>'
+      '<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:notes>';
 }
 
 class _Relationship {

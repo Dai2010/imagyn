@@ -143,8 +143,10 @@ const deckAgentPrompt =
 const tableAgentPrompt =
     '$deckAgentPrompt '
     'For tables call add_table after add_slide with the zero-based index, rectangular '
-    'string rows and header_row: cells stay editable. One table per page; a second '
-    'call replaces it. Split large tables across pages.';
+    'string rows and header_row: cells stay editable. A page holds up to two tables, '
+    'stacked in call order; table_index -1 appends, 0 or 1 replaces that table. '
+    'Split large tables across pages. bullet_levels on add_slide/update_slide indents '
+    'sub-points (0-2). set_notes writes speaker notes that never appear on the slide.';
 
 /// Shipped with the app and never edited by the user: it only explains the
 /// tools. A build that adds a tool adds its instructions here, so the model
@@ -157,8 +159,10 @@ const builtInAgentPrompt =
     'add_text and add_image place styled, editable elements at fractional page '
     'coordinates (x, y, width, height in 0..1), so one page can carry several '
     'pictures, captions and decoration. Pages are near-white: default to dark '
-    'text unless you set a fill. remove_element deletes one element by the id '
-    'the tool returned. '
+    'text unless you set a fill. For a designed text box combine fill with fill2 '
+    '(gradient), border, radius, shadow and rotation (degrees); widen short '
+    'display words with letter_spacing and keep body text plain so it stays '
+    'readable. remove_element deletes one element by the id the tool returned. '
     'For a public link or page call fetch_url with an absolute URL: it returns '
     'readable text and refuses private addresses. Do not repeat a failed fetch; '
     'say what went wrong. A user message may carry <file name="…"> blocks: '
@@ -647,8 +651,12 @@ class SlideElement {
     bool italic = false,
     String align = 'left',
     String? fill,
+    String? fill2,
     String? border,
     double radius = 0,
+    bool shadow = false,
+    double rotation = 0,
+    double letterSpacing = 0,
     String fit = 'cover',
     String? font,
     double? padding,
@@ -661,6 +669,7 @@ class SlideElement {
         : (value.startsWith('#') ? value.substring(1) : value);
     final ink = rgb(color);
     final fillRgb = rgb(fill);
+    final gradientRgb = rgb(fill2);
     final borderRgb = rgb(border);
     final family = font?.trim();
     if (id.isEmpty ||
@@ -697,6 +706,13 @@ class SlideElement {
         !fitValues.contains(fit) ||
         !_isHexColor(ink!) ||
         (fillRgb != null && !_isHexColor(fillRgb)) ||
+        (gradientRgb != null && !_isHexColor(gradientRgb)) ||
+        !rotation.isFinite ||
+        rotation < -45 ||
+        rotation > 45 ||
+        !letterSpacing.isFinite ||
+        letterSpacing < -2 ||
+        letterSpacing > 20 ||
         (borderRgb != null && !_isHexColor(borderRgb))) {
       throw const FormatException('invalidSlideElement');
     }
@@ -715,8 +731,12 @@ class SlideElement {
       italic: italic,
       align: align,
       fill: fillRgb?.toUpperCase(),
+      fill2: gradientRgb?.toUpperCase(),
       border: borderRgb?.toUpperCase(),
       radius: radius,
+      shadow: shadow,
+      rotation: rotation,
+      letterSpacing: letterSpacing,
       fit: fit,
       font: family == null || family.isEmpty ? null : family,
       padding: padding,
@@ -739,8 +759,12 @@ class SlideElement {
     required this.italic,
     required this.align,
     required this.fill,
+    required this.fill2,
     required this.border,
     required this.radius,
+    required this.shadow,
+    required this.rotation,
+    required this.letterSpacing,
     required this.fit,
     required this.font,
     required this.padding,
@@ -772,10 +796,22 @@ class SlideElement {
 
   /// `RRGGBB` or null for no fill; a text box's background and outline.
   final String? fill;
+
+  /// Second gradient stop, top-left to bottom-right. Null keeps [fill] solid.
+  final String? fill2;
   final String? border;
 
   /// Corner curve as a fraction of the shorter side, 0..0.5.
   final double radius;
+
+  /// A soft drop shadow, for cards and callouts that should lift off the page.
+  final bool shadow;
+
+  /// Degrees, -45..45. Used for tilted labels and poster-like headings.
+  final double rotation;
+
+  /// Extra space between characters in points, -2..20.
+  final double letterSpacing;
 
   /// How a picture fills its box: `cover` crops, `contain` letterboxes.
   final String fit;
@@ -788,6 +824,34 @@ class SlideElement {
 
   /// Paragraph line height as a multiple of the font size.
   final double lineSpacing;
+
+  /// Replaces the asset id after an import has saved the picture bytes.
+  SlideElement withImage(String imageId) => SlideElement._(
+    id: id,
+    kind: kind,
+    x: x,
+    y: y,
+    width: width,
+    height: height,
+    text: text,
+    imageId: imageId,
+    fontSize: fontSize,
+    color: color,
+    bold: bold,
+    italic: italic,
+    align: align,
+    fill: fill,
+    fill2: fill2,
+    border: border,
+    radius: radius,
+    shadow: shadow,
+    rotation: rotation,
+    letterSpacing: letterSpacing,
+    fit: fit,
+    font: font,
+    padding: padding,
+    lineSpacing: lineSpacing,
+  );
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -804,8 +868,12 @@ class SlideElement {
     'italic': italic,
     'align': align,
     if (fill != null) 'fill': fill,
+    if (fill2 != null) 'fill2': fill2,
     if (border != null) 'border': border,
     'radius': radius,
+    if (shadow) 'shadow': true,
+    if (rotation != 0) 'rotation': rotation,
+    if (letterSpacing != 0) 'letterSpacing': letterSpacing,
     'fit': fit,
     if (font != null) 'font': font,
     if (padding != null) 'padding': padding,
@@ -829,8 +897,12 @@ class SlideElement {
     italic: j['italic'] == true,
     align: j['align'] as String? ?? 'left',
     fill: j['fill'] as String?,
+    fill2: j['fill2'] as String?,
     border: j['border'] as String?,
     radius: (j['radius'] as num? ?? 0).toDouble(),
+    shadow: j['shadow'] == true,
+    rotation: (j['rotation'] as num? ?? 0).toDouble(),
+    letterSpacing: (j['letterSpacing'] as num? ?? 0).toDouble(),
     fit: j['fit'] as String? ?? 'cover',
     font: j['font'] as String?,
     padding: (j['padding'] as num?)?.toDouble(),
@@ -843,14 +915,25 @@ class Slide {
   const Slide({
     this.title = '',
     this.bullets = const [],
+    this.bulletLevels = const [],
+    this.notes = '',
     this.imageId,
     this.backgroundImageId,
     this.backgroundColor,
+    this.tables = const [],
     this.table,
     this.elements = const [],
   });
   final String title;
   final List<String> bullets;
+
+  /// Indent level per bullet, 0 (top) to 2. Shorter than [bullets] means the
+  /// remaining lines sit at the top level.
+  final List<int> bulletLevels;
+
+  /// Speaker notes: shown in the workspace and written to the notes pages of
+  /// the exported .pptx, never drawn on the slide itself.
+  final String notes;
   final String? imageId;
 
   /// A picture behind the whole page. Null inherits the deck background; an
@@ -860,7 +943,19 @@ class Slide {
   /// A solid `RRGGBB` behind the page, used when no picture is resolved.
   /// Null inherits the deck colour; an empty string means none.
   final String? backgroundColor;
+
+  /// Native tables, stacked in order below the bullets. Two at most: a third
+  /// would leave each too small to read on a phone.
+  final List<SlideTable> tables;
+
+  /// The single table older builds stored. Kept so their call sites and JSON
+  /// keep working; [allTables] is what the app reads.
   final SlideTable? table;
+
+  List<SlideTable> get allTables =>
+      table == null ? tables : [table!, ...tables];
+  static const maxTables = 2;
+  static const maxNotesLength = 2000;
 
   /// Shapes layered on top of the title/bullets slots. Empty on a page built
   /// only with the standard layout.
@@ -868,22 +963,31 @@ class Slide {
   Map<String, dynamic> toJson() => {
     'title': title,
     'bullets': bullets,
+    if (bulletLevels.any((level) => level != 0)) 'bulletLevels': bulletLevels,
+    if (notes.isNotEmpty) 'notes': notes,
     if (imageId != null) 'imageId': imageId,
     if (backgroundImageId != null) 'backgroundImageId': backgroundImageId,
     if (backgroundColor != null) 'backgroundColor': backgroundColor,
-    if (table != null) 'table': table!.toJson(),
+    if (allTables.isNotEmpty)
+      'tables': [for (final table in allTables) table.toJson()],
     if (elements.isNotEmpty)
       'elements': [for (final element in elements) element.toJson()],
   };
   factory Slide.fromJson(Map<String, dynamic> j) => Slide(
     title: j['title'] as String? ?? '',
     bullets: List<String>.from(j['bullets'] as List? ?? []),
+    bulletLevels: List<int>.from(j['bulletLevels'] as List? ?? []),
+    notes: j['notes'] as String? ?? '',
     imageId: j['imageId'] as String?,
     backgroundImageId: j['backgroundImageId'] as String?,
     backgroundColor: j['backgroundColor'] as String?,
-    table: j['table'] == null
-        ? null
-        : SlideTable.fromJson(Map<String, dynamic>.from(j['table'] as Map)),
+    // Builds before 0.2.2 stored one table under `table`.
+    tables: [
+      for (final table in j['tables'] as List? ?? [
+        if (j['table'] != null) j['table'],
+      ])
+        SlideTable.fromJson(Map<String, dynamic>.from(table as Map)),
+    ],
     elements: [
       for (final element in j['elements'] as List? ?? [])
         SlideElement.fromJson(Map<String, dynamic>.from(element as Map)),
@@ -1057,6 +1161,13 @@ const addSlideTool = {
         'type': 'array',
         'items': {'type': 'string'},
       },
+      'bullet_levels': {
+        'type': 'array',
+        'items': {'type': 'integer', 'minimum': 0, 'maximum': 2},
+        'description':
+            'One indent level per bullet: 0 top, 1 sub-point, 2 detail. '
+            'Missing entries are 0.',
+      },
       'image_id': {
         'type': 'string',
         'description':
@@ -1083,8 +1194,15 @@ const updateSlideTool = {
         'type': 'array',
         'items': {'type': 'string'},
       },
+      'bullet_levels': {
+        'type': 'array',
+        'items': {'type': 'integer', 'minimum': 0, 'maximum': 2},
+        'description':
+            'One indent level per bullet: 0 top, 1 sub-point, 2 detail. '
+            'Missing entries are 0.',
+      },
     },
-    'required': ['deck', 'index', 'title', 'bullets'],
+    'required': ['deck', 'index', 'title', 'bullets', 'bullet_levels'],
     'additionalProperties': false,
   },
 };
@@ -1124,15 +1242,22 @@ const removeSlideTool = {
 const addTableTool = {
   'name': 'add_table',
   'description':
-      'Add or replace the editable text table on an existing slide. Each slide '
-      'holds one table. Use 1-12 rectangular rows with 1-8 columns and at most '
-      '500 characters per cell. Keep text concise; split dense data across '
-      'slides. Set header_row to style the first row as a heading.',
+      'Add or replace an editable text table on a slide. Use 1-12 '
+      'rectangular rows with 1-8 columns and at most 500 characters per cell. '
+      'A page holds up to two tables, stacked in call order; they share the '
+      'space below the bullets, so keep both small. Set header_row to style '
+      'the first row as a heading.',
   'parameters': {
     'type': 'object',
     'properties': {
       'deck': {'type': 'string'},
       'index': {'type': 'integer', 'description': 'Zero-based slide index.'},
+      'table_index': {
+        'type': 'integer',
+        'description':
+            '-1 appends a new table (zero, one or two). 0 or 1 replaces that '
+            'existing table instead.',
+      },
       'rows': {
         'type': 'array',
         'minItems': 1,
@@ -1146,7 +1271,25 @@ const addTableTool = {
       },
       'header_row': {'type': 'boolean'},
     },
-    'required': ['deck', 'index', 'rows', 'header_row'],
+    'required': ['deck', 'index', 'table_index', 'rows', 'header_row'],
+    'additionalProperties': false,
+  },
+};
+
+const setNotesTool = {
+  'name': 'set_notes',
+  'description':
+      'Set the speaker notes of one slide. Notes are saved in the .pptx notes '
+      'page and shown under the page in the workspace; they never appear on '
+      'the slide itself. Pass an empty string to clear them.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'deck': {'type': 'string'},
+      'index': {'type': 'integer', 'description': 'Zero-based slide index.'},
+      'notes': {'type': 'string', 'maxLength': Slide.maxNotesLength},
+    },
+    'required': ['deck', 'index', 'notes'],
     'additionalProperties': false,
   },
 };
@@ -1245,8 +1388,28 @@ const addTextTool = {
         'description': 'Line height as a multiple of the font size, 0.7-3.',
       },
       'fill': {'type': 'string'},
+      'fill2': {
+        'type': 'string',
+        'description':
+            'Second gradient stop (RRGGBB). Set together with fill for a '
+            'top-left to bottom-right gradient; empty keeps fill solid.',
+      },
       'border': {'type': 'string'},
       'radius': {'type': 'number'},
+      'shadow': {
+        'type': 'boolean',
+        'description': 'Soft drop shadow, for cards and callouts.',
+      },
+      'rotation': {
+        'type': 'number',
+        'description': 'Tilt in degrees, -45 to 45. Use sparingly.',
+      },
+      'letter_spacing': {
+        'type': 'number',
+        'description':
+            'Extra space between characters in points, -2 to 20; widen short '
+            'display words, leave body text at 0.',
+      },
     },
     'required': [
       'deck',
@@ -1265,8 +1428,12 @@ const addTextTool = {
       'padding',
       'line_spacing',
       'fill',
+      'fill2',
       'border',
       'radius',
+      'shadow',
+      'rotation',
+      'letter_spacing',
     ],
     'additionalProperties': false,
   },
@@ -1296,8 +1463,17 @@ const updateTextTool = {
       'padding': {'type': 'number'},
       'line_spacing': {'type': 'number'},
       'fill': {'type': 'string'},
+      'fill2': {
+        'type': 'string',
+        'description':
+            'Second gradient stop (RRGGBB). Set together with fill for a '
+            'top-left to bottom-right gradient; empty keeps fill solid.',
+      },
       'border': {'type': 'string'},
       'radius': {'type': 'number'},
+      'shadow': {'type': 'boolean'},
+      'rotation': {'type': 'number'},
+      'letter_spacing': {'type': 'number'},
     },
     'required': [
       'deck',
@@ -1313,8 +1489,12 @@ const updateTextTool = {
       'padding',
       'line_spacing',
       'fill',
+      'fill2',
       'border',
       'radius',
+      'shadow',
+      'rotation',
+      'letter_spacing',
     ],
     'additionalProperties': false,
   },
@@ -1438,6 +1618,7 @@ const agentTools = [
   setBackgroundTool,
   updateSlideTool,
   moveSlideTool,
+  setNotesTool,
   removeElementTool,
   removeSlideTool,
   finishDeckTool,
