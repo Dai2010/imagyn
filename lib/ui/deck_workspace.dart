@@ -893,7 +893,7 @@ class _SlideCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
-            Expanded(child: _chart(context, chart!)),
+            Expanded(child: _chart(context, chart)),
           ] else if (tables.isNotEmpty) ...[
             for (var i = 0; i < tables.length; i++) ...[
               if (i > 0) const SizedBox(height: 10),
