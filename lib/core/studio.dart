@@ -1549,9 +1549,10 @@ class Studio extends ChangeNotifier {
       return 'Unknown tool "${call.name}": this build has no such tool.';
     }
     final parsed = validateToolCall(call.arguments);
-    final jobOptions = parsed.aspectRatio == null
-        ? options
-        : options.copyWith(size: sizePresets[parsed.aspectRatio]!);
+    final jobOptions = options.copyWith(
+      size: parsed.aspectRatio == null ? null : sizePresets[parsed.aspectRatio]!,
+      quality: parsed.quality,
+    );
     stage = 'working';
     notifyListeners();
     final id = store.newId();

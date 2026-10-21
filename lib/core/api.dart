@@ -1233,9 +1233,9 @@ AgentReply parseAgentReply(
   );
 }
 
-/// A validated `generate_image` call: the prompt the image service receives and
-/// the ratio the model chose for it, if any.
-typedef ToolCall = ({String prompt, String? aspectRatio});
+/// A validated `generate_image` call: the prompt the image service receives,
+/// the ratio and the quality the model chose for it, if any.
+typedef ToolCall = ({String prompt, String? aspectRatio, String? quality});
 
 ToolCall validateToolCall(Object? input) {
   if (input is! Map || input['prompt'] is! String) {
@@ -1246,11 +1246,22 @@ ToolCall validateToolCall(Object? input) {
     throw const FormatException('invalidTool');
   }
   final ratio = input['aspect_ratio'];
-  if (ratio == null) return (prompt: prompt, aspectRatio: null);
-  if (ratio is! String || (ratio != 'auto' && !sizePresets.containsKey(ratio))) {
+  if (ratio != null &&
+      (ratio is! String || (ratio != 'auto' && !sizePresets.containsKey(ratio)))) {
     throw const FormatException('invalidTool');
   }
-  return (prompt: prompt, aspectRatio: ratio == 'auto' ? null : ratio);
+  final quality = input['quality'];
+  if (quality != null &&
+      (quality is! String ||
+          (quality != 'auto' &&
+              !['low', 'medium', 'high'].contains(quality)))) {
+    throw const FormatException('invalidTool');
+  }
+  return (
+    prompt: prompt,
+    aspectRatio: ratio == null || ratio == 'auto' ? null : ratio,
+    quality: quality == null || quality == 'auto' ? null : quality,
+  );
 }
 
 /// The parts of an Agent turn that are the same whether it is streamed or not:

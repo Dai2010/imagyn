@@ -210,7 +210,7 @@ void main() {
     test('trims and accepts a usable prompt', () {
       expect(
         validateToolCall({'prompt': '  a cat  '}),
-        (prompt: 'a cat', aspectRatio: null),
+        (prompt: 'a cat', aspectRatio: null, quality: null),
       );
     });
 
@@ -223,6 +223,27 @@ void main() {
         validateToolCall({'prompt': 'a cat', 'aspect_ratio': 'auto'}).aspectRatio,
         isNull,
       );
+    });
+
+    test('keeps a known quality and reads auto as no choice', () {
+      expect(
+        validateToolCall({'prompt': 'a cat', 'quality': 'high'}).quality,
+        'high',
+      );
+      expect(
+        validateToolCall({'prompt': 'a cat', 'quality': 'auto'}).quality,
+        isNull,
+      );
+      expect(validateToolCall({'prompt': 'a cat'}).quality, isNull);
+    });
+
+    test('rejects a quality the app cannot send', () {
+      expect(
+        () => validateToolCall({'prompt': 'a cat', 'quality': 'ultra'}),
+        throwsA(_formatError('invalidTool')),
+      );
+      expect(() => validateToolCall({'prompt': 'a cat', 'quality': 2}),
+          throwsA(_formatError('invalidTool')));
     });
 
     test('rejects a missing, empty or oversized prompt', () {
