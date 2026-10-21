@@ -144,16 +144,33 @@ abstract final class DocumentImport {
     return String.fromCharCodes(units);
   }
 
+  /// Text inside one paragraph, in document order. A run carries text, while a
+  /// break or a tab sits between runs; extracting runs alone would drop them.
+  static String _paragraph(String xml, String run) {
+    final pattern = RegExp(
+      '<$run[^>]*>(.*?)</$run>|<w:br[^>]*/>|<w:tab/>|<a:br[^>]*/>',
+      dotAll: true,
+    );
+    final buffer = StringBuffer();
+    for (final match in pattern.allMatches(xml)) {
+      final text = match.group(1);
+      if (text != null) {
+        buffer.write(_unescape(text));
+      } else if (match.group(0)!.startsWith('<w:tab')) {
+        buffer.write('\t');
+      } else {
+        buffer.write('\n');
+      }
+    }
+    return buffer.toString();
+  }
+
   static String _docx(Uint8List bytes) {
     final files = _unzip(bytes);
     final xml = _xmlOf(files['word/document.xml']);
     final buffer = StringBuffer();
     for (final paragraph in xml.split('</w:p>')) {
-      final body = paragraph
-          .replaceAll('<w:tab/>', '\t')
-          .replaceAll(RegExp(r'<w:br[^>]*/>'), '\n');
-      final text = _runs(body, 'w:t').join();
-      buffer.writeln(text);
+      buffer.writeln(_paragraph(paragraph, 'w:t'));
     }
     return buffer.toString();
   }
@@ -170,7 +187,7 @@ abstract final class DocumentImport {
       buffer.writeln('[slide ${_number(key)}]');
       final xml = _xmlOf(files[key]);
       for (final paragraph in xml.split('</a:p>')) {
-        final text = _runs(paragraph, 'a:t').join();
+        final text = _paragraph(paragraph, 'a:t');
         if (text.trim().isNotEmpty) buffer.writeln(text);
       }
       buffer.writeln();
