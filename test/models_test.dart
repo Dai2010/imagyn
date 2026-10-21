@@ -132,17 +132,21 @@ void main() {
     expect(AgentOptions.fromJson(const {}).systemPrompt, defaultAgentPrompt);
   });
 
-  test('the image tool asks for a prompt and one of the offered ratios', () {
+  test('the image tool asks for a prompt, a ratio and a quality', () {
     final parameters = imageTool['parameters'] as Map;
     final properties = parameters['properties'] as Map;
     expect(imageTool['name'], 'generate_image');
-    expect(properties.keys, ['prompt', 'aspect_ratio']);
+    expect(properties.keys, ['prompt', 'aspect_ratio', 'quality']);
     // OpenAI strict tools require every property to be listed as required.
-    expect(parameters['required'], ['prompt', 'aspect_ratio']);
+    expect(parameters['required'], ['prompt', 'aspect_ratio', 'quality']);
     expect(parameters['additionalProperties'], isFalse);
     expect(
       ((properties['aspect_ratio'] as Map)['enum'] as List).toSet(),
       {'auto', ...sizePresets.keys},
+    );
+    expect(
+      ((properties['quality'] as Map)['enum'] as List).toSet(),
+      {'auto', 'low', 'medium', 'high'},
     );
   });
 }
