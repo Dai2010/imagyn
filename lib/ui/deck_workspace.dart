@@ -211,8 +211,9 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
   /// immutable per slide object. Streaming a reply notifies this page many
   /// times a second; without this guard each of those would rebuild every page.
   String _signal() =>
-      '${[for (final item in _items) '${item.key}:${item.slide.backgroundImageId ?? ''}:${Object.hashAll(item.slide.elements)}'].join(',')}'
-      '|${deck.backgroundImageId ?? ''}|$_placeholderVisible|'
+      '${[for (final item in _items) '${item.key}:${item.slide.backgroundImageId ?? ''}:${item.slide.backgroundColor ?? ''}:${Object.hashAll(item.slide.elements)}'].join(',')}'
+      '|${deck.backgroundImageId ?? ''}|${deck.backgroundColor ?? ''}|'
+      '$_placeholderVisible|'
       '${deck.finished}|${studio.busy}|${studio.runningTool}|'
       '${studio.activeDeck?.id}';
 
@@ -294,6 +295,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
                       ? null
                       : _asset(slide.imageId!),
                   background: _background(slide),
+                  backgroundColor: deck.backgroundColorFor(slide),
                   large: true,
                   studio: studio,
                   points: _points,
@@ -352,6 +354,9 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
                                 ? null
                                 : _asset(item.slide.imageId!),
                             background: _background(item.slide),
+                            backgroundColor: deck.backgroundColorFor(
+                              item.slide,
+                            ),
                             studio: studio,
                             points: _points,
                           ),
@@ -474,6 +479,7 @@ class _DeckWorkspaceState extends State<DeckWorkspace> {
                   ? null
                   : _asset(item.slide.imageId!),
               background: _background(item.slide),
+              backgroundColor: deck.backgroundColorFor(item.slide),
               studio: studio,
               points: _points,
             ),
@@ -501,12 +507,16 @@ class _SlideCard extends StatelessWidget {
     required this.studio,
     required this.points,
     this.background,
+    this.backgroundColor,
     this.large = false,
   });
   final Slide slide;
   final int number;
   final Future<Asset?>? asset;
   final Future<Asset?>? background;
+
+  /// Solid page colour, used only when no background picture resolves.
+  final String? backgroundColor;
   final Studio studio;
 
   /// The page width in points, 960 for 16:9 and 720 for 4:3. Element font
@@ -547,7 +557,11 @@ class _SlideCard extends StatelessWidget {
       },
     );
     return Material(
-      color: _freeForm ? const Color(0xFFFBFAFE) : scheme.surfaceContainerLow,
+      color: background == null && backgroundColor != null
+          ? _color(backgroundColor!)
+          : _freeForm
+          ? const Color(0xFFFBFAFE)
+          : scheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(16),
       clipBehavior: Clip.antiAlias,
       child: background == null
@@ -638,6 +652,10 @@ class _SlideCard extends StatelessWidget {
     final boxWidth = element.width * width;
     final boxHeight = element.height * height;
     final size = element.fontSize * width / points;
+    final scale = width / points;
+    final pad = element.padding == null
+        ? math.max(2, size * .25)
+        : element.padding! * scale;
     final align = switch (element.align) {
       'center' => TextAlign.center,
       'right' => TextAlign.right,
@@ -654,7 +672,7 @@ class _SlideCard extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: EdgeInsets.all(math.max(2, size * .25)),
+        padding: EdgeInsets.all(pad),
         child: Align(
           alignment: Alignment.center,
           child: SizedBox(
@@ -664,7 +682,9 @@ class _SlideCard extends StatelessWidget {
               textAlign: align,
               style: TextStyle(
                 fontSize: size,
-                height: 1.2,
+                height: element.lineSpacing,
+                fontFamily: element.font,
+                fontStyle: element.italic ? FontStyle.italic : null,
                 fontWeight: element.bold
                     ? FontWeight.w700
                     : FontWeight.w400,

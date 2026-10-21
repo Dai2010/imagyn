@@ -222,6 +222,91 @@ void main() {
     );
   });
 
+  test('a styled text box keeps its typeface and spacing in the export', () {
+    final deck = Deck(
+      id: 'deck',
+      title: '样式',
+      backgroundColor: '102030',
+      slides: [
+        Slide(
+          elements: [
+            SlideElement(
+              id: 'e1',
+              kind: SlideElementKind.text,
+              text: '卡片',
+              x: .1,
+              y: .1,
+              width: .4,
+              height: .2,
+              fontSize: 24,
+              font: 'Georgia',
+              italic: true,
+              padding: 6,
+              lineSpacing: 1.4,
+              fill: 'FFFFFF',
+              border: 'DDDDDD',
+              radius: .2,
+            ),
+          ],
+        ),
+      ],
+    );
+    final files = unzipPptx(buildPptx(deck, {}));
+    final slide = utf8.decode(files['ppt/slides/slide1.xml']!);
+    expect(slide, contains('<a:srgbClr val="102030"/>'));
+    expect(slide, contains('typeface="Georgia"'));
+    expect(slide, contains('i="1"'));
+    expect(slide, contains('lIns="76200"'));
+    expect(slide, contains('<a:spcPct val="140000"/>'));
+  });
+
+  test('a page colour inherits from the deck and can be overridden', () {
+    final deck = Deck(
+      id: 'deck',
+      title: '颜色',
+      backgroundColor: '112233',
+      slides: const [
+        Slide(),
+        Slide(backgroundColor: '445566'),
+        Slide(backgroundColor: ''),
+      ],
+    );
+    expect(deck.backgroundColorFor(deck.slides[0]), '112233');
+    expect(deck.backgroundColorFor(deck.slides[1]), '445566');
+    expect(deck.backgroundColorFor(deck.slides[2]), isNull);
+  });
+
+  test('a text box rejects an unusable typeface, padding or spacing', () {
+    SlideElement build({
+      String? font,
+      double? padding,
+      double lineSpacing = 1.15,
+    }) => SlideElement(
+      id: 'e1',
+      kind: SlideElementKind.text,
+      text: '标签',
+      x: .1,
+      y: .1,
+      width: .3,
+      height: .1,
+      fontSize: 18,
+      font: font,
+      padding: padding,
+      lineSpacing: lineSpacing,
+    );
+    expect(() => build(font: 'x' * 65), throwsFormatException);
+    expect(() => build(padding: 100), throwsFormatException);
+    expect(() => build(lineSpacing: .5), throwsFormatException);
+    expect(build(font: '  ').font, isNull);
+  });
+
+  test('the new document tools are offered to the model', () {
+    expect(
+      agentTools.map((tool) => tool['name']),
+      containsAll(['update_text', 'move_slide']),
+    );
+  });
+
   test('the built-in prompt and tool list describe the element tools', () {
     expect(builtInAgentPrompt, contains('add_text'));
     expect(builtInAgentPrompt, contains('add_image'));
