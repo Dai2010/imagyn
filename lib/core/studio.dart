@@ -21,6 +21,7 @@ import 'share.dart';
 import 'store.dart';
 import 'styles.dart';
 import 'tokens.dart';
+import 'video.dart';
 import 'webfetch.dart';
 
 class Studio extends ChangeNotifier {
@@ -59,6 +60,14 @@ class Studio extends ChangeNotifier {
   List<ImageJob> jobs = [];
   Set<String> favorites = {};
   ImageOptions imageOptions = const ImageOptions();
+
+  /// Video settings: the model id, the endpoint path it is asked at, and the
+  /// parameters the next clip is submitted with. Kept next to the image
+  /// options so both live in the same saved settings.
+  VideoOptions videoOptions = const VideoOptions();
+  String videoModel = videoModels.first.id;
+  String videoPath = 'videos';
+  List<Asset> videos = [];
 
   /// Style packs the user wrote, in the order they were added.
   List<ImageStyle> customStyles = const [];
@@ -189,6 +198,12 @@ class Studio extends ChangeNotifier {
     // The style used to be an option here; `/style` now writes the words into
     // the prompt, so a value saved by an older build would append them twice.
     imageOptions = imageOptions.copyWith(style: '');
+    videoOptions = VideoOptions.fromJson(
+      jsonDecode(await store.setting('videoOptions') ?? '{}')
+          as Map<String, dynamic>,
+    );
+    videoModel = await store.setting('videoModel') ?? videoModels.first.id;
+    videoPath = await store.setting('videoPath') ?? 'videos';
     await _loadConversationSettings();
     await _loadDecks();
     await refresh();
@@ -198,10 +213,117 @@ class Studio extends ChangeNotifier {
   }
 
   Future<void> refresh() async {
-    gallery = (await store.assets()).where((a) => a.prompt.isNotEmpty).toList();
+    final assets = await store.assets();
+    gallery = assets
+        .where((a) => a.prompt.isNotEmpty && a.mime.startsWith('image/'))
+        .toList();
+    videos = assets.where((a) => a.mime.startsWith('video/')).toList();
     chat = await store.messages(session);
-    jobs = await store.jobs();
+    // Video rows keep their place in the database, but the unfinished-jobs
+    // list belongs to the image path: retrying a clip with image options would
+    // resubmit it to the wrong endpoint.
+    jobs = (await store.jobs())
+        .where((job) => job.record['kind'] != 'video')
+        .toList();
     notifyListeners();
+  }
+
+  Future<void> setVideoOptions(VideoOptions value) async {
+    value.validate();
+    videoOptions = value;
+    await store.setSetting('videoOptions', jsonEncode(value.toJson()));
+    notifyListeners();
+  }
+
+  Future<void> setVideoModel(String value) async {
+    videoModel = value.trim();
+    await store.setSetting('videoModel', videoModel);
+    notifyListeners();
+  }
+
+  Future<void> setVideoPath(String value) async {
+    videoPath = value.trim().isEmpty ? 'videos' : value.trim();
+    await store.setSetting('videoPath', videoPath);
+    notifyListeners();
+  }
+
+  /// Submits a clip, polls until the service finishes it, then stores the file
+  /// beside the pictures. The record is written before the request leaves, so
+  /// a process that dies mid-render leaves a row saying what was paid for.
+  Future<void> submitVideo(String prompt, VideoOptions options) async {
+    if (busy) return;
+    options.validate();
+    if (prompt.trim().isEmpty) throw const FormatException('emptyPrompt');
+    if (videoModel.trim().isEmpty) {
+      throw const FormatException('missingVideoModel');
+    }
+    final client = api;
+    final model = videoModel.trim();
+    final path = videoPath.trim().isEmpty ? 'videos' : videoPath.trim();
+    final refs = galleryRefs.take(1).toList();
+    final record = <String, dynamic>{
+      'kind': 'video',
+      'prompt': prompt,
+      'model': model,
+      'path': path,
+      ...options.toJson(),
+      'references': refs.map((asset) => asset.id).toList(),
+    };
+    busy = true;
+    error = null;
+    errorDetail = null;
+    stage = 'working';
+    _cancel = CancelToken();
+    _api = client;
+    final jobId = store.newId();
+    notifyListeners();
+    try {
+      await store.job(jobId, 'submitting', record);
+      final id = await client.startVideo(
+        model,
+        // The style words belong to this request only; the saved clip keeps
+        // the prompt the user actually wrote.
+        videoPrompt(prompt, options, customStyles),
+        refs,
+        options,
+        path,
+        _cancel!,
+      );
+      await store.job(jobId, 'rendering', {...record, 'task': id});
+      var task = VideoTask(id: id, state: 'pending');
+      final deadline = DateTime.now().add(const Duration(minutes: 30));
+      while (!task.done && !task.failed) {
+        if (DateTime.now().isAfter(deadline)) {
+          throw const FormatException('videoTimeout');
+        }
+        await Future<void>.delayed(const Duration(seconds: 5));
+        task = await client.pollVideo(id, path, _cancel!);
+      }
+      if (task.failed) {
+        throw FormatException(
+          task.message.isEmpty ? 'videoFailed' : task.message,
+        );
+      }
+      final bytes = await client.downloadVideo(id, path, task.url, _cancel!);
+      final asset = await store.saveVideo(
+        bytes,
+        prompt: prompt,
+        parameters: {...record, 'task': id},
+      );
+      await store.job(jobId, 'complete', {...record, 'task': id, 'asset': asset.id});
+      await refresh();
+    } catch (e) {
+      error = errorCode(e, submitted: true);
+      errorDetail = errorDetailOf(e, secrets: [key, imageKey]);
+      await store.job(jobId, 'failed', record);
+    } finally {
+      busy = false;
+      stage = 'working';
+      _cancel = null;
+      client.close();
+      if (_api == client) _api = null;
+      notifyListeners();
+    }
   }
 
   Future<void> skipOnboarding() async {
