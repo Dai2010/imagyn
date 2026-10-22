@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:imagyn/core/styles.dart';
 import 'package:imagyn/core/video.dart';
 
 void main() {
