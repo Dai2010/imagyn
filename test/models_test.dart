@@ -136,9 +136,14 @@ void main() {
     final parameters = imageTool['parameters'] as Map;
     final properties = parameters['properties'] as Map;
     expect(imageTool['name'], 'generate_image');
-    expect(properties.keys, ['prompt', 'aspect_ratio', 'quality']);
+    expect(properties.keys, ['prompt', 'aspect_ratio', 'quality', 'style']);
     // OpenAI strict tools require every property to be listed as required.
-    expect(parameters['required'], ['prompt', 'aspect_ratio', 'quality']);
+    expect(parameters['required'], [
+      'prompt',
+      'aspect_ratio',
+      'quality',
+      'style',
+    ]);
     expect(parameters['additionalProperties'], isFalse);
     expect(
       ((properties['aspect_ratio'] as Map)['enum'] as List).toSet(),

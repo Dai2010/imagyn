@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'styles.dart';
+
 enum ApiProtocol { openai, responses, anthropic }
 
 extension ApiProtocolDetails on ApiProtocol {
@@ -364,8 +366,13 @@ class ImageOptions {
     this.transparent = false,
     this.moderation = 'auto',
     this.count = 1,
+    this.style = '',
   });
   final String size, quality, format, moderation;
+
+  /// The id of the style pack to apply, or empty for none. Kept out of
+  /// [requestFields]: the words travel inside the prompt, not as a parameter.
+  final String style;
   final bool transparent;
   final int count;
 
@@ -376,6 +383,7 @@ class ImageOptions {
     bool? transparent,
     String? moderation,
     int? count,
+    String? style,
   }) => ImageOptions(
     size: size ?? this.size,
     quality: quality ?? this.quality,
@@ -383,6 +391,7 @@ class ImageOptions {
     transparent: transparent ?? this.transparent,
     moderation: moderation ?? this.moderation,
     count: count ?? this.count,
+    style: style ?? this.style,
   );
 
   void validate() {
@@ -405,6 +414,7 @@ class ImageOptions {
     'transparent': transparent,
     'moderation': moderation,
     'n': count,
+    if (style.isNotEmpty) 'style': style,
   };
 
   factory ImageOptions.fromJson(Map<String, dynamic> value) => ImageOptions(
@@ -414,6 +424,7 @@ class ImageOptions {
     transparent: value['transparent'] == true,
     moderation: value['moderation'] as String? ?? 'auto',
     count: (value['n'] as num? ?? 1).toInt(),
+    style: value['style'] as String? ?? '',
   );
 
   Map<String, dynamic> requestFields() {
@@ -618,8 +629,17 @@ const imageTool = {
             'The quality the user asked for. Use auto when the user did not '
             'ask; the app then keeps the quality chosen in its options.',
       },
+      'style': {
+        'type': 'string',
+        'enum': styleChoices,
+        'description':
+            'The drawing style the user asked for (cel, painterly, flat, '
+            'watercolor, pixel, film). Use auto when the user did not ask; the '
+            'app then keeps the style chosen in its options. Custom styles '
+            'live only in the app, so never invent an id.',
+      },
     },
-    'required': ['prompt', 'aspect_ratio', 'quality'],
+    'required': ['prompt', 'aspect_ratio', 'quality', 'style'],
     'additionalProperties': false,
   },
 };
