@@ -24,6 +24,7 @@ class ServiceConfig {
     this.protocol = ApiProtocol.openai,
     this.imageModel = '',
     this.imageBaseUrl = '',
+    this.videoBaseUrl = '',
     this.agentModel = '',
     this.vision = false,
     this.maxReferences = 4,
@@ -37,6 +38,7 @@ class ServiceConfig {
   final ApiProtocol protocol;
   final String imageModel;
   final String imageBaseUrl;
+  final String videoBaseUrl;
   final String agentModel;
   final bool vision;
   final int maxReferences;
@@ -56,6 +58,7 @@ class ServiceConfig {
     baseUrl: baseUrl,
     protocol: protocol,
     imageBaseUrl: imageBaseUrl,
+    videoBaseUrl: videoBaseUrl,
     imageModel: imageModel ?? this.imageModel,
     agentModel: agentModel ?? this.agentModel,
     vision: vision,
@@ -86,6 +89,7 @@ class ServiceConfig {
     'agentModel': agentModel,
     'vision': vision,
     'imageBaseUrl': imageBaseUrl,
+    'videoBaseUrl': videoBaseUrl,
     'maxReferences': maxReferences,
     'proxy': proxy,
     'imageStream': imageStream,
@@ -105,6 +109,7 @@ class ServiceConfig {
     },
     imageModel: j['imageModel'] as String? ?? '',
     imageBaseUrl: j['imageBaseUrl'] as String? ?? '',
+    videoBaseUrl: j['videoBaseUrl'] as String? ?? '',
     agentModel: j['agentModel'] as String? ?? '',
     vision: j['vision'] == true,
     maxReferences: (j['maxReferences'] as num? ?? 4)
@@ -126,6 +131,13 @@ class ServiceConfig {
   Uri imageEndpoint(String path) => imageBaseUrl.trim().isEmpty
       ? endpoint(path)
       : ServiceConfig(baseUrl: imageBaseUrl).endpoint(path);
+
+  /// Video can live on its own service: a gateway that renders clips is often
+  /// not the one that renders stills. Empty means "the image service", which
+  /// itself falls back to the main one.
+  Uri videoEndpoint(String path) => videoBaseUrl.trim().isEmpty
+      ? imageEndpoint(path)
+      : ServiceConfig(baseUrl: videoBaseUrl).endpoint(path);
 }
 
 const deckAgentPrompt =

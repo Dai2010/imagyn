@@ -128,6 +128,31 @@ void main() {
     );
   });
 
+  test('video credentials fall back from video to image to main', () {
+    final video = StudioApi(
+      const ServiceConfig(),
+      'main',
+      '',
+      _UnusedStore(),
+      videoKey: 'clip',
+    );
+    addTearDown(video.close);
+    expect(video.videoHeaders['Authorization'], 'Bearer clip');
+
+    final images = StudioApi(
+      const ServiceConfig(),
+      'main',
+      'picture',
+      _UnusedStore(),
+    );
+    addTearDown(images.close);
+    expect(images.videoHeaders['Authorization'], 'Bearer picture');
+
+    final main = StudioApi(const ServiceConfig(), 'main', '', _UnusedStore());
+    addTearDown(main.close);
+    expect(main.videoHeaders['Authorization'], 'Bearer main');
+  });
+
   test(
     'decoded Base64 images enforce the same byte limit as downloads',
     () async {

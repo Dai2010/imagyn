@@ -29,7 +29,7 @@ class Studio extends ChangeNotifier {
   final LocalStore store;
   final ShareFile shareFile;
   ServiceConfig config = const ServiceConfig();
-  String key = '', imageKey = '', session = '', theme = 'system';
+  String key = '', imageKey = '', videoKey = '', session = '', theme = 'system';
 
   /// `system` follows the device language; otherwise one of [Strings.names]'
   /// keys. Kept separate from the locale the app is actually rendering in.
@@ -174,6 +174,7 @@ class Studio extends ChangeNotifier {
     config = await store.config();
     key = await store.apiKey();
     imageKey = await store.imageKey();
+    videoKey = await store.videoKey();
     final storedLanguage = await store.setting('language') ?? 'system';
     languageSetting =
         storedLanguage == 'system' || Strings.isSupported(storedLanguage)
@@ -336,6 +337,7 @@ class Studio extends ChangeNotifier {
     ServiceConfig value,
     String apiKey,
     String pictureKey,
+    String clipKey,
     String locale,
     String appearance,
     bool motion,
@@ -343,6 +345,7 @@ class Studio extends ChangeNotifier {
     if (busy) return;
     if (value.baseUrl.isNotEmpty) value.endpoint('models');
     if (value.imageBaseUrl.isNotEmpty) value.imageEndpoint('models');
+    if (value.videoBaseUrl.isNotEmpty) value.videoEndpoint('models');
     for (final options in value.agentProfiles.values) {
       options.validate(value.protocol);
     }
@@ -351,13 +354,19 @@ class Studio extends ChangeNotifier {
     final language = locale == 'system' || Strings.isSupported(locale)
         ? locale
         : 'system';
-    await store.saveConfig(value, apiKey.trim(), pictureKey.trim());
+    await store.saveConfig(
+      value,
+      apiKey.trim(),
+      pictureKey.trim(),
+      clipKey.trim(),
+    );
     await store.setSetting('language', language);
     await store.setSetting('theme', appearance);
     await store.setSetting('reduceMotion', motion.toString());
     config = value;
     key = apiKey.trim();
     imageKey = pictureKey.trim();
+    videoKey = clipKey.trim();
     languageSetting = language;
     theme = appearance;
     reduceMotion = motion;
@@ -365,7 +374,8 @@ class Studio extends ChangeNotifier {
     notifyListeners();
   }
 
-  StudioApi get api => StudioApi(activeConfig, key, imageKey, store);
+  StudioApi get api =>
+      StudioApi(activeConfig, key, imageKey, store, videoKey: videoKey);
 
   Future<void> pickReferences(bool agent) async {
     if (busy) return;
@@ -2422,6 +2432,7 @@ class Studio extends ChangeNotifier {
       key,
       imageKey,
       store,
+      videoKey: videoKey,
     );
     busy = true;
     error = null;

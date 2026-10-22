@@ -78,15 +78,18 @@ class LocalStore {
     ServiceConfig config,
     String key,
     String imageKey,
+    String videoKey,
   ) async {
     await _secure.write(key: 'api_key', value: key);
     await _secure.write(key: 'image_key', value: imageKey);
+    await _secure.write(key: 'video_key', value: videoKey);
     await setSetting('service', jsonEncode(config.toJson()));
     await setSetting('onboardingVersion', '1');
   }
 
   Future<String> apiKey() async => await _secure.read(key: 'api_key') ?? '';
   Future<String> imageKey() async => await _secure.read(key: 'image_key') ?? '';
+  Future<String> videoKey() async => await _secure.read(key: 'video_key') ?? '';
 
   Future<Asset> saveAsset(
     Uint8List bytes, {

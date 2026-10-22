@@ -24,6 +24,8 @@ class MemoryStore implements LocalStore {
   @override
   Future<String> imageKey() async => '';
   @override
+  Future<String> videoKey() async => '';
+  @override
   String newId() => 'session-${sequence++}';
   @override
   Future<int> recoverJobs() async => 0;
@@ -60,6 +62,7 @@ class MemoryStore implements LocalStore {
     ServiceConfig config,
     String key,
     String imageKey,
+    String videoKey,
   ) async {
     savedConfig = config;
   }
