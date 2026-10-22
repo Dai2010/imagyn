@@ -904,7 +904,7 @@ const _chartAxisIds =
 /// chart types include these.
 String _chartAxes(SlideChart chart) {
   final numberFormat =
-      '<c:numFmt formatCode="${chart.numberFormatCode}" '
+      '<c:numFmt formatCode="${_esc(chart.numberFormatCode)}" '
       'sourceLinked="${chart.valueFormat == 'general' ? 1 : 0}"/>';
   return '<c:catAx><c:axId val="111111111"/>'
       '<c:scaling><c:orientation val="minMax"/></c:scaling>'
@@ -926,7 +926,7 @@ String _chartAxes(SlideChart chart) {
 /// Number labels for every point, in the position the chart type allows.
 String _chartLabels(SlideChart chart, {required String position}) {
   if (!chart.dataLabels) return '';
-  return '<c:dLbls><c:numFmt formatCode="${chart.numberFormatCode}" '
+  return '<c:dLbls><c:numFmt formatCode="${_esc(chart.numberFormatCode)}" '
       'sourceLinked="0"/>'
       '<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>'
       '<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr>'
