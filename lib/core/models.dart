@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'styles.dart';
+import 'video.dart';
 
 enum ApiProtocol { openai, responses, anthropic }
 
@@ -169,7 +170,10 @@ const builtInAgentPrompt =
     'For a public link or page call fetch_url with an absolute URL: it returns '
     'readable text and refuses private addresses. Do not repeat a failed fetch; '
     'say what went wrong. A user message may carry <file name="…"> blocks: '
-    'treat their contents as source material for the request.';
+    'treat their contents as source material for the request. '
+    'generate_video renders a short clip when the user explicitly asks for a '
+    'video: it takes minutes and the clip is saved to the video page, so never '
+    'describe it as an inline picture and never call it for a still.';
 
 /// The editable prompt starts empty: the tool instructions above are always
 /// sent, and this is where the user adds their own standing instructions.
@@ -640,6 +644,66 @@ const imageTool = {
       },
     },
     'required': ['prompt', 'aspect_ratio', 'quality', 'style'],
+    'additionalProperties': false,
+  },
+};
+
+const videoTool = {
+  'name': 'generate_video',
+  'description':
+      'Render a short video clip from a prompt. Use it only when the user '
+      'explicitly asks for a video: it takes minutes and the clip is saved to '
+      'the video page, so never describe it as an inline picture. The newest '
+      'conversation image, if any, is used as the first frame.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'prompt': {'type': 'string'},
+      'ratio': {
+        'type': 'string',
+        'enum': VideoOptions.ratios,
+        'description':
+            'The shape of the clip. Use 16:9 unless the user asks otherwise.',
+      },
+      'resolution': {
+        'type': 'string',
+        'enum': VideoOptions.resolutions,
+      },
+      'seconds': {
+        'type': 'integer',
+        'minimum': VideoOptions.minSeconds,
+        'maximum': VideoOptions.maxSeconds,
+      },
+      'watermark': {'type': 'boolean'},
+      'camera_fixed': {
+        'type': 'boolean',
+        'description': 'Keep the camera still instead of moving it.',
+      },
+      'seed': {
+        'type': 'integer',
+        'minimum': -1,
+        'description': '-1 lets the service choose; reuse a value to repeat a '
+            'previous clip.',
+      },
+      'style': {
+        'type': 'string',
+        'enum': styleChoices,
+        'description':
+            'The drawing style the user asked for. Use auto when the user did '
+            'not ask; the app then keeps the style chosen in its options. '
+            'Custom styles live only in the app, so never invent an id.',
+      },
+    },
+    'required': [
+      'prompt',
+      'ratio',
+      'resolution',
+      'seconds',
+      'watermark',
+      'camera_fixed',
+      'seed',
+      'style',
+    ],
     'additionalProperties': false,
   },
 };
@@ -1908,6 +1972,7 @@ const fetchTool = {
 /// Every tool offered to the model. The order is the order of the prompt.
 const agentTools = [
   imageTool,
+  videoTool,
   fetchTool,
   createDeckTool,
   addSlideTool,
