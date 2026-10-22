@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:gpt_markdown/gpt_markdown.dart';
+import 'package:gpt_markdown/gpt_markdown.dart' hide ImageStyle;
 
 import '../core/models.dart';
 import '../core/studio.dart';
@@ -1063,7 +1063,7 @@ class _StudioShellState extends State<StudioShell> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            onTap: () => _writePrompt(controller, insertStyle(trimmed, style)),
+            onTap: () => _writePrompt(controller, insertStyle(text, style)),
           ),
         );
       }
