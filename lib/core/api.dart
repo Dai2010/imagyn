@@ -8,6 +8,7 @@ import 'package:http_parser/http_parser.dart';
 
 import 'models.dart';
 import 'store.dart';
+import 'styles.dart';
 
 class AgentReply {
   const AgentReply(
@@ -1234,8 +1235,13 @@ AgentReply parseAgentReply(
 }
 
 /// A validated `generate_image` call: the prompt the image service receives,
-/// the ratio and the quality the model chose for it, if any.
-typedef ToolCall = ({String prompt, String? aspectRatio, String? quality});
+/// the ratio, the quality and the style the model chose for it, if any.
+typedef ToolCall = ({
+  String prompt,
+  String? aspectRatio,
+  String? quality,
+  String? style,
+});
 
 ToolCall validateToolCall(Object? input) {
   if (input is! Map || input['prompt'] is! String) {
@@ -1257,10 +1263,19 @@ ToolCall validateToolCall(Object? input) {
               !['low', 'medium', 'high'].contains(quality)))) {
     throw const FormatException('invalidTool');
   }
+  // Custom styles never leave the device, so an id outside the built-ins is a
+  // mistake worth failing on rather than silently dropping the style.
+  final style = input['style'];
+  if (style != null &&
+      (style is! String ||
+          (style != 'auto' && !builtInStyleIds.contains(style)))) {
+    throw const FormatException('invalidTool');
+  }
   return (
     prompt: prompt,
     aspectRatio: ratio == null || ratio == 'auto' ? null : ratio,
     quality: quality == null || quality == 'auto' ? null : quality,
+    style: style == null || style == 'auto' ? null : style,
   );
 }
 

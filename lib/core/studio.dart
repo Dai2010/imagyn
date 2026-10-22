@@ -19,6 +19,7 @@ import 'pptx.dart';
 import 'pptx_import.dart';
 import 'share.dart';
 import 'store.dart';
+import 'styles.dart';
 import 'tokens.dart';
 import 'webfetch.dart';
 
@@ -58,6 +59,9 @@ class Studio extends ChangeNotifier {
   List<ImageJob> jobs = [];
   Set<String> favorites = {};
   ImageOptions imageOptions = const ImageOptions();
+
+  /// Style packs the user wrote, in the order they were added.
+  List<ImageStyle> customStyles = const [];
   CancelToken? _cancel;
   StudioApi? _api;
   Map<String, dynamic> _conversationSettings = {};
@@ -181,6 +185,7 @@ class Studio extends ChangeNotifier {
       jsonDecode(await store.setting('imageOptions') ?? '{}')
           as Map<String, dynamic>,
     );
+    customStyles = _parseStyles(await store.setting('imageStyles'));
     await _loadConversationSettings();
     await _loadDecks();
     await refresh();
@@ -509,9 +514,60 @@ class Studio extends ChangeNotifier {
 
   Future<void> setImageOptions(ImageOptions value) async {
     value.validate();
+    if (value.style.isNotEmpty && styleFor(value.style) == null) {
+      // The pack was deleted while it was selected; fall back to no style
+      // rather than sending a prompt nobody asked for.
+      value = value.copyWith(style: '');
+    }
     await store.setSetting('imageOptions', jsonEncode(value.toJson()));
     imageOptions = value;
     notifyListeners();
+  }
+
+  /// The style with [id], built-in or custom. Null means "no style".
+  ImageStyle? styleFor(String id) => styleById(customStyles, id);
+
+  Future<void> saveStyle(ImageStyle style) => _writeStyles([
+    for (final item in customStyles)
+      if (item.id != style.id) item,
+    style,
+  ]);
+
+  Future<void> removeStyle(String id) async {
+    await _writeStyles([
+      for (final item in customStyles)
+        if (item.id != id) item,
+    ]);
+    if (imageOptions.style == id) {
+      await setImageOptions(imageOptions.copyWith(style: ''));
+    }
+  }
+
+  Future<void> _writeStyles(List<ImageStyle> next) async {
+    await store.setSetting(
+      'imageStyles',
+      jsonEncode([for (final item in next) item.toJson()]),
+    );
+    customStyles = next;
+    notifyListeners();
+  }
+
+  /// Reads the saved packs, dropping any entry the current validation rejects
+  /// so one bad row cannot stop the app from starting.
+  static List<ImageStyle> _parseStyles(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return const [];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return const [];
+    final styles = <ImageStyle>[];
+    for (final item in decoded) {
+      if (item is! Map) continue;
+      try {
+        styles.add(ImageStyle.fromJson(Map<String, dynamic>.from(item)));
+      } on FormatException {
+        continue;
+      }
+    }
+    return styles;
   }
 
   Future<void> toggleFavorite(Asset asset) {
@@ -2016,6 +2072,7 @@ class Studio extends ChangeNotifier {
     final jobOptions = options.copyWith(
       size: parsed.aspectRatio == null ? null : sizePresets[parsed.aspectRatio]!,
       quality: parsed.quality,
+      style: parsed.style,
     );
     stage = 'working';
     notifyListeners();
@@ -2084,7 +2141,14 @@ class Studio extends ChangeNotifier {
     List<Asset> refs,
     ImageOptions options,
   ) async {
-    final images = await client.generate(prompt, refs, options, _cancel!);
+    final images = await client.generate(
+      // The style words belong to this request only; the asset keeps the prompt
+      // the user actually wrote.
+      withStyle(prompt, styleFor(options.style)),
+      refs,
+      options,
+      _cancel!,
+    );
     final created = <Asset>[];
     for (final bytes in images) {
       // What gets recorded is the size measured from the bytes, not the one that

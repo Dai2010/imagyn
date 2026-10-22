@@ -1022,6 +1022,9 @@ class _StudioShellState extends State<StudioShell> {
       builder: (_) => ImageOptionsSheet(
         options: studio.imageOptions,
         model: studio.activeConfig.imageModel,
+        styles: studio.customStyles,
+        onSaveStyle: studio.saveStyle,
+        onRemoveStyle: studio.removeStyle,
       ),
     );
     if (value != null) await _guard(() => studio.setImageOptions(value));

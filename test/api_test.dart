@@ -210,7 +210,7 @@ void main() {
     test('trims and accepts a usable prompt', () {
       expect(
         validateToolCall({'prompt': '  a cat  '}),
-        (prompt: 'a cat', aspectRatio: null, quality: null),
+        (prompt: 'a cat', aspectRatio: null, quality: null, style: null),
       );
     });
 
