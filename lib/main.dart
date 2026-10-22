@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -42,10 +43,35 @@ class ImagynApp extends StatelessWidget {
     ));
 }
 
+/// The UI family the platform itself uses. Material's default is Roboto on
+/// every desktop, which is neither Windows' nor a Linux desktop's own font —
+/// and its CJK glyphs come from whichever fallback the engine finds, so the
+/// text reads as "not quite this system's". Android keeps Roboto and macOS
+/// already resolves to San Francisco through Material's Cupertino typography.
+String? interfaceFont() => switch (defaultTargetPlatform) {
+  TargetPlatform.windows => 'Segoe UI',
+  TargetPlatform.linux => 'Noto Sans',
+  _ => null,
+};
+
+/// Families tried for glyphs [interfaceFont] lacks, chiefly CJK. Listing the
+/// common system faces keeps Chinese, Japanese and Korean text in the same
+/// family as the rest of the window instead of dropping to the engine default.
+const fontFallbacks = [
+  'Microsoft YaHei', // Windows
+  'PingFang SC', // macOS
+  'Noto Sans CJK SC', // Linux
+  'WenQuanYi Micro Hei', // Linux
+  'Ubuntu',
+  'DejaVu Sans',
+];
+
 ThemeData studioTheme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
   final scheme = ColorScheme.fromSeed(seedColor: const Color(0xff7863c7), brightness: brightness);
   return ThemeData(useMaterial3: true, colorScheme: scheme,
+    fontFamily: interfaceFont(),
+    fontFamilyFallback: fontFallbacks,
     scaffoldBackgroundColor: dark ? const Color(0xff131217) : const Color(0xfffaf9fc),
     appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, elevation: 0),
     inputDecorationTheme: InputDecorationTheme(filled: true,
