@@ -53,6 +53,31 @@ void main() {
         'https://img.example.com/v2/images/edits',
       );
     });
+
+    test('video falls back from its own service to images to the main one', () {
+      const main = ServiceConfig(baseUrl: 'https://api.example.com/v1');
+      expect(
+        main.videoEndpoint('videos').toString(),
+        'https://api.example.com/v1/videos',
+      );
+      const images = ServiceConfig(
+        baseUrl: 'https://api.example.com/v1',
+        imageBaseUrl: 'https://img.example.com/v2/',
+      );
+      expect(
+        images.videoEndpoint('videos').toString(),
+        'https://img.example.com/v2/videos',
+      );
+      const video = ServiceConfig(
+        baseUrl: 'https://api.example.com/v1',
+        imageBaseUrl: 'https://img.example.com/v2',
+        videoBaseUrl: 'https://clip.example.com/v3/',
+      );
+      expect(
+        video.videoEndpoint('videos').toString(),
+        'https://clip.example.com/v3/videos',
+      );
+    });
   });
 
   group('ServiceConfig JSON', () {
@@ -62,6 +87,7 @@ void main() {
         protocol: ApiProtocol.anthropic,
         imageModel: 'img-1',
         imageBaseUrl: 'https://img.example.com/v2',
+        videoBaseUrl: 'https://clip.example.com/v3',
         agentModel: 'chat-1',
         vision: true,
         maxReferences: 3,
@@ -72,6 +98,7 @@ void main() {
       expect(copy.protocol, ApiProtocol.anthropic);
       expect(copy.imageModel, 'img-1');
       expect(copy.imageBaseUrl, 'https://img.example.com/v2');
+      expect(copy.videoBaseUrl, 'https://clip.example.com/v3');
       expect(copy.agentModel, 'chat-1');
       expect(copy.vision, isTrue);
       expect(copy.maxReferences, 3);

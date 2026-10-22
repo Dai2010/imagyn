@@ -53,7 +53,13 @@ class ImageApiException implements Exception {
 }
 
 class StudioApi {
-  StudioApi(this.config, this.key, this.imageKey, this.store)
+  StudioApi(
+    this.config,
+    this.key,
+    this.imageKey,
+    this.store, {
+    this.videoKey = '',
+  })
     // No automatic redirects on a request that carries the API key: whatever
     // is on the other end would receive the header. A 3xx surfaces as
     // `redirectBlocked` instead. Downloads use a separate client that sends
@@ -61,6 +67,8 @@ class StudioApi {
     : dio = networkClient(config.proxy, followRedirects: false);
   final ServiceConfig config;
   final String key, imageKey;
+  /// Empty means "the image key", which itself falls back to [key].
+  final String videoKey;
   final LocalStore store;
   final Dio dio;
   static const maxImageBytes = 30 * 1024 * 1024;
@@ -88,7 +96,10 @@ class StudioApi {
   Map<String, String> get imageHeaders => {
     'Authorization': 'Bearer ${imageKey.isEmpty ? key : imageKey}',
   };
-
+  Map<String, String> get videoHeaders => {
+    'Authorization':
+        'Bearer ${[videoKey, imageKey, key].firstWhere((value) => value.isNotEmpty, orElse: () => '')}',
+  };
   /// Fetches the model list.
   ///
   /// Auto-following redirects is off on this client so the credential cannot be
@@ -310,10 +321,10 @@ class StudioApi {
       );
     }
     final response = await dio.postUri<ResponseBody>(
-      config.imageEndpoint(path),
+      config.videoEndpoint(path),
       data: FormData.fromMap(fields),
       options: Options(
-        headers: imageHeaders,
+        headers: videoHeaders,
         responseType: ResponseType.stream,
         receiveTimeout: const Duration(minutes: 5),
         validateStatus: (_) => true,
@@ -336,9 +347,9 @@ class StudioApi {
     CancelToken cancel,
   ) async {
     final response = await dio.getUri<ResponseBody>(
-      config.imageEndpoint('$path/$id'),
+      config.videoEndpoint('$path/$id'),
       options: Options(
-        headers: imageHeaders,
+        headers: videoHeaders,
         responseType: ResponseType.stream,
         receiveTimeout: const Duration(minutes: 2),
         validateStatus: (_) => true,
@@ -367,7 +378,7 @@ class StudioApi {
   ) async {
     final target = url.isNotEmpty
         ? Uri.parse(url)
-        : config.imageEndpoint('$path/$id/content');
+        : config.videoEndpoint('$path/$id/content');
     if (!['https', 'http'].contains(target.scheme) ||
         target.host.isEmpty ||
         target.userInfo.isNotEmpty) {

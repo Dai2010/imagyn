@@ -21,6 +21,8 @@ class _SettingsPageState extends State<SettingsPage> {
       _key,
       _imageBase,
       _imageKey,
+      _videoBase,
+      _videoKey,
       _imageModel,
       _agentModel,
       _proxy;
@@ -64,6 +66,8 @@ class _SettingsPageState extends State<SettingsPage> {
     _key = TextEditingController(text: widget.studio.key);
     _imageBase = TextEditingController(text: c.imageBaseUrl);
     _imageKey = TextEditingController(text: widget.studio.imageKey);
+    _videoBase = TextEditingController(text: c.videoBaseUrl);
+    _videoKey = TextEditingController(text: widget.studio.videoKey);
     _imageModel = TextEditingController(text: c.imageModel);
     _agentModel = TextEditingController(text: c.agentModel);
     _proxy = TextEditingController(text: c.proxy);
@@ -90,6 +94,8 @@ class _SettingsPageState extends State<SettingsPage> {
       _key,
       _imageBase,
       _imageKey,
+      _videoBase,
+      _videoKey,
       _imageModel,
       _agentModel,
       _proxy,
@@ -102,6 +108,7 @@ class _SettingsPageState extends State<SettingsPage> {
   ServiceConfig get config => ServiceConfig(
     baseUrl: _base.text.trim(),
     imageBaseUrl: _imageBase.text.trim(),
+    videoBaseUrl: _videoBase.text.trim(),
     protocol: _protocol,
     imageModel: _imageModel.text.trim(),
     agentModel: _agentModel.text.trim(),
@@ -182,6 +189,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _key.text.trim(),
         _imageKey.text.trim(),
         widget.studio.store,
+        videoKey: _videoKey.text.trim(),
       );
       _client = client;
       if (text) {
@@ -262,6 +270,7 @@ class _SettingsPageState extends State<SettingsPage> {
         config,
         _key.text,
         _imageKey.text,
+        _videoKey.text,
         _language,
         _theme,
         _motion,
@@ -502,6 +511,21 @@ class _SettingsPageState extends State<SettingsPage> {
                       Text(
                         s.t('checkNote'),
                         style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      ExpansionTile(
+                        key: const ValueKey('videoConnection'),
+                        tilePadding: EdgeInsets.zero,
+                        title: Text(s.t('videoConnection')),
+                        subtitle: Text(s.t('videoConnectionNote')),
+                        children: [
+                          _field(
+                            _videoBase,
+                            'videoEndpoint',
+                            url: true,
+                            hint: 'https://…/v1',
+                          ),
+                          _field(_videoKey, 'videoKey', secret: true),
+                        ],
                       ),
                       ExpansionTile(
                         tilePadding: EdgeInsets.zero,
