@@ -873,7 +873,11 @@ class _StudioShellState extends State<StudioShell> {
                     valueListenable: controller,
                     builder: (context, value, _) {
                       final style = styleIn(value.text, studio.customStyles);
-                      final palette = _stylePalette(value.text, controller);
+                      final palette = _commandPalette(
+                        value.text,
+                        controller,
+                        agent,
+                      );
                       return Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -998,14 +1002,7 @@ class _StudioShellState extends State<StudioShell> {
                                 // /compact folds the older turns right away
                                 // instead of waiting for the token limit.
                                 if (agent && text.trim() == '/compact') {
-                                  final result = await studio.compactNow();
-                                  controller.clear();
-                                  _notice(
-                                    s.t('compactDone').replaceFirst(
-                                      '%s',
-                                      '${result.compacted}',
-                                    ),
-                                  );
+                                  await _compactNow(controller);
                                   return;
                                 }
                                 await studio.submit(
@@ -1033,15 +1030,31 @@ class _StudioShellState extends State<StudioShell> {
     );
   }
 
-  /// The `/style` list, or null when the text is not a command. Choosing one
-  /// writes its words into the prompt instead of storing a separate choice, so
-  /// what the user reads on screen is exactly what the service receives.
-  Widget? _stylePalette(String text, TextEditingController controller) {
+  /// The slash-command list, or null when the text is not a command. `/style`
+  /// writes its words into the prompt; `/compact` runs right away, which is
+  /// what pressing send with the same line does.
+  Widget? _commandPalette(
+    String text,
+    TextEditingController controller,
+    bool agent,
+  ) {
     // The command is the line being typed, so a prompt written first stays.
     final tail = text.split('\n').last.trimLeft();
     if (!tail.startsWith('/')) return null;
     final command = tail.substring(1).toLowerCase();
     final entries = <Widget>[];
+    if (agent && 'compact'.startsWith(command)) {
+      entries.add(
+        ListTile(
+          key: const ValueKey('compactCommand'),
+          dense: true,
+          leading: const Icon(Icons.compress_rounded, size: 20),
+          title: const Text('/compact'),
+          subtitle: Text(s.t('compactCommand')),
+          onTap: () => _guard(() => _compactNow(controller)),
+        ),
+      );
+    }
     if (!command.startsWith('style')) {
       if ('style'.startsWith(command)) {
         entries.add(
@@ -1090,14 +1103,29 @@ class _StudioShellState extends State<StudioShell> {
       );
     }
     if (entries.isEmpty) return null;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      constraints: const BoxConstraints(maxHeight: 220),
-      decoration: BoxDecoration(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        // Material, not a coloured Container: ListTile paints its ink on the
+        // nearest Material ancestor, and a decorated box in between hides the
+        // splash — a debug assertion that a widget test trips on.
         color: Theme.of(context).colorScheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 220),
+          child: ListView(shrinkWrap: true, children: entries),
+        ),
       ),
-      child: ListView(shrinkWrap: true, children: entries),
+    );
+  }
+
+  Future<void> _compactNow(TextEditingController controller) async {
+    final result = await studio.compactNow();
+    controller.clear();
+    if (!mounted) return;
+    _notice(
+      s.t('compactDone').replaceFirst('%s', '${result.compacted}'),
     );
   }
 
