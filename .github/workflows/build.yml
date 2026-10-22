@@ -4,9 +4,11 @@
 # the published assets can be fetched through a download mirror, which the
 # Actions artifact API cannot be.
 #
-# Signing: only the Android APK is signed, and only with the runner's throwaway
-# Android debug key. release.yml is the path that produces a properly signed
-# APK, and it refuses to run without the release keystore. The desktop packages
+# Signing: only the Android APK is signed, and with the preview keystore so a
+# later preview can install over this one. Without those secrets it falls back
+# to the runner's throwaway debug key, which changes on every job. release.yml
+# is the path that produces the properly signed release APK, and it refuses to
+# run without the release keystore. The desktop packages
 # are unsigned, so Windows SmartScreen and macOS Gatekeeper warn on first run —
 # the release notes say so rather than hiding it. Windows is x64 only: Flutter
 # ships no 32-bit Windows embedder.
@@ -90,10 +92,21 @@ jobs:
           mv "$RUNNER_TEMP/signed.apk" "$apk"
           "$tools/apksigner" verify --print-certs "$apk"
 
+      # Flutter names the output app-release.apk, which on a prerelease page
+      # reads like the official build. The asset name is what survives the
+      # download, so it has to say what it is.
+      - name: Name the APK as a preview
+        run: |
+          version="$(sed -n 's/^version: *//p' pubspec.yaml)"
+          name="Imagyn-preview-${version//+/_}.apk"
+          cd build/app/outputs/flutter-apk
+          mv app-release.apk "$name"
+          ls -l
+
       - uses: actions/upload-artifact@v4
         with:
           name: android
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/Imagyn-preview-*.apk
           if-no-files-found: error
 
   linux:
