@@ -1091,14 +1091,20 @@ class _StudioShellState extends State<StudioShell> {
       );
     }
     if (entries.isEmpty) return null;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      constraints: const BoxConstraints(maxHeight: 220),
-      decoration: BoxDecoration(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        // Material, not a coloured Container: ListTile paints its ink on the
+        // nearest Material ancestor, and a decorated box in between hides the
+        // splash — a debug assertion that a widget test trips on.
         color: Theme.of(context).colorScheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 220),
+          child: ListView(shrinkWrap: true, children: entries),
+        ),
       ),
-      child: ListView(shrinkWrap: true, children: entries),
     );
   }
 
