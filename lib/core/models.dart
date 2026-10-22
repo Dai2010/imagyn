@@ -1074,12 +1074,16 @@ class SlideChart {
     String title = '',
     required List<String> categories,
     required List<ChartSeries> series,
+    bool dataLabels = false,
+    String valueFormat = 'general',
+    bool stacked = false,
   }) {
     if (!kinds.contains(kind) ||
         categories.isEmpty ||
         categories.length > maxCategories ||
         series.isEmpty ||
-        series.length > maxSeries) {
+        series.length > maxSeries ||
+        !valueFormats.contains(valueFormat)) {
       throw const FormatException('invalidChart');
     }
     final labels = <String>[];
@@ -1100,12 +1104,27 @@ class SlideChart {
       title.trim(),
       List<String>.unmodifiable(labels),
       List<ChartSeries>.unmodifiable(series),
+      dataLabels,
+      valueFormat,
+      stacked,
     );
   }
 
-  const SlideChart._(this.kind, this.title, this.categories, this.series);
+  const SlideChart._(
+    this.kind,
+    this.title,
+    this.categories,
+    this.series,
+    this.dataLabels,
+    this.valueFormat,
+    this.stacked,
+  );
 
   static const kinds = ['bar', 'line', 'pie'];
+
+  /// How a number reads on the page: plain, `0–100` percent, or grouped
+  /// thousands. The stored values never change, only how they are printed.
+  static const valueFormats = ['general', 'percent', 'thousand'];
   static const maxCategories = 12;
   static const maxSeries = 3;
   static const maxLabelLength = 40;
@@ -1115,11 +1134,54 @@ class SlideChart {
   final List<String> categories;
   final List<ChartSeries> series;
 
+  /// Print each value next to its bar, point or slice.
+  final bool dataLabels;
+
+  /// One of [valueFormats].
+  final String valueFormat;
+
+  /// Stack a bar chart's series instead of placing them side by side.
+  /// Ignored by line and pie, which have no stacking.
+  final bool stacked;
+
+  /// The label drawn for [value], with no unit conversion — a `percent`
+  /// chart is expected to carry values like `42`, not `0.42`.
+  String formatValue(double value) {
+    final rounded = value == value.roundToDouble()
+        ? value.round().toString()
+        : value.toStringAsFixed(1);
+    switch (valueFormat) {
+      case 'percent':
+        return '$rounded%';
+      case 'thousand':
+        final whole = value.round();
+        final digits = whole.abs().toString();
+        final grouped = StringBuffer();
+        for (var i = 0; i < digits.length; i++) {
+          if (i > 0 && (digits.length - i) % 3 == 0) grouped.write(',');
+          grouped.write(digits[i]);
+        }
+        return '${whole < 0 ? '-' : ''}$grouped';
+      default:
+        return rounded;
+    }
+  }
+
+  /// The DrawingML `formatCode` matching [valueFormat].
+  String get numberFormatCode => switch (valueFormat) {
+    'percent' => '0"%"',
+    'thousand' => '#,##0',
+    _ => 'General',
+  };
+
   Map<String, dynamic> toJson() => {
     'kind': kind,
     if (title.isNotEmpty) 'title': title,
     'categories': categories,
     'series': [for (final item in series) item.toJson()],
+    if (dataLabels) 'dataLabels': true,
+    if (valueFormat != 'general') 'valueFormat': valueFormat,
+    if (stacked) 'stacked': true,
   };
 
   factory SlideChart.fromJson(Map<String, dynamic> json) {
@@ -1127,10 +1189,16 @@ class SlideChart {
     final title = json['title'] ?? '';
     final categories = json['categories'];
     final series = json['series'];
+    final dataLabels = json['dataLabels'] ?? false;
+    final valueFormat = json['valueFormat'] ?? 'general';
+    final stacked = json['stacked'] ?? false;
     if (kind is! String ||
         title is! String ||
         categories is! List ||
-        series is! List) {
+        series is! List ||
+        dataLabels is! bool ||
+        valueFormat is! String ||
+        stacked is! bool) {
       throw const FormatException('invalidChart');
     }
     final labels = <String>[];
@@ -1160,6 +1228,9 @@ class SlideChart {
       title: title,
       categories: labels,
       series: parsed,
+      dataLabels: dataLabels,
+      valueFormat: valueFormat,
+      stacked: stacked,
     );
   }
 }
@@ -1413,7 +1484,10 @@ const addChartTool = {
       'editable charts in PowerPoint. Use 1-12 short categories and 1-3 '
       'series whose values match the categories. Calling add_chart again on '
       'the same page replaces its chart instead of stacking a second one. A '
-      'pie chart draws only the first series.',
+      'pie chart draws only the first series. Set data_labels to print the '
+      'numbers on the chart, value_format to read them as plain numbers, '
+      'percent (values written 0-100) or grouped thousands, and stacked to '
+      'pile bar series instead of placing them side by side.',
   'parameters': {
     'type': 'object',
     'properties': {
@@ -1449,8 +1523,35 @@ const addChartTool = {
           'additionalProperties': false,
         },
       },
+      'data_labels': {
+        'type': 'boolean',
+        'description': 'Print each value on its bar, point or slice.',
+      },
+      'value_format': {
+        'type': 'string',
+        'enum': SlideChart.valueFormats,
+        'description':
+            'How values read: plain numbers, percent (write 42, not 0.42) or '
+            'grouped thousands.',
+      },
+      'stacked': {
+        'type': 'boolean',
+        'description':
+            'Pile bar series on top of each other instead of side by side. '
+            'Ignored by line and pie.',
+      },
     },
-    'required': ['deck', 'index', 'kind', 'title', 'categories', 'series'],
+    'required': [
+      'deck',
+      'index',
+      'kind',
+      'title',
+      'categories',
+      'series',
+      'data_labels',
+      'value_format',
+      'stacked',
+    ],
     'additionalProperties': false,
   },
 };

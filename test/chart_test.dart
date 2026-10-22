@@ -12,6 +12,9 @@ SlideChart _chart({
   String title = '',
   List<String> categories = const ['Q1', 'Q2'],
   List<ChartSeries>? series,
+  bool dataLabels = false,
+  String valueFormat = 'general',
+  bool stacked = false,
 }) => SlideChart(
   kind: kind,
   title: title,
@@ -21,6 +24,9 @@ SlideChart _chart({
       [
         ChartSeries(name: '2025', values: const [3, 5]),
       ],
+  dataLabels: dataLabels,
+  valueFormat: valueFormat,
+  stacked: stacked,
 );
 
 void main() {
@@ -120,7 +126,17 @@ void main() {
     final parameters = tool['parameters'] as Map;
     expect(
       parameters['required'],
-      containsAll(['deck', 'index', 'kind', 'title', 'categories', 'series']),
+      containsAll([
+        'deck',
+        'index',
+        'kind',
+        'title',
+        'categories',
+        'series',
+        'data_labels',
+        'value_format',
+        'stacked',
+      ]),
     );
     expect(parameters['additionalProperties'], isFalse);
     final series = (parameters['properties'] as Map)['series'] as Map;
@@ -128,6 +144,103 @@ void main() {
     expect(items['required'], ['name', 'values']);
     expect(items['additionalProperties'], isFalse);
     expect(builtInAgentPrompt, contains('add_chart'));
+  });
+
+  test('labels, number formats and stacking survive a round trip', () {
+    final chart = _chart(
+      dataLabels: true,
+      valueFormat: 'percent',
+      stacked: true,
+    );
+    final copy = SlideChart.fromJson(
+      jsonDecode(jsonEncode(chart.toJson())) as Map<String, dynamic>,
+    );
+    expect(copy.toJson(), chart.toJson());
+    expect(copy.dataLabels, isTrue);
+    expect(copy.valueFormat, 'percent');
+    expect(copy.stacked, isTrue);
+
+    // Defaults stay out of the JSON so old decks read back unchanged.
+    expect(_chart().toJson().containsKey('dataLabels'), isFalse);
+    expect(_chart().toJson().containsKey('stacked'), isFalse);
+    expect(SlideChart.fromJson(_chart().toJson()).dataLabels, isFalse);
+
+    expect(_chart().formatValue(42), '42');
+    expect(_chart().formatValue(2.25), '2.3');
+    expect(_chart(valueFormat: 'percent').formatValue(42), '42%');
+    expect(_chart(valueFormat: 'thousand').formatValue(1234567), '1,234,567');
+    expect(_chart(valueFormat: 'thousand').formatValue(999), '999');
+    expect(_chart(valueFormat: 'thousand').formatValue(-1200), '-1,200');
+    expect(_chart().numberFormatCode, 'General');
+    expect(_chart(valueFormat: 'percent').numberFormatCode, '0"%"');
+    expect(_chart(valueFormat: 'thousand').numberFormatCode, '#,##0');
+
+    expect(
+      () => _chart(valueFormat: 'yen'),
+      throwsFormatException,
+      reason: 'unknown value format',
+    );
+    expect(
+      () => SlideChart.fromJson(const {
+        'kind': 'bar',
+        'categories': ['Q1'],
+        'series': [
+          {
+            'name': 's',
+            'values': [1],
+          },
+        ],
+        'stacked': 'yes',
+      }),
+      throwsFormatException,
+      reason: 'stacked must be a bool',
+    );
+  });
+
+  test('stacked bars and value labels reach the chart part', () {
+    final deck = Deck(
+      id: 'deck',
+      title: 'Stack',
+      slides: [
+        Slide(
+          title: 'Stack',
+          chart: _chart(
+            title: '份额',
+            series: [
+              ChartSeries(name: '线上', values: const [40, 55]),
+              ChartSeries(name: '门店', values: const [60, 45]),
+            ],
+            dataLabels: true,
+            valueFormat: 'percent',
+            stacked: true,
+          ),
+        ),
+      ],
+    );
+    final files = unzipPptx(buildPptx(deck, const {}));
+    final xml = utf8.decode(files['ppt/charts/chart1.xml']!);
+    expect(xml, contains('<c:grouping val="stacked"/>'));
+    expect(xml, contains('<c:overlap val="100"/>'));
+    expect(xml, contains('<c:dLbls>'));
+    expect(xml, contains('<c:showVal val="1"/>'));
+    expect(xml, contains('<c:showCatName val="0"/>'));
+    expect(xml, contains('<c:dLblPos val="outEnd"/>'));
+    expect(xml, contains('<c:numFmt formatCode="0&quot;%&quot;"'));
+
+    final plain = utf8.decode(
+      unzipPptx(
+        buildPptx(
+          Deck(
+            id: 'deck',
+            title: 'Plain',
+            slides: [Slide(title: 'Plain', chart: _chart())],
+          ),
+          const {},
+        ),
+      )['ppt/charts/chart1.xml']!,
+    );
+    expect(plain, contains('<c:grouping val="clustered"/>'));
+    expect(plain, isNot(contains('<c:dLbls>')));
   });
 
   test('export writes native charts, relationships and content types', () {
