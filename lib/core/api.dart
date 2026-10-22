@@ -9,6 +9,7 @@ import 'package:http_parser/http_parser.dart';
 import 'models.dart';
 import 'store.dart';
 import 'styles.dart';
+import 'video.dart';
 
 class AgentReply {
   const AgentReply(
@@ -63,6 +64,10 @@ class StudioApi {
   final LocalStore store;
   final Dio dio;
   static const maxImageBytes = 30 * 1024 * 1024;
+
+  /// Clips are much larger than a still, but not unbounded: a runaway task
+  /// would otherwise be read into memory whole.
+  static const maxVideoBytes = 300 * 1024 * 1024;
 
   /// How far an Agent response may grow before reading it is abandoned. Only
   /// text passes through it, so this guards against a stream that never ends
@@ -270,6 +275,154 @@ class StudioApi {
       }
     }
     return result;
+  }
+
+  /// Submits a video task and returns its id. The submit is multipart so the
+  /// optional first-frame image can travel with the prompt; the Seedance
+  /// parameters ride along as plain form fields, which a gateway that knows
+  /// them picks up and the others ignore.
+  Future<String> startVideo(
+    String model,
+    String prompt,
+    List<Asset> refs,
+    VideoOptions options,
+    String path,
+    CancelToken cancel,
+  ) async {
+    options.validate();
+    if (prompt.trim().isEmpty) throw const FormatException('emptyPrompt');
+    if (model.trim().isEmpty) throw const FormatException('missingVideoModel');
+    final fields = <String, dynamic>{
+      'model': model.trim(),
+      'prompt': prompt,
+      'seconds': '${options.seconds}',
+      if (options.size.isNotEmpty) 'size': options.size,
+      ...options.requestFields(),
+    };
+    if (refs.isNotEmpty) {
+      final file = store.file(refs.first);
+      if (await file.length() > maxImageBytes) {
+        throw const FormatException('imageTooLarge');
+      }
+      fields['input_reference'] = await MultipartFile.fromFile(
+        file.path,
+        contentType: MediaType.parse(refs.first.mime),
+      );
+    }
+    final response = await dio.postUri<ResponseBody>(
+      config.imageEndpoint(path),
+      data: FormData.fromMap(fields),
+      options: Options(
+        headers: imageHeaders,
+        responseType: ResponseType.stream,
+        receiveTimeout: const Duration(minutes: 5),
+        validateStatus: (_) => true,
+      ),
+      cancelToken: cancel,
+    );
+    final stream = response.data!.stream;
+    final status = response.statusCode ?? 0;
+    if (status < 200 || status >= 300) throw await _httpFailure(status, stream);
+    final task = parseVideoTask(await _jsonBody(stream));
+    if (task.id.isEmpty) throw const FormatException('invalidVideoTask');
+    return task.id;
+  }
+
+  /// One poll of a submitted task. [path] is the one the submit used, so
+  /// `/videos/{id}` and `video/generations/{id}` both work.
+  Future<VideoTask> pollVideo(
+    String id,
+    String path,
+    CancelToken cancel,
+  ) async {
+    final response = await dio.getUri<ResponseBody>(
+      config.imageEndpoint('$path/$id'),
+      options: Options(
+        headers: imageHeaders,
+        responseType: ResponseType.stream,
+        receiveTimeout: const Duration(minutes: 2),
+        validateStatus: (_) => true,
+      ),
+      cancelToken: cancel,
+    );
+    final stream = response.data!.stream;
+    final status = response.statusCode ?? 0;
+    if (status < 200 || status >= 300) throw await _httpFailure(status, stream);
+    final task = parseVideoTask(await _jsonBody(stream));
+    // Some gateways drop the status once the clip is ready and only add the
+    // address; that is a finished task, not a pending one.
+    if (task.url.isNotEmpty && task.state == 'pending') {
+      return VideoTask(id: task.id, state: 'done', url: task.url);
+    }
+    return task;
+  }
+
+  /// Downloads a finished clip. When the task carried no address, the OpenAI
+  /// video endpoint serves the bytes from `{path}/{id}/content`.
+  Future<Uint8List> downloadVideo(
+    String id,
+    String path,
+    String url,
+    CancelToken cancel,
+  ) async {
+    final target = url.isNotEmpty
+        ? Uri.parse(url)
+        : config.imageEndpoint('$path/$id/content');
+    if (!['https', 'http'].contains(target.scheme) ||
+        target.host.isEmpty ||
+        target.userInfo.isNotEmpty) {
+      throw const FormatException('invalidVideoUrl');
+    }
+    // No credentials on a download: the address may point at storage.
+    final client = networkClient(config.proxy);
+    try {
+      final response = await client.getUri<ResponseBody>(
+        target,
+        options: Options(
+          responseType: ResponseType.stream,
+          receiveTimeout: const Duration(minutes: 10),
+          validateStatus: (_) => true,
+        ),
+        cancelToken: cancel,
+      );
+      final stream = response.data!.stream;
+      final status = response.statusCode ?? 0;
+      if (status < 200 || status >= 300) throw await _httpFailure(status, stream);
+      final bytes = BytesBuilder(copy: false);
+      await for (final chunk in stream) {
+        if (bytes.length + chunk.length > maxVideoBytes) {
+          throw const FormatException('videoTooLarge');
+        }
+        bytes.add(chunk);
+      }
+      return bytes.takeBytes();
+    } on DioException catch (error) {
+      throw ImageApiException(
+        'downloadFailed',
+        error.message ?? 'Video download failed',
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// Reads a small JSON body (a task object), refusing anything that is not one.
+  Future<Map<String, dynamic>> _jsonBody(Stream<List<int>> stream) async {
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in stream) {
+      if (bytes.length + chunk.length > maxAgentBytes) {
+        throw const FormatException('responseTooLarge');
+      }
+      bytes.add(chunk);
+    }
+    final text = utf8.decode(bytes.takeBytes(), allowMalformed: true).trim();
+    if (text.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(text);
+      return decoded is Map<String, dynamic> ? decoded : const {};
+    } on FormatException {
+      throw const FormatException('invalidVideoTask');
+    }
   }
 
   Future<AgentReply> converse(

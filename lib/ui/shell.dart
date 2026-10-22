@@ -14,6 +14,7 @@ import 'agent_options.dart';
 import 'model_picker.dart';
 import 'deck_workspace.dart';
 import 'style_editor.dart';
+import 'video.dart';
 
 class StudioShell extends StatefulWidget {
   const StudioShell({super.key, required this.studio});
@@ -181,6 +182,17 @@ class _StudioShellState extends State<StudioShell> {
               tooltip: s.t('decks'),
               onPressed: () => _decks(),
               icon: const Icon(Icons.slideshow_rounded),
+            ),
+          if (_page == 0)
+            IconButton(
+              key: const ValueKey('videoPage'),
+              tooltip: s.t('video'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => VideoPage(studio: studio),
+                ),
+              ),
+              icon: const Icon(Icons.movie_outlined),
             ),
           if (_page == 1) ...[
             IconButton(

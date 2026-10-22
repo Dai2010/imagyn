@@ -119,6 +119,32 @@ class LocalStore {
     return asset;
   }
 
+  /// Clips go next to the pictures so one directory holds everything the app
+  /// made, but they are kept as `video/mp4` rows: the Gallery filters on the
+  /// mime type and never tries to decode one as an image.
+  Future<Asset> saveVideo(
+    Uint8List bytes, {
+    String prompt = '',
+    Map<String, dynamic> parameters = const {},
+  }) async {
+    final id = newId();
+    final relative = p.join('assets', '$id.mp4');
+    final destination = File(p.join(root.path, relative));
+    final temp = File('${destination.path}.partial');
+    await temp.writeAsBytes(bytes, flush: true);
+    await temp.rename(destination.path);
+    final asset = Asset(
+      id: id,
+      path: relative,
+      mime: 'video/mp4',
+      prompt: prompt,
+      createdAt: DateTime.now(),
+      parameters: parameters,
+    );
+    await db.insert('assets', {'id': id, 'record': jsonEncode(asset.toJson())});
+    return asset;
+  }
+
   File file(Asset asset) => File(p.join(root.path, asset.path));
   Future<List<Asset>> assets() async =>
       (await db.query('assets', orderBy: 'id DESC'))
