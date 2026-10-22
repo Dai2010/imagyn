@@ -80,7 +80,6 @@ void main() {
   });
 
   test('the style block rides inside the video prompt', () {
-    final cel = styleById(const [], 'cel')!;
     const options = VideoOptions(style: 'cel');
     final prompt = videoPrompt('一只猫在窗台', options, const []);
     expect(prompt, startsWith('一只猫在窗台\n\nStyle: '));
