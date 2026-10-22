@@ -7,7 +7,7 @@ match the installed Flutter version, so regenerating them is more reliable than
 keeping a stale copy. This script regenerates them and then copies the files
 this app actually owns from `platform/` on top.
 
-    python3 scripts/scaffold_platforms.py [platforms] [--release-signing]
+    python3 scripts/scaffold_platforms.py [platforms] [--release-signing] [--preview]
 
 `platforms` defaults to `android,linux,windows,macos`.
 
@@ -20,6 +20,12 @@ described by `android/key.properties` (the file itself is never committed). It
 is used by the release workflow only; without it the generated template keeps
 signing release builds with the throwaway debug key, which is what the build
 workflow wants for its test artifacts.
+
+`--preview` makes the Android package a separate app: the application id gains a
+`.preview` suffix and the launcher label gains a "预览 / Preview" marker. Without
+it a preview APK would replace the released one on the phone (and, being signed
+with the other key, would demand an uninstall first), so there would be no way
+to compare the two side by side.
 """
 
 from __future__ import annotations
@@ -40,6 +46,9 @@ DEFAULT_PLATFORM_LIST = ["android", "linux", "windows", "macos"]
 
 # RELATIVE_PATH on MediaStore needs API 29; the media-save channel relies on it.
 ANDROID_MIN_SDK = 29
+
+# Preview builds are a second app so they can sit next to the released one.
+PREVIEW_ID_SUFFIX = ".preview"
 
 SIGNING_CONFIGS_KTS = """    signingConfigs {
         create("release") {
@@ -126,7 +135,7 @@ def copy_overlay(platform: str, target: Path) -> list[str]:
     return copied
 
 
-def patch_android(target: Path, release_signing: bool) -> None:
+def patch_android(target: Path, release_signing: bool, preview: bool) -> None:
     gradle = sorted(target.glob("app/build.gradle*"))
     gradle = [path for path in gradle if path.suffix in {".kts", ".gradle"}]
     if len(gradle) != 1:
@@ -141,6 +150,32 @@ def patch_android(target: Path, release_signing: bool) -> None:
     if groovy + kotlin != 1:
         fail(f"could not find the minSdk setting in {gradle_file.name}; "
              "the Flutter template changed, update this script")
+
+    if preview:
+        # A second installed app rather than an upgrade of the released one.
+        # Only the application id changes: the namespace stays app.imagyn, so
+        # the Kotlin sources and the manifest's relative class names are
+        # untouched, and the two installations keep separate data directories.
+        text, renamed = re.subn(
+            r'applicationId(\s*=\s*|\s+)"([^"]+)"',
+            lambda match: f'applicationId{match.group(1)}"{match.group(2)}{PREVIEW_ID_SUFFIX}"',
+            text, count=1)
+        if renamed != 1:
+            fail(f"could not find applicationId in {gradle_file.name}; "
+                 "the Flutter template changed, update this script")
+        for strings in sorted((target / "app/src/main/res").glob("values*/strings.xml")):
+            contents = strings.read_text()
+            contents, labelled = re.subn(
+                r'(<string name="app_name">)([^<]*)(</string>)',
+                lambda match: (match.group(1) + match.group(2)
+                               + (" 预览" if any(ord(ch) > 127 for ch in match.group(2))
+                                  else " Preview")
+                               + match.group(3)),
+                contents, count=1)
+            if labelled != 1:
+                fail(f"could not find app_name in {strings}; "
+                     "the overlay changed, update this script")
+            strings.write_text(contents)
 
     manifest = target / "app/src/main/AndroidManifest.xml"
     if not manifest.is_file():
@@ -280,6 +315,9 @@ def main() -> None:
                         help=f"comma-separated list, default {DEFAULT_PLATFORMS}")
     parser.add_argument("--release-signing", action="store_true",
                         help="wire Android release builds to android/key.properties")
+    parser.add_argument("--preview", action="store_true",
+                        help="give Android a separate application id and label so a "
+                             "preview installs alongside the released app")
     args = parser.parse_args()
 
     platforms = [name.strip() for name in args.platforms.split(",") if name.strip()]
@@ -288,6 +326,8 @@ def main() -> None:
         fail(f"unknown platform(s): {', '.join(unknown)}")
     if args.release_signing and "android" not in platforms:
         fail("--release-signing needs the android platform")
+    if args.preview and "android" not in platforms:
+        fail("--preview needs the android platform")
 
     with tempfile.TemporaryDirectory() as workdir:
         generated = generate(platforms, Path(workdir))
@@ -309,7 +349,7 @@ def main() -> None:
                     fail("platform/android/ contributed no files, so the media-save "
                          "channel and the launcher icons would be missing from the "
                          "APK; check that the overlay is still tracked by git")
-                patch_android(target, args.release_signing)
+                patch_android(target, args.release_signing, args.preview)
 
     print("done. Next: flutter pub get && flutter run")
 

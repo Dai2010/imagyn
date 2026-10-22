@@ -55,7 +55,7 @@ jobs:
           channel: stable
           cache: true
 
-      - run: python3 scripts/scaffold_platforms.py android
+      - run: python3 scripts/scaffold_platforms.py android --preview
       - run: flutter pub get
 
       # A release build rather than a debug one: this artifact exists to be
@@ -237,7 +237,7 @@ jobs:
           {
             echo "**这是预览版，不是正式发布。**"
             echo
-            echo "签名：**预览通道密钥**，因此可以覆盖安装后续预览；装正式签名版时仍需先卸载。（若 CI 未配置预览密钥，则退回 runner 每轮都变的临时 debug 密钥，那种情况下也得先卸载。）"
+            echo "签名：**预览通道密钥**；包名是 \`app.imagyn.preview\`，标签带「预览」，是独立应用，可以和正式版同时安装、互不覆盖，设置与密钥需在预览版里重新填一次。"
             echo
             echo "来源：\`build\` 流水线 #${{ github.run_id }}，提交 \`${{ github.sha }}\`。"
             echo
@@ -291,7 +291,7 @@ jobs:
             echo
             echo "## 签名状态"
             echo
-            echo "- **Android APK** —— 用**预览通道密钥**签名，所以能覆盖安装后续预览；装正式签名版时仍需先卸载。"
+            echo "- **Android APK** —— 用**预览通道密钥**签名，包名 \`app.imagyn.preview\`（正式版是 \`app.imagyn\`），因此两者可以同时装在一台手机上，数据与设置各自独立。"
             echo "- **Windows MSI / EXE、macOS DMG / PKG、Linux deb / rpm / Arch** —— **未签名**。Windows SmartScreen 会提示未知发布者，macOS 需要右键打开。消除这一点需要 Authenticode 证书与 Apple Developer ID，两个都还没有。"
             echo "- **Windows 只有 64 位**：Flutter 不提供 32 位 Windows 目标。"
             echo
