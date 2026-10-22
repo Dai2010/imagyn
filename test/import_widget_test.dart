@@ -6,7 +6,7 @@ import 'package:imagyn/main.dart';
 import 'support/memory_store.dart';
 
 void main() {
-  testWidgets('the file import belongs to the Agent composer only', (
+  testWidgets('one attach button offers files only on the Agent page', (
     tester,
   ) async {
     final studio = Studio(MemoryStore());
@@ -14,9 +14,17 @@ void main() {
     await tester.pumpWidget(ImagynApp(studio: studio));
     await tester.pumpAndSettle();
 
+    // The gallery can add references but has nowhere to send a document.
+    await tester.tap(find.byKey(const ValueKey('attach')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('addReferences')), findsOneWidget);
     expect(find.byKey(const ValueKey('importFiles')), findsNothing);
+    await tester.tapAt(const Offset(8, 8));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('Agent').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('attach')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('importFiles')), findsOneWidget);
     expect(tester.takeException(), isNull);

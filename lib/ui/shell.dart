@@ -1,10 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:gpt_markdown/gpt_markdown.dart';
+import 'package:gpt_markdown/gpt_markdown.dart' hide ImageStyle;
 
 import '../core/models.dart';
 import '../core/studio.dart';
+import '../core/styles.dart';
 import '../l10n/strings.dart';
 import 'settings.dart';
 import 'gallery.dart';
@@ -12,6 +13,7 @@ import 'image_options.dart';
 import 'agent_options.dart';
 import 'model_picker.dart';
 import 'deck_workspace.dart';
+import 'style_editor.dart';
 
 class StudioShell extends StatefulWidget {
   const StudioShell({super.key, required this.studio});
@@ -855,38 +857,96 @@ class _StudioShellState extends State<StudioShell> {
                       ),
                     ),
                   ),
-                  TextField(
-                    controller: controller,
-                    minLines: 1,
-                    maxLines: 4,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      hintText: s.t(agent ? 'agentPrompt' : 'prompt'),
-                      filled: false,
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                    ),
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: controller,
+                    builder: (context, value, _) {
+                      final style = styleIn(value.text, studio.customStyles);
+                      final palette = _stylePalette(value.text, controller);
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (style != null)
+                            Align(
+                              alignment: AlignmentDirectional.centerStart,
+                              child: Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: InputChip(
+                                  key: const ValueKey('activeStyle'),
+                                  visualDensity: VisualDensity.compact,
+                                  avatar: const Icon(
+                                    Icons.brush_outlined,
+                                    size: 16,
+                                  ),
+                                  label: Text(_styleName(style)),
+                                  onDeleted: () => _writePrompt(
+                                    controller,
+                                    removeStyle(value.text, style),
+                                  ),
+                                  deleteIcon: const Icon(Icons.close, size: 16),
+                                ),
+                              ),
+                            ),
+                          if (palette != null) palette,
+                          TextField(
+                            controller: controller,
+                            minLines: 1,
+                            maxLines: 4,
+                            textCapitalization: TextCapitalization.sentences,
+                            decoration: InputDecoration(
+                              hintText: s.t(agent ? 'agentPrompt' : 'prompt'),
+                              filled: false,
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                   Row(
                     children: [
-                      if (agent)
-                        IconButton(
-                          key: const ValueKey('importFiles'),
-                          tooltip: s.t('importFiles'),
-                          visualDensity: VisualDensity.compact,
-                          onPressed: studio.busy
-                              ? null
-                              : () => _guard(studio.importFiles),
-                          icon: const Icon(Icons.attach_file_rounded, size: 20),
+                      PopupMenuButton<String>(
+                        key: const ValueKey('attach'),
+                        tooltip: s.t('attach'),
+                        enabled: !studio.busy,
+                        icon: Icon(
+                          agent
+                              ? Icons.attach_file_rounded
+                              : Icons.add_photo_alternate_outlined,
+                          size: 20,
                         ),
-                      IconButton(
-                        tooltip: s.t('addReferences'),
-                        visualDensity: VisualDensity.compact,
-                        onPressed: studio.busy
-                            ? null
-                            : () => _guard(() => studio.pickReferences(agent)),
-                        icon: const Icon(Icons.add_photo_alternate_outlined),
+                        onSelected: (choice) => _guard(() async {
+                          if (choice == 'files') {
+                            await studio.importFiles();
+                          } else {
+                            await studio.pickReferences(agent);
+                          }
+                        }),
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            value: 'refs',
+                            key: const ValueKey('addReferences'),
+                            child: ListTile(
+                              leading: const Icon(
+                                Icons.add_photo_alternate_outlined,
+                              ),
+                              title: Text(s.t('addReferences')),
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                          if (agent)
+                            PopupMenuItem(
+                              value: 'files',
+                              key: const ValueKey('importFiles'),
+                              child: ListTile(
+                                leading: const Icon(Icons.attach_file_rounded),
+                                title: Text(s.t('importFiles')),
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                        ],
                       ),
                       if (agent)
                         IconButton(
@@ -961,6 +1021,96 @@ class _StudioShellState extends State<StudioShell> {
     );
   }
 
+  /// The `/style` list, or null when the text is not a command. Choosing one
+  /// writes its words into the prompt instead of storing a separate choice, so
+  /// what the user reads on screen is exactly what the service receives.
+  Widget? _stylePalette(String text, TextEditingController controller) {
+    // The command is the line being typed, so a prompt written first stays.
+    final tail = text.split('\n').last.trimLeft();
+    if (!tail.startsWith('/')) return null;
+    final command = tail.substring(1).toLowerCase();
+    final entries = <Widget>[];
+    if (!command.startsWith('style')) {
+      if ('style'.startsWith(command)) {
+        entries.add(
+          ListTile(
+            key: const ValueKey('styleCommand'),
+            dense: true,
+            leading: const Icon(Icons.brush_outlined, size: 20),
+            title: const Text('/style'),
+            subtitle: Text(s.t('styleCommand')),
+            onTap: () => _writePrompt(controller, '/style '),
+          ),
+        );
+      }
+    } else {
+      final query = command.substring('style'.length).trim();
+      for (final style in [...builtInStyles, ...studio.customStyles]) {
+        final name = _styleName(style);
+        if (query.isNotEmpty &&
+            !style.id.contains(query) &&
+            !name.toLowerCase().contains(query)) {
+          continue;
+        }
+        entries.add(
+          ListTile(
+            key: ValueKey('styleOption-${style.id}'),
+            dense: true,
+            leading: const Icon(Icons.palette_outlined, size: 20),
+            title: Text(name),
+            subtitle: Text(
+              style.words,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => _writePrompt(controller, insertStyle(text, style)),
+          ),
+        );
+      }
+      entries.add(
+        ListTile(
+          key: const ValueKey('manageStyles'),
+          dense: true,
+          leading: const Icon(Icons.edit_outlined, size: 20),
+          title: Text(s.t('customStyles')),
+          onTap: _manageStyles,
+        ),
+      );
+    }
+    if (entries.isEmpty) return null;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      constraints: const BoxConstraints(maxHeight: 220),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: ListView(shrinkWrap: true, children: entries),
+    );
+  }
+
+  String _styleName(ImageStyle style) =>
+      style.isBuiltIn ? s.t(style.label) : style.label;
+
+  void _writePrompt(TextEditingController controller, String text) {
+    controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  Future<void> _manageStyles() async {
+    await showDialog<List<ImageStyle>>(
+      context: context,
+      builder: (_) => StyleEditorDialog(
+        styles: studio.customStyles,
+        onSave: studio.saveStyle,
+        onRemove: studio.removeStyle,
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   /// The model chips get their own line above the input: one for the model that
   /// answers and, on the Agent page, one for the image model, so a generated
   /// picture can be retargeted without leaving the conversation.
@@ -1022,9 +1172,6 @@ class _StudioShellState extends State<StudioShell> {
       builder: (_) => ImageOptionsSheet(
         options: studio.imageOptions,
         model: studio.activeConfig.imageModel,
-        styles: studio.customStyles,
-        onSaveStyle: studio.saveStyle,
-        onRemoveStyle: studio.removeStyle,
       ),
     );
     if (value != null) await _guard(() => studio.setImageOptions(value));

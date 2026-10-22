@@ -141,10 +141,54 @@ ImageStyle? styleById(Iterable<ImageStyle> custom, String id) {
   return null;
 }
 
+/// The words a pack contributes: the finish it asks for, and what to steer
+/// away from. Kept separate from [withStyle] because the composer writes this
+/// block into the prompt the user is editing.
+String styleBlock(ImageStyle style) {
+  final buffer = StringBuffer('Style: ${style.words}');
+  if (style.avoid.isNotEmpty) buffer.write('\nAvoid: ${style.avoid}');
+  return buffer.toString();
+}
+
 /// [prompt] with [style] written after it, or unchanged when there is none.
 String withStyle(String prompt, ImageStyle? style) {
   if (style == null) return prompt;
-  final buffer = StringBuffer('${prompt.trim()}\n\nStyle: ${style.words}');
-  if (style.avoid.isNotEmpty) buffer.write('\nAvoid: ${style.avoid}');
-  return buffer.toString();
+  return '${prompt.trim()}\n\n${styleBlock(style)}';
+}
+
+/// The pack already written into [text], if any. The composer uses this to show
+/// which style the current prompt carries, without keeping a second copy of the
+/// choice that could drift from the text.
+ImageStyle? styleIn(String text, Iterable<ImageStyle> custom) {
+  for (final style in [...builtInStyles, ...custom]) {
+    if (text.contains(styleBlock(style))) return style;
+  }
+  return null;
+}
+
+/// [text] with its trailing `/style …` command replaced by [style]'s block,
+/// which the user can then read and edit like any other prompt text.
+///
+/// The command is the last line, so a prompt written first keeps its words.
+String insertStyle(String text, ImageStyle style) {
+  final lines = text.split('\n');
+  final tail = lines.isEmpty ? '' : lines.last.trimLeft();
+  final body = tail.startsWith('/style')
+      ? lines.sublist(0, lines.length - 1).join('\n')
+      : text;
+  final rest = body.trim();
+  final block = styleBlock(style);
+  return rest.isEmpty ? block : '$rest\n\n$block';
+}
+
+/// [text] with [style]'s block taken back out again.
+String removeStyle(String text, ImageStyle style) {
+  final block = styleBlock(style);
+  final index = text.indexOf(block);
+  if (index < 0) return text;
+  final before = text.substring(0, index).trimRight();
+  final after = text.substring(index + block.length).trimLeft();
+  if (before.isEmpty) return after;
+  if (after.isEmpty) return before;
+  return '$before\n\n$after';
 }

@@ -186,6 +186,9 @@ class Studio extends ChangeNotifier {
           as Map<String, dynamic>,
     );
     customStyles = _parseStyles(await store.setting('imageStyles'));
+    // The style used to be an option here; `/style` now writes the words into
+    // the prompt, so a value saved by an older build would append them twice.
+    imageOptions = imageOptions.copyWith(style: '');
     await _loadConversationSettings();
     await _loadDecks();
     await refresh();
