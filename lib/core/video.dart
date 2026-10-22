@@ -248,3 +248,60 @@ String videoMessageOf(Map<String, dynamic> json) {
 /// pack's block, exactly as the image path does it.
 String videoPrompt(String prompt, VideoOptions options, Iterable<ImageStyle> custom) =>
     withStyle(prompt, styleById(custom, options.style));
+
+/// One validated `generate_video` call. `style` is a pack id, or empty for
+/// `auto` — the app's own choice cannot be named by the model.
+typedef VideoCall = ({
+  String prompt,
+  String ratio,
+  String resolution,
+  int seconds,
+  bool watermark,
+  bool cameraFixed,
+  int seed,
+  String style,
+});
+
+/// Reads the arguments of a `generate_video` call. Missing optional fields take
+/// the defaults the video page shows; a value outside the documented set is
+/// `invalidTool`, which the model can correct on its next step.
+VideoCall validateVideoCall(Map<String, dynamic> arguments) {
+  final prompt = arguments['prompt'];
+  final ratio = arguments['ratio'] ?? '16:9';
+  final resolution = arguments['resolution'] ?? '720p';
+  final seconds = arguments['seconds'] ?? 5;
+  final watermark = arguments['watermark'] ?? false;
+  final cameraFixed = arguments['camera_fixed'] ?? false;
+  final seed = arguments['seed'] ?? -1;
+  final style = arguments['style'] ?? 'auto';
+  if (prompt is! String ||
+      prompt.trim().isEmpty ||
+      ratio is! String ||
+      !VideoOptions.ratios.contains(ratio) ||
+      resolution is! String ||
+      !VideoOptions.resolutions.contains(resolution) ||
+      seconds is! num ||
+      seconds < VideoOptions.minSeconds ||
+      seconds > VideoOptions.maxSeconds ||
+      watermark is! bool ||
+      cameraFixed is! bool ||
+      seed is! num ||
+      seed < -1 ||
+      seed > 0xFFFFFFFF ||
+      style is! String) {
+    throw const FormatException('invalidTool');
+  }
+  if (style != 'auto' && !builtInStyleIds.contains(style)) {
+    throw const FormatException('invalidTool');
+  }
+  return (
+    prompt: prompt.trim(),
+    ratio: ratio,
+    resolution: resolution,
+    seconds: seconds.toInt(),
+    watermark: watermark,
+    cameraFixed: cameraFixed,
+    seed: seed.toInt(),
+    style: style == 'auto' ? '' : style,
+  );
+}

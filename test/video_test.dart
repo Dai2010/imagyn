@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:imagyn/core/models.dart';
+import 'package:imagyn/core/styles.dart';
 import 'package:imagyn/core/video.dart';
 
 void main() {
@@ -86,5 +88,34 @@ void main() {
 
     const plain = VideoOptions();
     expect(videoPrompt('一只猫', plain, const []), '一只猫');
+  });
+
+  test('generate_video takes the documented arguments and nothing else', () {
+    final call = validateVideoCall(const {'prompt': ' 一只猫 ', 'style': 'cel'});
+    expect(call.prompt, '一只猫');
+    expect(call.ratio, '16:9');
+    expect(call.seconds, 5);
+    expect(call.seed, -1);
+    expect(call.style, 'cel');
+
+    expect(validateVideoCall(const {'prompt': 'x'}).style, isEmpty);
+    expect(
+      () => validateVideoCall(const {'prompt': 'x', 'ratio': '2:1'}),
+      throwsFormatException,
+    );
+    expect(
+      () => validateVideoCall(const {'prompt': 'x', 'style': 'my-pack'}),
+      throwsFormatException,
+      reason: 'custom packs never leave the device',
+    );
+    expect(
+      () => validateVideoCall(const {'prompt': ' '}),
+      throwsFormatException,
+    );
+
+    final parameters = videoTool['parameters'] as Map;
+    expect((parameters['properties'] as Map)['style']['enum'], styleChoices);
+    expect(parameters['required'], contains('camera_fixed'));
+    expect(agentTools.map((tool) => tool['name']), contains('generate_video'));
   });
 }

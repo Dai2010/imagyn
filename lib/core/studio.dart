@@ -2148,6 +2148,82 @@ class Studio extends ChangeNotifier {
     }
   }
 
+  /// The Agent's `generate_video`: the submit → poll → download path the video
+  /// page uses, with the newest conversation image as the first frame. The
+  /// clip is named in the tool result so the model can refer to it, and it
+  /// lands on the video page rather than in the transcript.
+  Future<String> _generateVideoCall(StudioApi client, AgentCall call) async {
+    final parsed = validateVideoCall(call.arguments);
+    final options = VideoOptions(
+      ratio: parsed.ratio,
+      resolution: parsed.resolution,
+      seconds: parsed.seconds,
+      watermark: parsed.watermark,
+      cameraFixed: parsed.cameraFixed,
+      seed: parsed.seed,
+      style: parsed.style,
+    );
+    final model = videoModel.trim().isEmpty
+        ? videoModels.first.id
+        : videoModel.trim();
+    final path = videoPath.trim().isEmpty ? 'videos' : videoPath.trim();
+    final refs = agentRefs.take(1).toList();
+    final record = <String, dynamic>{
+      'kind': 'video',
+      'prompt': parsed.prompt,
+      'model': model,
+      'path': path,
+      ...options.toJson(),
+      'references': refs.map((asset) => asset.id).toList(),
+    };
+    final jobId = store.newId();
+    await store.job(jobId, 'submitting', record);
+    stage = 'working';
+    notifyListeners();
+    final id = await client.startVideo(
+      model,
+      videoPrompt(parsed.prompt, options, customStyles),
+      refs,
+      options,
+      path,
+      _cancel!,
+    );
+    await store.job(jobId, 'rendering', {...record, 'task': id});
+    var task = VideoTask(id: id, state: 'pending');
+    final deadline = DateTime.now().add(const Duration(minutes: 30));
+    while (!task.done && !task.failed) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw const FormatException('videoTimeout');
+      }
+      await Future<void>.delayed(const Duration(seconds: 5));
+      task = await client.pollVideo(id, path, _cancel!);
+    }
+    if (task.failed) {
+      throw FormatException(
+        task.message.isEmpty ? 'videoFailed' : task.message,
+      );
+    }
+    final bytes = await client.downloadVideo(id, path, task.url, _cancel!);
+    final asset = await store.saveVideo(
+      bytes,
+      prompt: parsed.prompt,
+      parameters: {...record, 'task': id},
+    );
+    await store.job(jobId, 'complete', {
+      ...record,
+      'task': id,
+      'asset': asset.id,
+    });
+    await refresh();
+    return jsonEncode({
+      'video_id': asset.id,
+      'ratio': options.ratio,
+      'resolution': options.resolution,
+      'seconds': options.seconds,
+      'note': 'Saved to the video page; it cannot be shown in the conversation.',
+    });
+  }
+
   Future<String> _executeCall(
     StudioApi client,
     AgentCall call,
@@ -2189,6 +2265,8 @@ class Studio extends ChangeNotifier {
         return _fetch(call);
       case 'ask_user':
         return _askUser(call);
+      case 'generate_video':
+        return _generateVideoCall(client, call);
     }
     if (call.name != imageTool['name']) {
       return 'Unknown tool "${call.name}": this build has no such tool.';
