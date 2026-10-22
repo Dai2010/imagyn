@@ -481,6 +481,7 @@ rows.update({'about': ['About', '关于', 'À propos', 'Acerca de', 'О прог
 rows.update({
  'video': ['Video', '视频', 'Vidéo', 'Vídeo', 'Видео', 'فيديو'],
  'videoModel': ['Video model', '视频模型', 'Modèle vidéo', 'Modelo de vídeo', 'Видеомодель', 'نموذج الفيديو'],
+'videoModelCustom': ['Custom…', '自定义…', 'Personnalisé…', 'Personalizado…', 'Другая…', 'مخصّص…'],
  'videoPath': ['Endpoint path', '接口路径', 'Chemin de l’API', 'Ruta de la API', 'Путь API', 'مسار الواجهة'],
  'videoRatio': ['Aspect ratio', '画面比例', 'Format', 'Proporción', 'Соотношение', 'نسبة العرض'],
  'videoResolution': ['Resolution', '分辨率', 'Résolution', 'Resolución', 'Разрешение', 'الدقة'],

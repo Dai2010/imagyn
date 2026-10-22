@@ -24,7 +24,19 @@ class _VideoPageState extends State<VideoPage> {
   late VideoOptions _options = widget.studio.videoOptions;
   bool _saving = false;
 
+  /// The dropdown value that reveals the free-form id field. A gateway may use
+  /// an id none of the presets know, so this stays reachable without putting
+  /// seven chips and a text field on the page at once.
+  static const _customModel = '__custom__';
+  late bool _custom;
+
   Studio get studio => widget.studio;
+
+  @override
+  void initState() {
+    super.initState();
+    _custom = !videoModels.any((m) => m.id == _model.text.trim());
+  }
 
   @override
   void dispose() {
@@ -101,25 +113,39 @@ class _VideoPageState extends State<VideoPage> {
               ],
             ),
             const SizedBox(height: 16),
-            _label(s.t('videoModel')),
-            TextField(
-              key: const ValueKey('videoModel'),
-              controller: _model,
-              decoration: const InputDecoration(hintText: 'seedance-1-0-pro'),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
+            DropdownButtonFormField<String>(
+              key: const ValueKey('videoModelPick'),
+              initialValue: _custom ? _customModel : _model.text.trim(),
+              isExpanded: true,
+              decoration: InputDecoration(labelText: s.t('videoModel')),
+              items: [
                 for (final model in videoModels)
-                  ChoiceChip(
-                    label: Text(model.label),
-                    selected: _model.text.trim() == model.id,
-                    onSelected: (_) => setState(() => _model.text = model.id),
-                  ),
+                  DropdownMenuItem(value: model.id, child: Text(model.label)),
+                DropdownMenuItem(
+                  value: _customModel,
+                  child: Text(s.t('videoModelCustom')),
+                ),
               ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() {
+                  _custom = value == _customModel;
+                  if (_custom) {
+                    _model.clear();
+                  } else {
+                    _model.text = value;
+                  }
+                });
+              },
             ),
+            if (_custom) ...[
+              const SizedBox(height: 8),
+              TextField(
+                key: const ValueKey('videoModel'),
+                controller: _model,
+                decoration: const InputDecoration(hintText: 'seedance-1-0-pro'),
+              ),
+            ],
             const SizedBox(height: 12),
             TextField(
               key: const ValueKey('videoPath'),

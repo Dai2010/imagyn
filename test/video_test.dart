@@ -93,12 +93,21 @@ void main() {
   test('generate_video takes the documented arguments and nothing else', () {
     final call = validateVideoCall(const {'prompt': ' 一只猫 ', 'style': 'cel'});
     expect(call.prompt, '一只猫');
+    expect(call.model, isEmpty);
     expect(call.ratio, '16:9');
     expect(call.seconds, 5);
     expect(call.seed, -1);
     expect(call.style, 'cel');
 
+    expect(
+      validateVideoCall(const {'prompt': 'x', 'model': ' veo-3-1 '}).model,
+      'veo-3-1',
+    );
     expect(validateVideoCall(const {'prompt': 'x'}).style, isEmpty);
+    expect(
+      () => validateVideoCall(const {'prompt': 'x', 'model': 'two words'}),
+      throwsFormatException,
+    );
     expect(
       () => validateVideoCall(const {'prompt': 'x', 'ratio': '2:1'}),
       throwsFormatException,
@@ -116,6 +125,7 @@ void main() {
     final parameters = videoTool['parameters'] as Map;
     expect((parameters['properties'] as Map)['style']['enum'], styleChoices);
     expect(parameters['required'], contains('camera_fixed'));
+    expect(parameters['required'], contains('model'));
     expect(agentTools.map((tool) => tool['name']), contains('generate_video'));
   });
 }
