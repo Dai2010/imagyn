@@ -671,6 +671,13 @@ const videoTool = {
     'type': 'object',
     'properties': {
       'prompt': {'type': 'string'},
+      'model': {
+        'type': 'string',
+        'description':
+            'Video model id for this clip, e.g. seedance-1-0-pro-250528. Leave '
+            'it empty to use the model chosen on the video page; a gateway may '
+            'accept ids that are not in the built-in list.',
+      },
       'ratio': {
         'type': 'string',
         'enum': VideoOptions.ratios,
@@ -708,6 +715,7 @@ const videoTool = {
     },
     'required': [
       'prompt',
+      'model',
       'ratio',
       'resolution',
       'seconds',

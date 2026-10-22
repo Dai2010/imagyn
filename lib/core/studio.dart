@@ -2173,7 +2173,9 @@ class Studio extends ChangeNotifier {
       seed: parsed.seed,
       style: parsed.style,
     );
-    final model = videoModel.trim().isEmpty
+    final model = parsed.model.isNotEmpty
+        ? parsed.model
+        : videoModel.trim().isEmpty
         ? videoModels.first.id
         : videoModel.trim();
     final path = videoPath.trim().isEmpty ? 'videos' : videoPath.trim();

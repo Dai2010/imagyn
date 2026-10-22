@@ -253,6 +253,7 @@ String videoPrompt(String prompt, VideoOptions options, Iterable<ImageStyle> cus
 /// `auto` — the app's own choice cannot be named by the model.
 typedef VideoCall = ({
   String prompt,
+  String model,
   String ratio,
   String resolution,
   int seconds,
@@ -267,6 +268,7 @@ typedef VideoCall = ({
 /// `invalidTool`, which the model can correct on its next step.
 VideoCall validateVideoCall(Map<String, dynamic> arguments) {
   final prompt = arguments['prompt'];
+  final model = arguments['model'] ?? '';
   final ratio = arguments['ratio'] ?? '16:9';
   final resolution = arguments['resolution'] ?? '720p';
   final seconds = arguments['seconds'] ?? 5;
@@ -276,6 +278,9 @@ VideoCall validateVideoCall(Map<String, dynamic> arguments) {
   final style = arguments['style'] ?? 'auto';
   if (prompt is! String ||
       prompt.trim().isEmpty ||
+      model is! String ||
+      model.trim().length > 120 ||
+      model.trim().contains(RegExp(r'\s')) ||
       ratio is! String ||
       !VideoOptions.ratios.contains(ratio) ||
       resolution is! String ||
@@ -296,6 +301,7 @@ VideoCall validateVideoCall(Map<String, dynamic> arguments) {
   }
   return (
     prompt: prompt.trim(),
+    model: model.trim(),
     ratio: ratio,
     resolution: resolution,
     seconds: seconds.toInt(),
