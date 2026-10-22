@@ -213,7 +213,9 @@ const translations = <String, Map<String, String>>{
   "styleAvoid": "Avoid",
   "styleSave": "Save",
   "styleDelete": "Delete",
-  "styleInvalid": "A name and style words are required."
+  "styleInvalid": "A name and style words are required.",
+  "attach": "Attach",
+  "styleCommand": "Insert a style's words into the prompt"
 },
 "zh": {
   "gallery": "画廊",
@@ -428,7 +430,9 @@ const translations = <String, Map<String, String>>{
   "styleAvoid": "规避词",
   "styleSave": "保存",
   "styleDelete": "删除",
-  "styleInvalid": "名称和风格词都不能为空。"
+  "styleInvalid": "名称和风格词都不能为空。",
+  "attach": "附件",
+  "styleCommand": "把某个画风的词插进提示词"
 },
 "fr": {
   "gallery": "Galerie",
@@ -643,7 +647,9 @@ const translations = <String, Map<String, String>>{
   "styleAvoid": "À éviter",
   "styleSave": "Enregistrer",
   "styleDelete": "Supprimer",
-  "styleInvalid": "Un nom et des termes de style sont requis."
+  "styleInvalid": "Un nom et des termes de style sont requis.",
+  "attach": "Joindre",
+  "styleCommand": "Insérer les termes d’un style dans le prompt"
 },
 "es": {
   "gallery": "Galería",
@@ -858,7 +864,9 @@ const translations = <String, Map<String, String>>{
   "styleAvoid": "Evitar",
   "styleSave": "Guardar",
   "styleDelete": "Eliminar",
-  "styleInvalid": "Se requieren un nombre y términos de estilo."
+  "styleInvalid": "Se requieren un nombre y términos de estilo.",
+  "attach": "Adjuntar",
+  "styleCommand": "Insertar las palabras de un estilo en el prompt"
 },
 "ru": {
   "gallery": "Галерея",
@@ -1073,7 +1081,9 @@ const translations = <String, Map<String, String>>{
   "styleAvoid": "Избегать",
   "styleSave": "Сохранить",
   "styleDelete": "Удалить",
-  "styleInvalid": "Нужны название и слова стиля."
+  "styleInvalid": "Нужны название и слова стиля.",
+  "attach": "Прикрепить",
+  "styleCommand": "Вставить слова стиля в запрос"
 },
 "ar": {
   "gallery": "المعرض",
@@ -1288,6 +1298,8 @@ const translations = <String, Map<String, String>>{
   "styleAvoid": "تجنّب",
   "styleSave": "حفظ",
   "styleDelete": "حذف",
-  "styleInvalid": "الاسم وكلمات النمط مطلوبان."
+  "styleInvalid": "الاسم وكلمات النمط مطلوبان.",
+  "attach": "إرفاق",
+  "styleCommand": "إدراج كلمات نمط في الوصف"
 },
 };

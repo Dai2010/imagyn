@@ -109,4 +109,23 @@ void main() {
     expect(style['enum'], styleChoices);
     expect(parameters['required'], contains('style'));
   });
+
+  test('a /style line becomes prompt text and can be taken back', () {
+    final cel = styleById(const [], 'cel')!;
+    final block = styleBlock(cel);
+
+    // The command is the line being typed, so a prompt written first stays.
+    expect(insertStyle('/style', cel), block);
+    expect(insertStyle('一只猫\n/style', cel), '一只猫\n\n$block');
+    expect(insertStyle('一只猫', cel), '一只猫\n\n$block');
+
+    expect(styleIn('/style', const []), isNull);
+    final filled = insertStyle('一只猫\n/style', cel);
+    expect(styleIn(filled, const []), cel);
+    expect(styleIn('没有画风的句子', const []), isNull);
+
+    expect(removeStyle(filled, cel), '一只猫');
+    expect(removeStyle(block, cel), '');
+    expect(removeStyle('一只猫', cel), '一只猫');
+  });
 }
