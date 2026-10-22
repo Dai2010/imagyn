@@ -10,7 +10,7 @@ A minimalist AI image creation app with two entry points: **Gallery** and **Agen
 
 | Entry point | What it does |
 | --- | --- |
-| **Gallery** | Generate images from a prompt, with zero or more reference images. References are numbered, so you can ask for “the person from image 1 wearing the clothes from image 2.” |
+| **Gallery** | Generate images from a prompt, with zero or more reference images. References are numbered, so you can ask for “the person from image 1 wearing the clothes from image 2.” The video button in the app bar opens a separate video page for 3–12 second clips from a single prompt. |
 | **Agent** | Generate and refine images through conversation. Discussion and generation have separate status indicators; ordinary chat does not silently trigger paid image generation. Each edit is saved as a separate version, and generated images also appear in the gallery. It can also call tools repeatedly: generate images, create a presentation, add text and tables page by page, review the pages in a separate workspace, and finally export an editable `.pptx`. |
 
 Settings has its own page with three tabs: **Images / Agent / General**. Switch models during a conversation and customize each model’s system prompt, context message count and output parameters while keeping your history and draft. Reduced motion is also supported.
@@ -18,7 +18,8 @@ Settings has its own page with three tabs: **Images / Agent / General**. Switch 
 ## Features
 
 - **Local first:** History is stored in SQLite in the app’s private directory. Artwork is saved as local files rather than depending on temporary URLs. API keys use the system’s secure storage, not the database.
-- **Agent works in steps:** within one turn it can call tools repeatedly (image generation, deck building, tables, asking you). A tool failure is returned to the model as a result so it can continue; only a failing text-model request ends the turn. Stopping keeps the text already written as context for the next turn.
+- **Video:** A separate video page with seven built-in models — Seedance 1.0 Pro / Lite, Sora 2, Veo 3.1, Kling 2.5, Wan 2.5 and Hailuo 02 — plus a free-form model ID. Pick ratio, resolution, quality, duration (3–12 seconds), watermark, fixed camera and seed, and apply a style through the prompt. Submissions are polled every 5 seconds; finished clips are stored locally and can be saved to the device. The Agent can call `generate_video` itself with the same parameters.
+- **Agent works in steps:** within one turn it can call tools repeatedly (image generation, video generation, deck building, tables, asking you). A tool failure is returned to the model as a result so it can continue; only a failing text-model request ends the turn. Stopping keeps the text already written as context for the next turn.
 - **Presentations:** `create_deck` → `add_slide` → `add_table` → `finish_deck`, with a page-by-page workspace preview. Export is native OOXML `.pptx`; text boxes, pictures and tables remain editable in PowerPoint / WPS. One table per slide, up to 12 rows × 8 columns and 500 characters per cell.
 - **Bring your own service:** Configure base URLs, image and chat models, the protocol (OpenAI Chat Completions / OpenAI Responses / Anthropic Messages), and an optional HTTP proxy. Chat and image models can use different services.
 - **Clear task states:** Submission failures, unknown results, generation in progress and download failures are shown separately. A timeout after submission never automatically resends a paid generation request; the result stays “unknown” for you to check.
@@ -35,7 +36,8 @@ Settings has its own page with three tabs: **Images / Agent / General**. Switch 
 | OpenAI Chat Completions + tool calls | Implemented in Agent mode (`/chat/completions`) |
 | OpenAI Responses + tool calls | Implemented in Agent mode (`/responses`) |
 | Anthropic Messages + tool calls | Implemented in Agent mode |
-| Agent multi-step tool loop (`generate_image`, `create_deck`, `add_slide`, `add_table`, `ask_user`, …) | Implemented, up to 32 steps per turn; tool failures return to the model as results |
+| Video generation (`videos` submit → `videos/{id}` polling → `url` or `videos/{id}/content` download) | Implemented; multipart submission by default, tolerating `id`/`task_id`, `status`/`task_status` and `url`/`video_url`/`data[0]` (not yet tested against a real gateway) |
+| Agent multi-step tool loop (`generate_image`, `generate_video`, `create_deck`, `add_slide`, `add_table`, `ask_user`, …) | Implemented, up to 32 steps per turn; tool failures return to the model as results |
 | Presentation export (`.pptx`, text boxes / pictures / tables) | Native OOXML; editable in PowerPoint / WPS (opening on a real device is still untested) |
 | WebFetch / `fetch_url` | Executor and tool schema are still in PRs; not wired into the loop |
 | OpenAI Images SSE results | Implemented; enable it in the image API compatibility options |
@@ -73,8 +75,8 @@ Desktop packages **are unsigned**: Windows SmartScreen displays an “unknown pu
 ## Project layout
 
 ```text
-lib/core/    Storage, data models, API adapters, application state and the .pptx writer
-lib/ui/      Gallery / Agent shell, the deck workspace and settings
+lib/core/    Storage, data models, video options, API adapters, application state and the .pptx writer
+lib/ui/      Gallery / Agent shell, the video page, the deck workspace and settings
 lib/l10n/    Six-language text and lookup tables
 platform/    App-owned native files overlaid onto flutter create output
 scripts/     Platform scaffolding and translation generation
