@@ -1334,10 +1334,16 @@ class Studio extends ChangeNotifier {
       final title = call.arguments['title'];
       final categories = call.arguments['categories'];
       final rawSeries = call.arguments['series'];
+      final dataLabels = call.arguments['data_labels'] ?? false;
+      final valueFormat = call.arguments['value_format'] ?? 'general';
+      final stacked = call.arguments['stacked'] ?? false;
       if (kind is! String ||
           title is! String ||
           categories is! List ||
-          rawSeries is! List) {
+          rawSeries is! List ||
+          dataLabels is! bool ||
+          valueFormat is! String ||
+          stacked is! bool) {
         throw const FormatException('invalidTool');
       }
       final labels = <String>[];
@@ -1367,6 +1373,9 @@ class Studio extends ChangeNotifier {
         title: title,
         categories: labels,
         series: series,
+        dataLabels: dataLabels,
+        valueFormat: valueFormat,
+        stacked: stacked,
       );
       final previous = deck.slides[index];
       deck.slides[index] = Slide(

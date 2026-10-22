@@ -1154,10 +1154,21 @@ class _ChartPainter extends CustomPainter {
   ({double min, double max}) _bounds() {
     var min = 0.0;
     var max = 0.0;
-    for (final series in chart.series) {
-      for (final value in series.values) {
-        min = math.min(min, value);
-        max = math.max(max, value);
+    if (chart.stacked && chart.kind == 'bar') {
+      for (var i = 0; i < chart.categories.length; i++) {
+        var sum = 0.0;
+        for (final series in chart.series) {
+          sum += series.values[i];
+        }
+        min = math.min(min, sum);
+        max = math.max(max, sum);
+      }
+    } else {
+      for (final series in chart.series) {
+        for (final value in series.values) {
+          min = math.min(min, value);
+          max = math.max(max, value);
+        }
       }
     }
     if (max == min) max = min + 1;
@@ -1200,18 +1211,82 @@ class _ChartPainter extends CustomPainter {
     );
   }
 
+  /// A value label centred on [center]; the exported chart places these the
+  /// same way, so what the workspace shows is what the deck will print.
+  void _value(
+    Canvas canvas,
+    String text,
+    Offset center,
+    double fontSize, [
+    Color? color,
+  ]) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          fontSize: fontSize.clamp(7.0, 11.0).toDouble(),
+          color: color ?? ink,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      maxLines: 1,
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(
+      canvas,
+      Offset(center.dx - painter.width / 2, center.dy - painter.height / 2),
+    );
+  }
+
   void _bars(Canvas canvas, Size size) {
     final bounds = _bounds();
     final plot = _plot(size);
     _grid(canvas, plot);
     final slot = plot.width / chart.categories.length;
-    final barWidth = slot * .7 / chart.series.length;
     final paint = Paint()..style = PaintingStyle.fill;
     final zeroY = _y(0, plot, bounds);
+    final label = _labelSize(size);
+    if (chart.stacked) {
+      for (var i = 0; i < chart.categories.length; i++) {
+        final left = plot.left + slot * i + slot * .15;
+        final width = math.max(1.0, slot * .7);
+        var up = zeroY;
+        var down = zeroY;
+        for (var s = 0; s < chart.series.length; s++) {
+          final value = chart.series[s].values[i];
+          final height =
+              value.abs() / (bounds.max - bounds.min) * plot.height;
+          paint.color = palette[s % palette.length];
+          final top = value >= 0 ? up - height : down;
+          canvas.drawRect(
+            Rect.fromLTWH(left, top, width, math.max(1.0, height)),
+            paint,
+          );
+          if (value >= 0) {
+            up -= height;
+          } else {
+            down += height;
+          }
+          if (chart.dataLabels && height > label * 1.5) {
+            _value(
+              canvas,
+              chart.formatValue(value),
+              Offset(left + width / 2, top + height / 2),
+              label * .9,
+              Colors.white,
+            );
+          }
+        }
+        _category(canvas, i, left + slot * .35, slot, size);
+      }
+      return;
+    }
+    final barWidth = slot * .7 / chart.series.length;
     for (var i = 0; i < chart.categories.length; i++) {
       final left = plot.left + slot * i + slot * .15;
       for (var s = 0; s < chart.series.length; s++) {
-        final y = _y(chart.series[s].values[i], plot, bounds);
+        final value = chart.series[s].values[i];
+        final y = _y(value, plot, bounds);
         paint.color = palette[s % palette.length];
         canvas.drawRRect(
           RRect.fromRectAndRadius(
@@ -1225,6 +1300,14 @@ class _ChartPainter extends CustomPainter {
           ),
           paint,
         );
+        if (chart.dataLabels) {
+          _value(
+            canvas,
+            chart.formatValue(value),
+            Offset(left + barWidth * (s + .43), math.min(y, zeroY) - label * .62),
+            label * .9,
+          );
+        }
       }
       _category(canvas, i, left + slot * .35, slot, size);
     }
@@ -1263,6 +1346,16 @@ class _ChartPainter extends CustomPainter {
       for (final point in points) {
         canvas.drawCircle(point, 3, dot);
       }
+      if (chart.dataLabels) {
+        for (var i = 0; i < points.length; i++) {
+          _value(
+            canvas,
+            chart.formatValue(series.values[i]),
+            Offset(points[i].dx, points[i].dy - _labelSize(size) * .95),
+            _labelSize(size) * .9,
+          );
+        }
+      }
     }
     for (var i = 0; i < chart.categories.length; i++) {
       _category(canvas, i, plot.left + step * (i + .5), step, size);
@@ -1291,6 +1384,20 @@ class _ChartPainter extends CustomPainter {
       paint.color = palette[i % palette.length];
       canvas.drawArc(rect, start, sweep, true, paint);
       canvas.drawArc(rect, start, sweep, true, gap);
+      if (chart.dataLabels) {
+        final mid = start + sweep / 2;
+        final at = Offset(
+          rect.center.dx + math.cos(mid) * rect.width * .33,
+          rect.center.dy + math.sin(mid) * rect.height * .33,
+        );
+        _value(
+          canvas,
+          chart.formatValue(values[i]),
+          at,
+          _labelSize(size) * .9,
+          Colors.white,
+        );
+      }
       start += sweep;
     }
     final label = _labelSize(size);

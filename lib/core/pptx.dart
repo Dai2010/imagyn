@@ -902,22 +902,41 @@ const _chartAxisIds =
 
 /// Category and value axes. Pie charts have neither, so only bar and line
 /// chart types include these.
-const _chartAxes =
-    '<c:catAx><c:axId val="111111111"/>'
-    '<c:scaling><c:orientation val="minMax"/></c:scaling>'
-    '<c:delete val="0"/><c:axPos val="b"/>'
-    '<c:numFmt formatCode="General" sourceLinked="1"/>'
-    '<c:majorTickMark val="none"/><c:minorTickMark val="none"/>'
-    '<c:tickLblPos val="nextTo"/><c:crossAx val="222222222"/>'
-    '<c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/>'
-    '<c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>'
-    '<c:valAx><c:axId val="222222222"/>'
-    '<c:scaling><c:orientation val="minMax"/></c:scaling>'
-    '<c:delete val="0"/><c:axPos val="l"/><c:majorGridlines/>'
-    '<c:numFmt formatCode="General" sourceLinked="1"/>'
-    '<c:majorTickMark val="none"/><c:minorTickMark val="none"/>'
-    '<c:tickLblPos val="nextTo"/><c:crossAx val="111111111"/>'
-    '<c:crosses val="autoZero"/><c:crossBetween val="between"/></c:valAx>';
+String _chartAxes(SlideChart chart) {
+  final numberFormat =
+      '<c:numFmt formatCode="${chart.numberFormatCode}" '
+      'sourceLinked="${chart.valueFormat == 'general' ? 1 : 0}"/>';
+  return '<c:catAx><c:axId val="111111111"/>'
+      '<c:scaling><c:orientation val="minMax"/></c:scaling>'
+      '<c:delete val="0"/><c:axPos val="b"/>'
+      '$numberFormat'
+      '<c:majorTickMark val="none"/><c:minorTickMark val="none"/>'
+      '<c:tickLblPos val="nextTo"/><c:crossAx val="222222222"/>'
+      '<c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/>'
+      '<c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>'
+      '<c:valAx><c:axId val="222222222"/>'
+      '<c:scaling><c:orientation val="minMax"/></c:scaling>'
+      '<c:delete val="0"/><c:axPos val="l"/><c:majorGridlines/>'
+      '$numberFormat'
+      '<c:majorTickMark val="none"/><c:minorTickMark val="none"/>'
+      '<c:tickLblPos val="nextTo"/><c:crossAx val="111111111"/>'
+      '<c:crosses val="autoZero"/><c:crossBetween val="between"/></c:valAx>';
+}
+
+/// Number labels for every point, in the position the chart type allows.
+String _chartLabels(SlideChart chart, {required String position}) {
+  if (!chart.dataLabels) return '';
+  return '<c:dLbls><c:numFmt formatCode="${chart.numberFormatCode}" '
+      'sourceLinked="0"/>'
+      '<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>'
+      '<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr>'
+      '<a:defRPr sz="900"/></a:pPr><a:endParaRPr lang="en-US"/></a:p>'
+      '</c:txPr>'
+      '<c:dLblPos val="$position"/>'
+      '<c:showLegendKey val="0"/><c:showVal val="1"/>'
+      '<c:showCatName val="0"/><c:showSerName val="0"/>'
+      '<c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbls>';
+}
 
 String _chartXml(SlideChart chart) {
   final pie = chart.kind == 'pie';
@@ -949,6 +968,7 @@ String _chartXml(SlideChart chart) {
   if (pie) {
     buffer.write('<c:pieChart><c:varyColors val="1"/>');
     _chartSeries(buffer, chart, series, pie: true);
+    buffer.write(_chartLabels(chart, position: 'outEnd'));
     buffer.write('<c:firstSliceAng val="0"/></c:pieChart>');
   } else if (line) {
     buffer.write(
@@ -956,22 +976,29 @@ String _chartXml(SlideChart chart) {
       '<c:varyColors val="0"/>',
     );
     _chartSeries(buffer, chart, series, line: true);
+    buffer.write(_chartLabels(chart, position: 't'));
     buffer.write('<c:marker val="1"/><c:smooth val="0"/>');
     buffer
       ..write(_chartAxisIds)
       ..write('</c:lineChart>')
-      ..write(_chartAxes);
+      ..write(_chartAxes(chart));
   } else {
+    final stacking = chart.stacked ? 'stacked' : 'clustered';
     buffer.write(
       '<c:barChart><c:barDir val="col"/>'
-      '<c:grouping val="clustered"/><c:varyColors val="0"/>',
+      '<c:grouping val="$stacking"/><c:varyColors val="0"/>',
     );
     _chartSeries(buffer, chart, series);
+    buffer.write(_chartLabels(chart, position: 'outEnd'));
     buffer
-      ..write('<c:gapWidth val="80"/><c:overlap val="-10"/>')
+      ..write(
+        chart.stacked
+            ? '<c:gapWidth val="80"/><c:overlap val="100"/>'
+            : '<c:gapWidth val="80"/><c:overlap val="-10"/>',
+      )
       ..write(_chartAxisIds)
       ..write('</c:barChart>')
-      ..write(_chartAxes);
+      ..write(_chartAxes(chart));
   }
   buffer.write('</c:plotArea>');
   if (chart.series.length > 1) {
