@@ -377,6 +377,16 @@ class Studio extends ChangeNotifier {
   StudioApi get api =>
       StudioApi(activeConfig, key, imageKey, store, videoKey: videoKey);
 
+  /// One-off model list for the video page, with its own short-lived client.
+  Future<List<String>> fetchVideoModels() async {
+    final client = api;
+    try {
+      return await client.listVideoModels();
+    } finally {
+      client.close();
+    }
+  }
+
   Future<void> pickReferences(bool agent) async {
     if (busy) return;
     final selected = await openFiles(

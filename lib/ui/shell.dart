@@ -853,20 +853,19 @@ class _StudioShellState extends State<StudioShell> {
                               ),
                             ),
                     ),
-                  // The two models get their own line: sharing the action row
-                  // with four icons squeezed the name down to "de…", and the
-                  // Agent page lost the image model entirely.
+                  // The two models share one line. On a narrow phone they used
+                  // to wrap onto two rows; Flexible lets each name ellipsize
+                  // instead of pushing the other chip down.
                   Padding(
                     padding: const EdgeInsets.only(left: 4),
-                    child: Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: Wrap(
-                        spacing: 4,
-                        children: [
-                          if (agent) _modelButton(true),
-                          _modelButton(false),
+                    child: Row(
+                      children: [
+                        if (agent) ...[
+                          Flexible(child: _modelButton(true)),
+                          const SizedBox(width: 4),
                         ],
-                      ),
+                        Flexible(child: _modelButton(false)),
+                      ],
                     ),
                   ),
                   ValueListenableBuilder<TextEditingValue>(
