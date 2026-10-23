@@ -875,6 +875,8 @@ class _StudioShellState extends State<StudioShell> {
                             if (agent) ...[
                               _modelButton(true),
                               const SizedBox(width: 4),
+                              _videoModelButton(),
+                              const SizedBox(width: 4),
                             ],
                             _modelButton(false),
                           ],
@@ -1207,6 +1209,42 @@ class _StudioShellState extends State<StudioShell> {
                 : model,
             maxLines: 1,
           ),
+        ],
+      ),
+    );
+  }
+
+  /// The video model gets its own button on the Agent page: `generate_video`
+  /// is a tool like any other, so the model that renders clips must be visible
+  /// without leaving the conversation.
+  Widget _videoModelButton() {
+    final model = studio.videoModel;
+    return TextButton(
+      key: const ValueKey('switchVideoModel'),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        minimumSize: const Size(0, 36),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+      ),
+      onPressed: studio.busy
+          ? null
+          : () => _guard(() async {
+              final chosen = await showModalBottomSheet<String>(
+                context: context,
+                isScrollControlled: true,
+                useSafeArea: true,
+                showDragHandle: true,
+                builder: (_) => ModelPicker(studio: studio, video: true),
+              );
+              if (chosen != null) await studio.setVideoModel(chosen);
+            }),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.movie_creation_outlined, size: 16),
+          const SizedBox(width: 6),
+          Text(model.isEmpty ? s.t('videoModel') : model, maxLines: 1),
         ],
       ),
     );
