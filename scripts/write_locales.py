@@ -488,6 +488,7 @@ rows.update({
  'videoRatio': ['Aspect ratio', '画面比例', 'Format', 'Proporción', 'Соотношение', 'نسبة العرض'],
  'videoResolution': ['Resolution', '分辨率', 'Résolution', 'Resolución', 'Разрешение', 'الدقة'],
  'videoDuration': ['Duration', '时长', 'Durée', 'Duración', 'Длительность', 'المدة'],
+'videoSecondsUnit': ['s', '秒', 's', 's', 'с', 'ث'],
  'videoWatermark': ['Watermark', '水印', 'Filigrane', 'Marca de agua', 'Водяной знак', 'علامة مائية'],
  'videoSave': ['Save to device', '保存到设备', 'Enregistrer', 'Guardar', 'Сохранить', 'حفظ'],
  'videoEmpty': ['No clips yet', '还没有视频', 'Pas encore de clip', 'Aún no hay vídeos', 'Пока нет видео', 'لا مقاطع بعد'],

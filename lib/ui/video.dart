@@ -165,6 +165,7 @@ class _VideoPageState extends State<VideoPage> {
             _choices(
               values: const ['3', '5', '8', '10', '12'],
               selected: '${_options.seconds}',
+              suffix: s.t('videoSecondsUnit'),
               onPick: (value) =>
                   _update(_options.copyWith(seconds: int.parse(value))),
             ),
@@ -218,7 +219,7 @@ class _VideoPageState extends State<VideoPage> {
                 subtitle: Text(
                   '${asset.parameters['resolution'] ?? ''} · '
                   '${asset.parameters['ratio'] ?? ''} · '
-                  '${asset.parameters['seconds'] ?? ''}s',
+                  '${asset.parameters['seconds'] ?? ''}${s.t('videoSecondsUnit')}',
                 ),
                 trailing: IconButton(
                   tooltip: s.t('videoSave'),
@@ -241,6 +242,7 @@ class _VideoPageState extends State<VideoPage> {
     required List<String> values,
     required String selected,
     required ValueChanged<String> onPick,
+    String suffix = '',
   }) => Wrap(
     spacing: 8,
     runSpacing: 8,
@@ -248,7 +250,7 @@ class _VideoPageState extends State<VideoPage> {
       for (final value in values)
         ChoiceChip(
           key: ValueKey('videoChoice-$value'),
-          label: Text(value),
+          label: Text('$value$suffix'),
           selected: selected == value,
           onSelected: (_) => onPick(value),
         ),
