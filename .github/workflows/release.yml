@@ -240,7 +240,7 @@ jobs:
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           # A draft, so the signature status and the asset list can be read
           # through before anyone downloads them.
