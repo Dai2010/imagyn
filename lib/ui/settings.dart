@@ -382,6 +382,7 @@ class _SettingsPageState extends State<SettingsPage> {
       for (final entry in const [
         (0, 'gallery'),
         (1, 'agent'),
+        (4, 'videoConnection'),
         (2, 'generalSettings'),
         (3, 'about'),
       ])
@@ -420,6 +421,7 @@ class _SettingsPageState extends State<SettingsPage> {
     1 => s.t('agent'),
     2 => s.t('generalSettings'),
     3 => s.t('about'),
+    4 => s.t('videoConnection'),
     _ => s.t('settings'),
   };
 
@@ -513,21 +515,6 @@ class _SettingsPageState extends State<SettingsPage> {
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       ExpansionTile(
-                        key: const ValueKey('videoConnection'),
-                        tilePadding: EdgeInsets.zero,
-                        title: Text(s.t('videoConnection')),
-                        subtitle: Text(s.t('videoConnectionNote')),
-                        children: [
-                          _field(
-                            _videoBase,
-                            'videoEndpoint',
-                            url: true,
-                            hint: 'https://…/v1',
-                          ),
-                          _field(_videoKey, 'videoKey', secret: true),
-                        ],
-                      ),
-                      ExpansionTile(
                         tilePadding: EdgeInsets.zero,
                         title: Text(s.t('imageCompatibility')),
                         children: [
@@ -546,6 +533,21 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                         ],
                       ),
+                    ]),
+                  if (_module == 4)
+                    _section('videoConnection', [
+                      Text(
+                        s.t('videoConnectionNote'),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 14),
+                      _field(
+                        _videoBase,
+                        'videoEndpoint',
+                        url: true,
+                        hint: 'https://…/v1',
+                      ),
+                      _field(_videoKey, 'videoKey', secret: true),
                     ]),
                   if (_module == 1)
                     _section('connection', [
