@@ -23,6 +23,9 @@ class _VideoPageState extends State<VideoPage> {
   late final _path = TextEditingController(text: widget.studio.videoPath);
   late VideoOptions _options = widget.studio.videoOptions;
   bool _saving = false;
+  bool _loadingModels = false;
+  String? _modelError;
+  String? _modelDetail;
 
   /// The dropdown value that reveals the free-form id field. A gateway may use
   /// an id none of the presets know, so this stays reachable without putting
@@ -31,6 +34,7 @@ class _VideoPageState extends State<VideoPage> {
   late bool _custom;
 
   Studio get studio => widget.studio;
+  Strings get s => Strings.of(context);
 
   @override
   void initState() {
@@ -69,6 +73,68 @@ class _VideoPageState extends State<VideoPage> {
       await studio.export(asset);
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// Reads the video service's own model list, the way the image and text
+  /// settings already do: a relay may expose names none of the presets know.
+  Future<void> _fetchModels() async {
+    setState(() {
+      _loadingModels = true;
+      _modelError = null;
+      _modelDetail = null;
+    });
+    try {
+      if ([studio.videoKey, studio.imageKey, studio.key].every(
+        (value) => value.trim().isEmpty,
+      )) {
+        setState(() => _modelError = 'missingKey');
+        return;
+      }
+      final models = await studio.fetchVideoModels();
+      if (!mounted) return;
+      if (models.isEmpty) {
+        setState(() => _modelError = 'noModels');
+        return;
+      }
+      final chosen = await showDialog<String>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: Text(s.t('videoModel')),
+          children: [
+            SizedBox(
+              width: 380,
+              height: 320,
+              child: ListView(
+                children: [
+                  for (final model in models)
+                    SimpleDialogOption(
+                      onPressed: () => Navigator.pop(context, model),
+                      child: Text(model),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+      if (chosen == null || !mounted) return;
+      setState(() {
+        _custom = !videoModels.any((model) => model.id == chosen);
+        _model.text = chosen;
+      });
+      await studio.setVideoModel(chosen);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _modelError = errorCode(e);
+        _modelDetail = errorDetailOf(
+          e,
+          secrets: [studio.key, studio.imageKey, studio.videoKey],
+        );
+      });
+    } finally {
+      if (mounted) setState(() => _loadingModels = false);
     }
   }
 
@@ -113,31 +179,78 @@ class _VideoPageState extends State<VideoPage> {
               ],
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              key: const ValueKey('videoModelPick'),
-              initialValue: _custom ? _customModel : _model.text.trim(),
-              isExpanded: true,
-              decoration: InputDecoration(labelText: s.t('videoModel')),
-              items: [
-                for (final model in videoModels)
-                  DropdownMenuItem(value: model.id, child: Text(model.label)),
-                DropdownMenuItem(
-                  value: _customModel,
-                  child: Text(s.t('videoModelCustom')),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: KeyedSubtree(
+                    key: const ValueKey('videoModelPick'),
+                    child: DropdownButtonFormField<String>(
+                      key: ValueKey(
+                        _custom ? _customModel : _model.text.trim(),
+                      ),
+                      initialValue: _custom
+                          ? _customModel
+                          : _model.text.trim(),
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: s.t('videoModel'),
+                      ),
+                      items: [
+                        for (final model in videoModels)
+                          DropdownMenuItem(
+                            value: model.id,
+                            child: Text(model.label),
+                          ),
+                        DropdownMenuItem(
+                          value: _customModel,
+                          child: Text(s.t('videoModelCustom')),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() {
+                          _custom = value == _customModel;
+                          if (_custom) {
+                            _model.clear();
+                          } else {
+                            _model.text = value;
+                          }
+                        });
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  key: const ValueKey('fetchVideoModels'),
+                  tooltip: s.t('checkModels'),
+                  onPressed: _loadingModels ? null : _fetchModels,
+                  icon: _loadingModels
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_rounded, size: 20),
                 ),
               ],
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() {
-                  _custom = value == _customModel;
-                  if (_custom) {
-                    _model.clear();
-                  } else {
-                    _model.text = value;
-                  }
-                });
-              },
             ),
+            if (_modelError != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                s.t(_modelError!),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12,
+                ),
+              ),
+              if (_modelDetail != null)
+                SelectableText(
+                  _modelDetail!,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+            ],
             if (_custom) ...[
               const SizedBox(height: 8),
               TextField(

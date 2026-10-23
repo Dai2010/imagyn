@@ -107,11 +107,21 @@ class StudioApi {
   /// scheme, host and port is followed by hand — many compatible services
   /// normalise `/models` with one. A connection that never reached the service
   /// is retried, the way ChatBox does; a response, even an error one, is not.
-  Future<List<String>> listModels({bool images = false}) async {
-    var uri = images
-        ? config.imageEndpoint('models')
-        : config.endpoint('models');
-    final headers = images ? imageHeaders : agentHeaders;
+  Future<List<String>> listModels({bool images = false}) => _listModelsAt(
+    images ? config.imageEndpoint('models') : config.endpoint('models'),
+    images ? imageHeaders : agentHeaders,
+  );
+
+  /// Asks the video service what it can render. A relay that renames Seedance
+  /// or wraps a model the presets do not know is only discoverable this way.
+  Future<List<String>> listVideoModels() =>
+      _listModelsAt(config.videoEndpoint('models'), videoHeaders);
+
+  Future<List<String>> _listModelsAt(
+    Uri start,
+    Map<String, String> headers,
+  ) async {
+    var uri = start;
     for (var hop = 0; hop <= maxRedirects; hop++) {
       try {
         final response = await retryNetwork(
