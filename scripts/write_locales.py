@@ -61,6 +61,8 @@ rows = {
 'working': ['Creating…','正在生成……','Création…','Creando…','Создание…','جارٍ الإنشاء…'],
 'discussing': ['Thinking…','正在回复……','Réflexion…','Pensando…','Обдумывание…','جارٍ التفكير…'],
 'cancel': ['Stop','停止','Arrêter','Detener','Остановить','إيقاف'],
+'askCustomAnswer': ['Type your own answer','输入自己的答案','Saisir ma réponse','Escribir mi respuesta','Свой ответ','اكتب إجابتك'],
+'askSubmit': ['Send answer','发送答案','Envoyer la réponse','Enviar respuesta','Отправить ответ','إرسال الإجابة'],
 'cancelled': ['Stopped. A submitted job may still be running on the service.','已停止等待；已提交任务可能仍在服务端运行。','Arrêté. Une tâche soumise peut continuer sur le service.','Detenido. La tarea enviada puede seguir en el servicio.','Остановлено. Отправленная задача может ещё выполняться.','توقف الانتظار. قد تستمر المهمة المرسلة على الخدمة.'],
 'unknown': ['Result unknown. Check your service before submitting again.','结果未知。再次提交前请检查服务端任务。','Résultat inconnu. Vérifiez le service avant de renvoyer.','Resultado desconocido. Revisa el servicio antes de reenviar.','Результат неизвестен. Проверьте сервис перед повтором.','النتيجة غير معروفة. تحقق من الخدمة قبل إعادة الإرسال.'],
 'error': ['Could not complete this action.','操作未完成。','Impossible de terminer cette action.','No se pudo completar la acción.','Не удалось выполнить действие.','تعذر إكمال الإجراء.'],
