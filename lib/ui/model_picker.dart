@@ -5,16 +5,24 @@ import '../core/studio.dart';
 import '../l10n/strings.dart';
 
 class ModelPicker extends StatefulWidget {
-  const ModelPicker({super.key, required this.studio, required this.agent});
+  const ModelPicker({
+    super.key,
+    required this.studio,
+    this.agent = false,
+    this.video = false,
+  });
   final Studio studio;
   final bool agent;
+  final bool video;
   @override
   State<ModelPicker> createState() => _ModelPickerState();
 }
 
 class _ModelPickerState extends State<ModelPicker> {
   late final _model = TextEditingController(
-    text: widget.agent
+    text: widget.video
+        ? widget.studio.videoModel
+        : widget.agent
         ? widget.studio.activeConfig.agentModel
         : widget.studio.activeConfig.imageModel,
   );
@@ -24,11 +32,22 @@ class _ModelPickerState extends State<ModelPicker> {
   String? _error;
   late Set<String> _models = {
     _model.text,
-    widget.agent
-        ? widget.studio.config.agentModel
-        : widget.studio.config.imageModel,
+    if (!widget.video)
+      widget.agent
+          ? widget.studio.config.agentModel
+          : widget.studio.config.imageModel,
     if (widget.agent) ...widget.studio.config.agentProfiles.keys,
   }..remove('');
+
+  @override
+  void initState() {
+    super.initState();
+    // The server list is the source of truth; the built-in presets only fill
+    // in parameter defaults. Ask for it as soon as the sheet opens.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _fetch();
+    });
+  }
 
   Future<void> _fetch() async {
     setState(() {
@@ -38,7 +57,9 @@ class _ModelPickerState extends State<ModelPicker> {
     final client = widget.studio.api;
     _client = client;
     try {
-      final models = await client.listModels(images: !widget.agent);
+      final models = widget.video
+          ? await client.listVideoModels()
+          : await client.listModels(images: !widget.agent);
       if (mounted) {
         setState(() {
           _models = {..._models, ...models};
@@ -48,7 +69,7 @@ class _ModelPickerState extends State<ModelPicker> {
       if (mounted) {
         setState(
           () => _error =
-              '${Strings.of(context).t(errorCode(e))}\n${errorDetailOf(e, secrets: [widget.studio.key, widget.studio.imageKey]) ?? ''}',
+              '${Strings.of(context).t(errorCode(e))}\n${errorDetailOf(e, secrets: [widget.studio.key, widget.studio.imageKey, widget.studio.videoKey]) ?? ''}',
         );
       }
     } finally {
@@ -89,7 +110,13 @@ class _ModelPickerState extends State<ModelPicker> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              s.t(widget.agent ? 'agentModel' : 'imageModel'),
+              s.t(
+                widget.video
+                    ? 'videoModel'
+                    : widget.agent
+                    ? 'agentModel'
+                    : 'imageModel',
+              ),
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 12),

@@ -11,6 +11,7 @@ import 'settings.dart';
 import 'gallery.dart';
 import 'image_options.dart';
 import 'agent_options.dart';
+import 'ask_card.dart';
 import 'model_picker.dart';
 import 'deck_workspace.dart';
 import 'style_editor.dart';
@@ -382,7 +383,8 @@ class _StudioShellState extends State<StudioShell> {
       );
     }
     final entries = <Widget>[
-      for (final entry in studio.chat) _entry(entry),
+      for (var i = 0; i < studio.chat.length; i++)
+        _entry(studio.chat[i], live: i == studio.chat.length - 1),
       if (streaming)
         _entry(
           ChatEntry(
@@ -408,8 +410,8 @@ class _StudioShellState extends State<StudioShell> {
     );
   }
 
-  Widget _entry(ChatEntry entry, {bool streaming = false}) {
-    if (entry.role == 'tool') return _toolEntry(entry);
+  Widget _entry(ChatEntry entry, {bool streaming = false, bool live = false}) {
+    if (entry.role == 'tool') return _toolEntry(entry, live: live);
     final user = entry.role == 'user';
     final body = <Widget>[
       if (entry.reasoning.isNotEmpty) _thinking(entry.reasoning),
@@ -494,7 +496,7 @@ class _StudioShellState extends State<StudioShell> {
   /// A tool result is one line, not a message: the model called something and
   /// got an answer, and the transcript should read as the log of that work.
   /// A deck row opens the workspace, where the result actually matters.
-  Widget _toolEntry(ChatEntry entry) {
+  Widget _toolEntry(ChatEntry entry, {bool live = false}) {
     final name = entry.name ?? '';
     final deckTool = _deckTools.contains(name);
     final deck = deckTool ? studio.activeDeck : null;
@@ -506,10 +508,17 @@ class _StudioShellState extends State<StudioShell> {
         : entry.text.trim();
     final theme = Theme.of(context);
     if (name == 'ask_user') {
-      final question = detail
-          .replaceFirst('Question for the user: ', '')
-          .split(' The turn ends here;')
-          .first;
+      final ask = askResult(detail);
+      if (live && !studio.busy) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: AskCard(
+            question: ask.question,
+            options: ask.options,
+            onSubmit: _answer,
+          ),
+        );
+      }
       return Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: DecoratedBox(
@@ -530,7 +539,7 @@ class _StudioShellState extends State<StudioShell> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    question,
+                    ask.question,
                     style: theme.textTheme.bodySmall?.copyWith(height: 1.4),
                   ),
                 ),
@@ -853,19 +862,24 @@ class _StudioShellState extends State<StudioShell> {
                               ),
                             ),
                     ),
-                  // The two models share one line. On a narrow phone they used
-                  // to wrap onto two rows; Flexible lets each name ellipsize
-                  // instead of pushing the other chip down.
+                  // One horizontally scrollable line: long relay model ids
+                  // stay readable instead of being ellipsized to a stub.
                   Padding(
                     padding: const EdgeInsets.only(left: 4),
-                    child: Row(
-                      children: [
-                        if (agent) ...[
-                          Flexible(child: _modelButton(true)),
-                          const SizedBox(width: 4),
-                        ],
-                        Flexible(child: _modelButton(false)),
-                      ],
+                    child: SizedBox(
+                      height: 36,
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            if (agent) ...[
+                              _modelButton(true),
+                              const SizedBox(width: 4),
+                            ],
+                            _modelButton(false),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                   ValueListenableBuilder<TextEditingValue>(
@@ -1128,6 +1142,11 @@ class _StudioShellState extends State<StudioShell> {
     );
   }
 
+  /// The answer to an `ask_user` card is the next user message, exactly as if
+  /// it had been typed into the composer.
+  Future<void> _answer(String text) =>
+      _guard(() => studio.submit(text, true, studio.imageOptions));
+
   String _styleName(ImageStyle style) =>
       style.isBuiltIn ? s.t(style.label) : style.label;
 
@@ -1157,47 +1176,38 @@ class _StudioShellState extends State<StudioShell> {
     final model = agent
         ? studio.activeConfig.agentModel
         : studio.activeConfig.imageModel;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 160),
-      child: TextButton(
-        key: ValueKey(agent ? 'switchAgentModel' : 'switchImageModel'),
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          minimumSize: const Size(0, 36),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          visualDensity: VisualDensity.compact,
-        ),
-        onPressed: studio.busy
-            ? null
-            : () => _guard(() async {
-                final model = await showModalBottomSheet<String>(
-                  context: context,
-                  isScrollControlled: true,
-                  useSafeArea: true,
-                  showDragHandle: true,
-                  builder: (_) => ModelPicker(studio: studio, agent: agent),
-                );
-                if (model != null) await studio.switchModel(model, agent: agent);
-              }),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(agent ? Icons.forum_outlined : Icons.image_outlined, size: 16),
-            const SizedBox(width: 6),
-            // A bounded width is what keeps a long model id readable: inside an
-            // unbounded Row the ellipsis collapsed the label to two letters.
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 120),
-              child: Text(
-                model.isEmpty
-                    ? s.t(agent ? 'agentModel' : 'imageModel')
-                    : model,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
+    return TextButton(
+      key: ValueKey(agent ? 'switchAgentModel' : 'switchImageModel'),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        minimumSize: const Size(0, 36),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+      ),
+      onPressed: studio.busy
+          ? null
+          : () => _guard(() async {
+              final model = await showModalBottomSheet<String>(
+                context: context,
+                isScrollControlled: true,
+                useSafeArea: true,
+                showDragHandle: true,
+                builder: (_) => ModelPicker(studio: studio, agent: agent),
+              );
+              if (model != null) await studio.switchModel(model, agent: agent);
+            }),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(agent ? Icons.forum_outlined : Icons.image_outlined, size: 16),
+          const SizedBox(width: 6),
+          Text(
+            model.isEmpty
+                ? s.t(agent ? 'agentModel' : 'imageModel')
+                : model,
+            maxLines: 1,
+          ),
+        ],
       ),
     );
   }

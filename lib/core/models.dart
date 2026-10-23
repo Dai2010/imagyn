@@ -1954,7 +1954,9 @@ const askUserTool = {
       'Ask the user a question when you need a decision or a missing detail. '
       'The turn ends after this call and the user\'s next message is the '
       'answer. Provide short options when the choice is enumerable; pass an '
-      'empty list otherwise.',
+      'empty list otherwise. The app always adds a "type your own answer" '
+      'choice, so never add such an option yourself. Put a recommended option '
+      'first and mark it (Recommended).',
   'parameters': {
     'type': 'object',
     'properties': {
@@ -1968,6 +1970,26 @@ const askUserTool = {
     'additionalProperties': false,
   },
 };
+
+/// Splits the stored `ask_user` tool result into the question and its options,
+/// so the transcript can render them as buttons instead of one long line.
+({String question, List<String> options}) askResult(String text) {
+  final body = text.replaceFirst('Question for the user: ', '');
+  final head = body.split(' The turn ends here;').first;
+  final marker = head.indexOf(' Options: ');
+  if (marker < 0) return (question: head.trim(), options: const []);
+  final question = head.substring(0, marker).trim();
+  var tail = head.substring(marker + ' Options: '.length).trim();
+  if (tail.endsWith('.')) tail = tail.substring(0, tail.length - 1);
+  return (
+    question: question,
+    options: tail
+        .split(' / ')
+        .map((option) => option.trim())
+        .where((option) => option.isNotEmpty)
+        .toList(),
+  );
+}
 
 const fetchTool = {
   'name': 'fetch_url',
