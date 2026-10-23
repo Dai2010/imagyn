@@ -34,6 +34,7 @@ class _VideoPageState extends State<VideoPage> {
   late bool _custom;
 
   Studio get studio => widget.studio;
+  Strings get s => Strings.of(context);
 
   @override
   void initState() {
