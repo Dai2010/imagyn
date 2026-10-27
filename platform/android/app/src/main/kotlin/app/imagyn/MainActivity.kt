@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -13,6 +14,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * Implements the `app.imagyn/media` channel declared in the Dart layer.
@@ -27,12 +30,16 @@ import io.flutter.plugin.common.MethodChannel
  * from the file managers that know how to open a `.pptx`.
  */
 class MainActivity : FlutterActivity() {
+    private var pendingStorageSave: (() -> Unit)? = null
+    private var pendingStorageResult: MethodChannel.Result? = null
+
     companion object {
         const val ENGINE_ID = "imagyn-engine"
         private const val CHANNEL = "app.imagyn/media"
         private const val BACKGROUND = "app.imagyn/background"
         private const val ALBUM = "Imagyn"
         private const val NOTIFICATION_REQUEST = 71
+        private const val STORAGE_REQUEST = 72
         val SUPPORTED_TYPES = setOf("image/png", "image/jpeg", "image/webp")
 
         /** True while an activity is on screen; a turn only notifies otherwise. */
@@ -106,6 +113,48 @@ class MainActivity : FlutterActivity() {
         )
     }
 
+    // API 24–28 writes the shared folders directly, which still needs the old
+    // storage permission; the request is async, so the save waits for it.
+    private fun saveWithPermission(result: MethodChannel.Result, action: () -> Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            action()
+            return
+        }
+        pendingStorageSave = action
+        pendingStorageResult = result
+        requestPermissions(
+            arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+            STORAGE_REQUEST,
+        )
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != STORAGE_REQUEST) return
+        val action = pendingStorageSave
+        val result = pendingStorageResult
+        pendingStorageSave = null
+        pendingStorageResult = null
+        if (grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            action?.invoke()
+        } else {
+            result?.error(
+                "permissionDenied",
+                "Storage permission is required to save on Android 9 and below.",
+                null,
+            )
+        }
+    }
+
     private fun saveImage(call: MethodCall, result: MethodChannel.Result) {
         val bytes = call.argument<ByteArray>("bytes")
         val mime = call.argument<String>("mime") ?: "image/png"
@@ -120,19 +169,29 @@ class MainActivity : FlutterActivity() {
         val name = fileName(call.argument<String>("name"), mime)
         // MediaStore does disk and IPC work; keep it off the platform thread so
         // the UI does not stutter while a large image is written.
-        Thread {
-            try {
-                val uri = insert(bytes, name, mime)
-                runOnUiThread { result.success(uri.toString()) }
-            } catch (error: Exception) {
-                runOnUiThread {
-                    result.error("saveFailed", error.message ?: "Could not save the image.", null)
+        val save = {
+            Thread {
+                try {
+                    val uri = insert(bytes, name, mime)
+                    runOnUiThread { result.success(uri.toString()) }
+                } catch (error: Exception) {
+                    runOnUiThread {
+                        result.error("saveFailed", error.message ?: "Could not save the image.", null)
+                    }
                 }
-            }
-        }.start()
+            }.start()
+        }
+        saveWithPermission(result, save)
     }
 
     private fun insert(bytes: ByteArray, name: String, mime: String): Uri {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return insertScoped(bytes, name, mime)
+        }
+        return insertLegacy(bytes, name, mime, Environment.DIRECTORY_PICTURES, scan = true)
+    }
+
+    private fun insertScoped(bytes: ByteArray, name: String, mime: String): Uri {
         val resolver = applicationContext.contentResolver
         val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val pending = ContentValues().apply {
@@ -167,19 +226,29 @@ class MainActivity : FlutterActivity() {
             return
         }
         val name = safeFileName(call.argument<String>("name"))
-        Thread {
-            try {
-                val uri = insertDownload(bytes, name, mime)
-                runOnUiThread { result.success(uri.toString()) }
-            } catch (error: Exception) {
-                runOnUiThread {
-                    result.error("saveFailed", error.message ?: "Could not save the file.", null)
+        val save = {
+            Thread {
+                try {
+                    val uri = insertDownload(bytes, name, mime)
+                    runOnUiThread { result.success(uri.toString()) }
+                } catch (error: Exception) {
+                    runOnUiThread {
+                        result.error("saveFailed", error.message ?: "Could not save the file.", null)
+                    }
                 }
-            }
-        }.start()
+            }.start()
+        }
+        saveWithPermission(result, save)
     }
 
     private fun insertDownload(bytes: ByteArray, name: String, mime: String): Uri {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return insertDownloadScoped(bytes, name, mime)
+        }
+        return insertLegacy(bytes, name, mime, Environment.DIRECTORY_DOWNLOADS, scan = false)
+    }
+
+    private fun insertDownloadScoped(bytes: ByteArray, name: String, mime: String): Uri {
         val resolver = applicationContext.contentResolver
         val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
         val pending = ContentValues().apply {
@@ -202,6 +271,47 @@ class MainActivity : FlutterActivity() {
         val published = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
         resolver.update(uri, published, null, null)
         return uri
+    }
+
+    // API 24–28 has no scoped MediaStore entry point: write the bytes ourselves,
+    // then let the scanner publish an image into the gallery.
+    @Suppress("DEPRECATION")
+    private fun insertLegacy(
+        bytes: ByteArray,
+        name: String,
+        mime: String,
+        directory: String,
+        scan: Boolean,
+    ): Uri {
+        val folder = File(Environment.getExternalStoragePublicDirectory(directory), ALBUM)
+        if (!folder.exists() && !folder.mkdirs()) {
+            throw IllegalStateException("Could not create ${folder.absolutePath}.")
+        }
+        val file = uniqueFile(folder, name)
+        FileOutputStream(file).use { it.write(bytes) }
+        if (scan) {
+            MediaScannerConnection.scanFile(
+                applicationContext,
+                arrayOf(file.absolutePath),
+                arrayOf(mime),
+                null,
+            )
+        }
+        return Uri.fromFile(file)
+    }
+
+    private fun uniqueFile(folder: File, name: String): File {
+        var candidate = File(folder, name)
+        if (!candidate.exists()) return candidate
+        val stem = name.substringBeforeLast('.', name)
+        val extension = name.substringAfterLast('.', "")
+        var index = 1
+        while (candidate.exists()) {
+            val next = if (extension.isEmpty()) "$stem ($index)" else "$stem ($index).$extension"
+            candidate = File(folder, next)
+            index++
+        }
+        return candidate
     }
 
     private fun safeFileName(requested: String?): String {
