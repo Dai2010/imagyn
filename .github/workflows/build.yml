@@ -241,7 +241,7 @@ jobs:
             echo
             echo "来源：\`build\` 流水线 #${{ github.run_id }}，提交 \`${{ github.sha }}\`。"
             echo
-            echo "- minSdk 29（Android 10+），fat APK（arm64-v8a / armeabi-v7a / x86_64）"
+            echo "- minSdk 24（Android 7.0+），fat APK（arm64-v8a / armeabi-v7a / x86_64）"
             echo "- sha256: $digest"
             echo
             echo "国内下载：在附件地址前加 https://ghfast.top/ 前缀即可。"

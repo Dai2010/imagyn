@@ -2684,6 +2684,7 @@ String _deckFileName(String title) {
 String errorCode(Object error, {bool submitted = false}) {
   if (error is ImageApiException) return error.code;
   if (error is FormatException) return error.message;
+  if (error is PlatformException) return error.code;
   if (error is DioException) {
     if (CancelToken.isCancel(error)) return 'cancelled';
     final status = error.response?.statusCode;

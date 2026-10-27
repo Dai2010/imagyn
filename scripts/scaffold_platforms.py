@@ -44,8 +44,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PLATFORMS = "android,linux,windows,macos"
 DEFAULT_PLATFORM_LIST = ["android", "linux", "windows", "macos"]
 
-# RELATIVE_PATH on MediaStore needs API 29; the media-save channel relies on it.
-ANDROID_MIN_SDK = 29
+# Flutter's own floor is API 24. MediaStore's RELATIVE_PATH only exists on 29+,
+# so MainActivity branches: scoped inserts on 29+, direct writes below.
+ANDROID_MIN_SDK = 24
 
 # Preview builds are a second app so they can sit next to the released one.
 PREVIEW_ID_SUFFIX = ".preview"
@@ -202,6 +203,18 @@ def patch_android(target: Path, release_signing: bool, preview: bool) -> None:
         manifest_text = manifest_text.replace(
             anchor,
             '    <uses-permission android:name="android.permission.INTERNET" />\n' + anchor)
+
+    # API 24–28 writes Pictures/Imagyn and Downloads/Imagyn directly, which
+    # needs the legacy storage permission; 29+ uses scoped MediaStore instead.
+    if "android.permission.WRITE_EXTERNAL_STORAGE" not in manifest_text:
+        anchor = "<application"
+        if anchor not in manifest_text:
+            fail("could not find <application in AndroidManifest.xml; "
+                 "the Flutter template changed, update this script")
+        manifest_text = manifest_text.replace(
+            anchor,
+            '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" '
+            'android:maxSdkVersion="28" />\n' + anchor)
 
     # Opening a link needs the browser intent to be visible to this app: from
     # Android 11 on a package that is not queried cannot be resolved, so the tap
