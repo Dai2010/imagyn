@@ -46,6 +46,12 @@ Les paramètres disposent d’une page dédiée avec trois onglets : **Images / 
 
 Une liste de modèles ne prouve pas leur capacité à générer des images, et un contrôle de connexion n’est pas un test de génération. Les tests payants ne démarrent que lorsque vous soumettez explicitement une demande dans la galerie. Voir [docs/capabilities.md](../../docs/capabilities.md).
 
+## Analyse antivirus
+
+Les paquets de publication ont été soumis à la **plateforme nationale d’analyse collaborative des virus informatiques** (CVERC, Centre national chinois d’intervention d’urgence contre les virus informatiques) et ont été **acceptés sur les quatre plateformes** — Android, Linux, Windows et macOS — sans code malveillant détecté.
+
+Cela signifie seulement que les paquets eux-mêmes sont sains. Ce n’est pas un audit de sécurité et cela ne veut pas dire que les appels API ou le stockage des clés ont été évalués par un tiers.
+
 ## Compilation
 
 Nécessite Flutter avec Dart SDK ≥ 3.12.

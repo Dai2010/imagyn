@@ -46,6 +46,12 @@ Los ajustes tienen una página propia con tres pestañas: **Imágenes / Agent / 
 
 Una lista de modelos no demuestra que puedan generar imágenes, y comprobar la conexión no es probar la generación. Las pruebas de pago solo se inician cuando envías una solicitud explícitamente desde la galería. Más información en [docs/capabilities.md](../../docs/capabilities.md).
 
+## Análisis de virus
+
+Los paquetes de publicación se enviaron a la **plataforma nacional de análisis colaborativo de virus informáticos** (CVERC, Centro Nacional de Respuesta a Emergencias de Virus Informáticos de China) y **pasaron en las cuatro plataformas** —Android, Linux, Windows y macOS— sin código malicioso detectado.
+
+Eso solo indica que los paquetes no contienen virus. No es una auditoría de seguridad ni significa que las llamadas a la API o el almacenamiento de claves hayan sido evaluados por un tercero.
+
 ## Compilación
 
 Requiere Flutter con Dart SDK ≥ 3.12.

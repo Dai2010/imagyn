@@ -46,6 +46,12 @@ Settings has its own page with three tabs: **Images / Agent / General**. Switch 
 
 A model list does not prove image generation capability, and a connection check is not an image generation test. Paid generation tests are only started when you explicitly submit a request in the gallery. See [docs/capabilities.md](../../docs/capabilities.md) for details.
 
+## Malware scan
+
+The release packages were submitted to the **National Computer Virus Collaborative Analysis Platform** (CVERC, the China National Computer Virus Emergency Response Center) and **passed on all four platforms** — Android, Linux, Windows and macOS — with no malicious code found.
+
+That only says the packages themselves are clean. It is not a security audit, and it does not mean the API calls or the way keys are stored have been reviewed by a third party.
+
 ## Build
 
 Requires Flutter with Dart SDK ≥ 3.12.
