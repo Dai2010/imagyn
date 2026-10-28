@@ -39,7 +39,7 @@ Los ajustes tienen una página propia con tres pestañas: **Imágenes / Agent / 
 | Generación de vídeo (envío a `videos` → consulta de `videos/{id}` → descarga desde `url` o `videos/{id}/content`) | Implementada; envío multipart por defecto y lectura tolerante de `id`/`task_id`, `status`/`task_status` y `url`/`video_url`/`data[0]` (aún sin probar contra una pasarela real) |
 | Bucle de herramientas multi-paso del Agent (`generate_image`, `generate_video`, `create_deck`, `add_slide`, `add_table`, `ask_user`, …) | Implementado, hasta 32 pasos por turno; los fallos de herramientas se devuelven al modelo como resultados |
 | Exportación de presentaciones (`.pptx`, cuadros de texto / imágenes / tablas) | OOXML nativo; editable en PowerPoint / WPS (apertura en un dispositivo real aún no probada) |
-| WebFetch / `fetch_url` | Ejecutor y esquema de herramienta aún en PR; no conectado al bucle |
+| WebFetch / `fetch_url` | Implementado; solo obtiene páginas http(s) públicas y rechaza direcciones locales, privadas y de enlace local |
 | Resultados SSE de OpenAI Images | Implementado; se activa en las opciones de compatibilidad de la API de imágenes |
 | Herramienta integrada `image_generation` de Responses | No implementada; Agent usa la función `generate_image` de la aplicación para llamar a la API Images independiente |
 | Edición con máscara, tareas por lotes, sincronización en la nube, inferencia local | No implementado; posibles ampliaciones |

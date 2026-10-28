@@ -39,7 +39,7 @@ Les paramètres disposent d’une page dédiée avec trois onglets : **Images / 
 | Génération vidéo (envoi `videos` → interrogation `videos/{id}` → téléchargement `url` ou `videos/{id}/content`) | Implémentée ; envoi multipart par défaut, avec `id`/`task_id`, `status`/`task_status` et `url`/`video_url`/`data[0]` acceptés (pas encore testée sur une vraie passerelle) |
 | Boucle d’outils multi-étapes de l’Agent (`generate_image`, `generate_video`, `create_deck`, `add_slide`, `add_table`, `ask_user`, …) | Implémenté, jusqu’à 32 étapes par tour ; les échecs d’outils sont renvoyés au modèle comme résultats |
 | Export de présentation (`.pptx`, zones de texte / images / tableaux) | OOXML natif ; modifiable dans PowerPoint / WPS (ouverture sur appareil réel non testée) |
-| WebFetch / `fetch_url` | Exécuteur et schéma d’outil encore en PR ; non branché dans la boucle |
+| WebFetch / `fetch_url` | Implémenté ; ne récupère que des pages http(s) publiques, en refusant les adresses locales, privées et de liaison |
 | Résultats OpenAI Images en SSE | Implémenté ; activation dans les options de compatibilité de l’API d’images |
 | Outil intégré `image_generation` de Responses | Non implémenté ; Agent utilise la fonction `generate_image` de l’application pour appeler l’API Images séparée |
 | Modification par masque, tâches par lots, synchronisation cloud, inférence locale | Non implémenté ; extensions possibles |

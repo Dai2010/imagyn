@@ -39,7 +39,7 @@
 | 视频生成（`videos` 提交 → `videos/{id}` 轮询 → `url` 或 `videos/{id}/content` 下载） | 已实现，默认 multipart 提交；任务解析兼容 `id`/`task_id`、`status`/`task_status`、`url`/`video_url`/`data[0]`（尚未连真实网关实测） |
 | Agent 多步工具循环（`generate_image`、`generate_video`、`create_deck`、`add_slide`、`add_table`、`ask_user` 等） | 已实现，单轮最多 32 步；工具失败作为结果回给模型继续 |
 | 演示文稿导出（`.pptx`，文本框 / 图片 / 表格） | 已实现原生 OOXML；可用 PowerPoint / WPS 继续编辑（真机打开尚未实测） |
-| WebFetch / `fetch_url` | 执行器与工具 schema 仍在 PR 中，尚未接入对话循环 |
+| WebFetch / `fetch_url` | 已实现；只抓公开 http(s) 页面，回环、私网与链路本地地址一律拒绝 |
 | OpenAI Images SSE 流式结果 | 已实现，可在图片接口兼容选项中开启 |
 | OpenAI Responses 内置 `image_generation` 工具 | 未实现；Agent 使用应用的 `generate_image` 调用独立 Images 接口 |
 | 蒙版编辑、批量任务、云同步、本地推理 | 未实现，属后续扩展 |
