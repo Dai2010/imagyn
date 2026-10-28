@@ -2,7 +2,7 @@
 
 # Imagyn
 
-> **Security status:** the release packages were scanned by the **National Computer Virus Collaborative Analysis Platform** (CVERC, the China National Computer Virus Emergency Response Center) and **passed on all four platforms** — Android, Linux, Windows and macOS — with no malicious code found. Every release also ships a `SHA256SUMS` file; check it before installing. This only means the packages themselves are clean: it is not a security audit, and neither the API calls nor the way keys are stored have been reviewed by a third party.
+> **Security status:** the release packages were scanned by the **National Computer Virus Collaborative Analysis Platform** (CVERC, the China National Computer Virus Emergency Response Center) and **reported Undetected on all four platforms** — Android, Linux, Windows and macOS — with no malicious code found. Every release also ships a `SHA256SUMS` file; check it before installing. This only means the packages themselves are clean: it is not a security audit, and neither the API calls nor the way keys are stored have been reviewed by a third party.
 
 A minimalist AI image creation app with two entry points: **Gallery** and **Agent**. Bring your own API key and connect directly to a compatible service. Your artwork stays on your device. Available for Android, Linux, Windows and macOS, with an interface in the six official UN languages.
 

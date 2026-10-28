@@ -2,7 +2,7 @@
 
 # Imagyn
 
-> **Seguridad:** los paquetes de publicación se analizaron en la **plataforma nacional de análisis colaborativo de virus informáticos** (CVERC, Centro Nacional de Respuesta a Emergencias de Virus Informáticos de China) y **pasaron las cuatro plataformas** —Android, Linux, Windows y macOS— sin código malicioso detectado. Cada versión incluye además un archivo `SHA256SUMS`: verifícalo antes de instalar. Esto solo indica que los paquetes están limpios; no es una auditoría de seguridad, y ni las llamadas a la API ni el almacenamiento de claves han sido evaluados por un tercero.
+> **Seguridad:** los paquetes de publicación se analizaron en la **plataforma nacional de análisis colaborativo de virus informáticos** (CVERC, Centro Nacional de Respuesta a Emergencias de Virus Informáticos de China) y **dieron «Undetected» en las cuatro plataformas** —Android, Linux, Windows y macOS— sin código malicioso detectado. Cada versión incluye además un archivo `SHA256SUMS`: verifícalo antes de instalar. Esto solo indica que los paquetes están limpios; no es una auditoría de seguridad, y ni las llamadas a la API ni el almacenamiento de claves han sido evaluados por un tercero.
 
 Una aplicación sencilla para crear imágenes con IA, con dos espacios: **Galería** y **Agent**. Usa tu propia clave API y conéctate directamente a un servicio compatible. Tus creaciones permanecen en tu dispositivo. Disponible para Android, Linux, Windows y macOS, con interfaz en los seis idiomas oficiales de la ONU.
 
