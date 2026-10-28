@@ -2,6 +2,8 @@
 
 # Imagyn
 
+> **Security status:** the release packages were scanned by the **National Computer Virus Collaborative Analysis Platform** (CVERC, the China National Computer Virus Emergency Response Center) and **passed on all four platforms** — Android, Linux, Windows and macOS — with no malicious code found. Every release also ships a `SHA256SUMS` file; check it before installing. This only means the packages themselves are clean: it is not a security audit, and neither the API calls nor the way keys are stored have been reviewed by a third party.
+
 A minimalist AI image creation app with two entry points: **Gallery** and **Agent**. Bring your own API key and connect directly to a compatible service. Your artwork stays on your device. Available for Android, Linux, Windows and macOS, with an interface in the six official UN languages.
 
 > Status: **work in progress.** See [Supported features](#supported-features) for the scope of support; connecting a compatible endpoint does not automatically guarantee image generation. This is my first app of this kind—thanks for your patience.
@@ -45,12 +47,6 @@ Settings has its own page with three tabs: **Images / Agent / General**. Switch 
 | Mask editing, batch jobs, cloud sync, local inference | Not implemented; possible future extensions |
 
 A model list does not prove image generation capability, and a connection check is not an image generation test. Paid generation tests are only started when you explicitly submit a request in the gallery. See [docs/capabilities.md](../../docs/capabilities.md) for details.
-
-## Malware scan
-
-The release packages were submitted to the **National Computer Virus Collaborative Analysis Platform** (CVERC, the China National Computer Virus Emergency Response Center) and **passed on all four platforms** — Android, Linux, Windows and macOS — with no malicious code found.
-
-That only says the packages themselves are clean. It is not a security audit, and it does not mean the API calls or the way keys are stored have been reviewed by a third party.
 
 ## Build
 

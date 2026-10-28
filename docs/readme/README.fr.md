@@ -2,6 +2,8 @@
 
 # Imagyn
 
+> **Sécurité :** les paquets de publication ont été analysés par la **plateforme nationale d’analyse collaborative des virus informatiques** (CVERC, Centre national chinois d’intervention d’urgence contre les virus informatiques) et ont **passé les quatre plateformes** — Android, Linux, Windows et macOS — sans code malveillant détecté. Chaque version fournit aussi un fichier `SHA256SUMS` : vérifiez-le avant d’installer. Cela signifie seulement que les paquets eux-mêmes sont sains ; ce n’est pas un audit de sécurité, et ni les appels API ni le stockage des clés n’ont été évalués par un tiers.
+
 Une application sobre de création d’images par IA, avec deux espaces : **Galerie** et **Agent**. Utilisez votre propre clé API et connectez-vous directement à un service compatible. Vos créations restent sur votre appareil. Disponible sur Android, Linux, Windows et macOS, avec une interface dans les six langues officielles de l’ONU.
 
 > État : **en développement.** Consultez les [fonctionnalités prises en charge](#fonctionnalités-prises-en-charge) : une adresse compatible ne garantit pas la génération d’images. C’est ma première application de ce type ; merci de votre patience.
@@ -45,12 +47,6 @@ Les paramètres disposent d’une page dédiée avec trois onglets : **Images / 
 | Modification par masque, tâches par lots, synchronisation cloud, inférence locale | Non implémenté ; extensions possibles |
 
 Une liste de modèles ne prouve pas leur capacité à générer des images, et un contrôle de connexion n’est pas un test de génération. Les tests payants ne démarrent que lorsque vous soumettez explicitement une demande dans la galerie. Voir [docs/capabilities.md](../../docs/capabilities.md).
-
-## Analyse antivirus
-
-Les paquets de publication ont été soumis à la **plateforme nationale d’analyse collaborative des virus informatiques** (CVERC, Centre national chinois d’intervention d’urgence contre les virus informatiques) et ont été **acceptés sur les quatre plateformes** — Android, Linux, Windows et macOS — sans code malveillant détecté.
-
-Cela signifie seulement que les paquets eux-mêmes sont sains. Ce n’est pas un audit de sécurité et cela ne veut pas dire que les appels API ou le stockage des clés ont été évalués par un tiers.
 
 ## Compilation
 

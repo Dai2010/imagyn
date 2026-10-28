@@ -2,6 +2,8 @@
 
 # Imagyn
 
+> **Seguridad:** los paquetes de publicación se analizaron en la **plataforma nacional de análisis colaborativo de virus informáticos** (CVERC, Centro Nacional de Respuesta a Emergencias de Virus Informáticos de China) y **pasaron las cuatro plataformas** —Android, Linux, Windows y macOS— sin código malicioso detectado. Cada versión incluye además un archivo `SHA256SUMS`: verifícalo antes de instalar. Esto solo indica que los paquetes están limpios; no es una auditoría de seguridad, y ni las llamadas a la API ni el almacenamiento de claves han sido evaluados por un tercero.
+
 Una aplicación sencilla para crear imágenes con IA, con dos espacios: **Galería** y **Agent**. Usa tu propia clave API y conéctate directamente a un servicio compatible. Tus creaciones permanecen en tu dispositivo. Disponible para Android, Linux, Windows y macOS, con interfaz en los seis idiomas oficiales de la ONU.
 
 > Estado: **en desarrollo.** Consulta las [funciones compatibles](#funciones-compatibles): conectar una dirección compatible no garantiza que pueda generar imágenes. Es mi primera aplicación de este tipo; gracias por la paciencia.
@@ -45,12 +47,6 @@ Los ajustes tienen una página propia con tres pestañas: **Imágenes / Agent / 
 | Edición con máscara, tareas por lotes, sincronización en la nube, inferencia local | No implementado; posibles ampliaciones |
 
 Una lista de modelos no demuestra que puedan generar imágenes, y comprobar la conexión no es probar la generación. Las pruebas de pago solo se inician cuando envías una solicitud explícitamente desde la galería. Más información en [docs/capabilities.md](../../docs/capabilities.md).
-
-## Análisis de virus
-
-Los paquetes de publicación se enviaron a la **plataforma nacional de análisis colaborativo de virus informáticos** (CVERC, Centro Nacional de Respuesta a Emergencias de Virus Informáticos de China) y **pasaron en las cuatro plataformas** —Android, Linux, Windows y macOS— sin código malicioso detectado.
-
-Eso solo indica que los paquetes no contienen virus. No es una auditoría de seguridad ni significa que las llamadas a la API o el almacenamiento de claves hayan sido evaluados por un tercero.
 
 ## Compilación
 
