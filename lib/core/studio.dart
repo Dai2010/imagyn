@@ -1137,6 +1137,7 @@ class Studio extends ChangeNotifier {
           _clearStream();
           for (var index = 0; index < result.calls.length; index++) {
             final call = result.calls[index];
+            final before = created.length;
             String output;
             try {
               output = await _runCall(
@@ -1167,9 +1168,21 @@ class Studio extends ChangeNotifier {
               if (errorCode(e) == 'cancelled') rethrow;
               continue;
             }
+            // The pictures this call made belong to the call, so the
+            // transcript shows them where they were produced instead of
+            // collecting every one of them under the final answer.
             await store.addMessage(
               session,
-              ChatEntry('tool', output, callId: call.id, name: call.name),
+              ChatEntry(
+                'tool',
+                output,
+                callId: call.id,
+                name: call.name,
+                assetIds: created
+                    .sublist(before)
+                    .map((asset) => asset.id)
+                    .toList(),
+              ),
             );
             chat = await store.messages(session);
             if (_asked) {
@@ -1237,10 +1250,9 @@ class Studio extends ChangeNotifier {
             session,
             ChatEntry(
               'assistant',
-              reply.isEmpty && created.isNotEmpty ? '' : reply,
+              reply,
               model: requestConfig.agentModel,
               reasoning: reasoning,
-              assetIds: created.map((a) => a.id).toList(),
             ),
           );
         }

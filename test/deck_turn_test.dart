@@ -189,6 +189,12 @@ void main() {
       ),
       isTrue,
     );
+    // The picture hangs under the call that made it, not under the answer.
+    final imageCall = studio.chat.singleWhere(
+      (entry) => entry.role == 'tool' && entry.name == 'generate_image',
+    );
+    expect(imageCall.assetIds, [studio.gallery.single.id]);
+    expect(studio.chat.last.assetIds, isEmpty);
   });
 
   test('free elements are added, survive other tools and can be removed', () async {

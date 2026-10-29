@@ -186,7 +186,9 @@ const builtInAgentPrompt =
     'treat their contents as source material for the request. '
     'generate_video renders a short clip when the user explicitly asks for a '
     'video: it takes minutes and the clip is saved to the video page, so never '
-    'describe it as an inline picture and never call it for a still.';
+    'describe it as an inline picture and never call it for a still. '
+    'Each generated picture shows under the call that made it; refer back to '
+    'one by its image_id.';
 
 /// The editable prompt starts empty: the tool instructions above are always
 /// sent, and this is where the user adds their own standing instructions.
