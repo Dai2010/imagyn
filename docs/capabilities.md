@@ -18,7 +18,7 @@
 | Anthropic Messages + 工具调用 | Agent 模式，工具用 `input_schema` | 已实现，流式与非流式 |
 | 视频生成 | `videos` 提交（默认 multipart）→ `videos/{id}` 轮询 → `url` 或 `/content` 下载 | 已实现；容忍 `id`/`task_id`、`status`/`task_status`、`url`/`video_url`/`data[0]`；**尚未与真实网关联调** |
 | 视频模型列表 | 从视频接口的 `/models` 拉取，也可手填 | 已实现 |
-| Agent 工具循环 | 18 个工具（生图、视频、演示文稿、抓网页、提问），单轮最多 32 步 | 已实现 |
+| Agent 工具循环 | 20 个工具（生图、画廊列表与删除、视频、演示文稿、抓网页、提问），单轮最多 32 步 | 已实现 |
 | Agent 流式显示 | 文本与思考增量逐段显示 | 已实现，三种协议都支持 |
 | 演示文稿导出 | 原生 OOXML `.pptx`，文本框 / 图片 / 表格可继续编辑 | 已实现；PowerPoint / WPS 真机打开**尚未实测** |
 | WebFetch `fetch_url` | 抓取一个公开 http(s) 页面的正文，默认转成 Markdown | 已实现；DeepSeek 端点改由服务端 `POST /tools/fetch` 抓取、失败回退本地；拒绝回环、私网与链路本地地址，代理模式下不抓，超长截断 |
