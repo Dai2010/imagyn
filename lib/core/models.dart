@@ -188,7 +188,9 @@ const builtInAgentPrompt =
     'video: it takes minutes and the clip is saved to the video page, so never '
     'describe it as an inline picture and never call it for a still. '
     'Each generated picture shows under the call that made it; refer back to '
-    'one by its image_id.';
+    'one by its image_id. list_images lists older ones with their ids: pass up '
+    'to ten ids as reference_ids to reuse them, or delete_image to remove one, '
+    'and only one the user asked to delete.';
 
 /// The editable prompt starts empty: the tool instructions above are always
 /// sent, and this is where the user adds their own standing instructions.
@@ -657,8 +659,65 @@ const imageTool = {
             'app then keeps the style chosen in its options. Custom styles '
             'live only in the app, so never invent an id.',
       },
+      'reference_ids': {
+        'type': 'array',
+        'items': {'type': 'string'},
+        'description':
+            'Ids of earlier pictures to feed the image model, from list_images '
+            'or an earlier generate_image. Empty means the pictures attached '
+            'in the app.',
+      },
     },
-    'required': ['prompt', 'aspect_ratio', 'quality', 'style'],
+    'required': [
+      'prompt',
+      'aspect_ratio',
+      'quality',
+      'style',
+      'reference_ids',
+    ],
+    'additionalProperties': false,
+  },
+};
+
+const listImagesTool = {
+  'name': 'list_images',
+  'description':
+      'List the pictures in the gallery, newest first, with their ids, dates '
+      'and prompts. Use it before reusing or deleting an older picture: the '
+      'ids it returns are what generate_image and delete_image accept.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'limit': {
+        'type': 'integer',
+        'minimum': 1,
+        'maximum': 50,
+        'description': 'How many pictures to list, newest first.',
+      },
+      'query': {
+        'type': 'string',
+        'description':
+            'Words to match against the prompt, case-insensitive. Empty lists '
+            'the newest pictures.',
+      },
+    },
+    'required': ['limit', 'query'],
+    'additionalProperties': false,
+  },
+};
+
+const deleteImageTool = {
+  'name': 'delete_image',
+  'description':
+      'Delete one picture from the gallery permanently. Only an id that '
+      'list_images or generate_image returned in this conversation can be '
+      'deleted, and only when the user asked to remove that picture.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'image_id': {'type': 'string'},
+    },
+    'required': ['image_id'],
     'additionalProperties': false,
   },
 };
@@ -2025,6 +2084,8 @@ const fetchTool = {
 /// Every tool offered to the model. The order is the order of the prompt.
 const agentTools = [
   imageTool,
+  listImagesTool,
+  deleteImageTool,
   videoTool,
   fetchTool,
   createDeckTool,

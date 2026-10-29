@@ -1431,12 +1431,14 @@ AgentReply parseAgentReply(
 }
 
 /// A validated `generate_image` call: the prompt the image service receives,
-/// the ratio, the quality and the style the model chose for it, if any.
+/// the ratio, the quality and the style the model chose for it, if any, plus
+/// the earlier pictures it asked to reuse as references.
 typedef ToolCall = ({
   String prompt,
   String? aspectRatio,
   String? quality,
   String? style,
+  List<String> referenceIds,
 });
 
 ToolCall validateToolCall(Object? input) {
@@ -1472,7 +1474,24 @@ ToolCall validateToolCall(Object? input) {
     aspectRatio: ratio == null || ratio == 'auto' ? null : ratio,
     quality: quality == null || quality == 'auto' ? null : quality,
     style: style == null || style == 'auto' ? null : style,
+    referenceIds: _referenceIds(input['reference_ids']),
   );
+}
+
+/// At most ten ids, each one already trimmed and de-duplicated: the same
+/// picture twice would only burn the reference budget.
+List<String> _referenceIds(Object? value) {
+  if (value == null) return const [];
+  if (value is! List) throw const FormatException('invalidTool');
+  final ids = <String>[];
+  for (final item in value) {
+    if (item is! String) throw const FormatException('invalidTool');
+    final id = item.trim();
+    if (id.isEmpty || ids.contains(id)) continue;
+    ids.add(id);
+  }
+  if (ids.length > 10) throw const FormatException('invalidTool');
+  return ids;
 }
 
 /// The parts of an Agent turn that are the same whether it is streamed or not:

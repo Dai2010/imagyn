@@ -47,6 +47,11 @@ class Studio extends ChangeNotifier {
   /// something can say what it is waiting for instead of a generic spinner.
   String? runningTool;
 
+  /// Ids this conversation has been shown. A model may reference or delete
+  /// only pictures it has actually seen, so a mistyped or invented id cannot
+  /// reach an asset the user never mentioned.
+  final Set<String> _seenImages = {};
+
   /// Set when the model asked the user a question: the turn stops after that
   /// tool result, and the user's next message is the answer.
   bool _asked = false;
@@ -2041,6 +2046,48 @@ class Studio extends ChangeNotifier {
     }
   }
 
+  /// The gallery, as the model sees it: ids, dates and prompts, newest first.
+  Future<String> _listImages(AgentCall call) async {
+    final requested = call.arguments['limit'];
+    final limit = requested is int ? requested.clamp(1, 50) : 20;
+    final query = (call.arguments['query'] as String? ?? '').trim().toLowerCase();
+    final matched = gallery
+        .where((asset) => query.isEmpty || asset.prompt.toLowerCase().contains(query))
+        .take(limit)
+        .toList();
+    if (matched.isEmpty) {
+      return query.isEmpty
+          ? 'The gallery is empty.'
+          : 'No picture matches "$query".';
+    }
+    _seenImages.addAll(matched.map((asset) => asset.id));
+    return [
+      'Pictures, newest first (id · date · prompt):',
+      for (final asset in matched)
+        '${asset.id} · ${asset.createdAt.toIso8601String().split('T').first} · '
+            '${asset.prompt.isEmpty ? '(no prompt)' : asset.prompt}',
+    ].join('\n');
+  }
+
+  /// Removes one picture the user asked to delete. The id has to come from an
+  /// earlier result in this conversation; anything else is refused, because a
+  /// wrong id here destroys artwork and there is no undo.
+  Future<String> _deleteImage(AgentCall call) async {
+    final id = (call.arguments['image_id'] as String? ?? '').trim();
+    if (id.isEmpty) return 'delete_image needs an image_id.';
+    if (!_seenImages.contains(id)) {
+      return 'delete_image refused: $id was not listed in this conversation. '
+          'Call list_images first and use an id it returned.';
+    }
+    final asset = await store.asset(id);
+    if (asset == null) return 'No picture has the id $id.';
+    await store.deleteAsset(id);
+    galleryRefs.removeWhere((item) => item.id == id);
+    agentRefs.removeWhere((item) => item.id == id);
+    await refresh();
+    return 'Deleted ${asset.id} ("${asset.prompt}"). It is gone from the gallery.';
+  }
+
   String _askUser(AgentCall call) {
     try {
       final question = _argText(call, 'question').trim();
@@ -2323,6 +2370,10 @@ class Studio extends ChangeNotifier {
         return _finishDeck(call);
       case 'fetch_url':
         return _fetch(client, call);
+      case 'list_images':
+        return _listImages(call);
+      case 'delete_image':
+        return _deleteImage(call);
       case 'ask_user':
         return _askUser(call);
       case 'generate_video':
@@ -2337,12 +2388,34 @@ class Studio extends ChangeNotifier {
       quality: parsed.quality,
       style: parsed.style,
     );
+    // Pictures the model named itself win over the ones attached in the app,
+    // so "use image 3 from the gallery as the reference" behaves as asked.
+    var input = refs;
+    if (parsed.referenceIds.isNotEmpty) {
+      final picked = <Asset>[];
+      for (final wanted in parsed.referenceIds) {
+        if (!_seenImages.contains(wanted)) {
+          return 'generate_image refused: $wanted was not listed in this '
+              'conversation. Call list_images first and use an id it returned.';
+        }
+        final asset = await store.asset(wanted);
+        if (asset != null) picked.add(asset);
+      }
+      if (picked.isEmpty) {
+        return 'None of those reference_ids exist any more.';
+      }
+      if (picked.length > client.config.maxReferences) {
+        return 'Too many reference pictures: this model takes at most '
+            '${client.config.maxReferences}.';
+      }
+      input = picked;
+    }
     stage = 'working';
     notifyListeners();
     final id = store.newId();
     final record = <String, dynamic>{
       'prompt': parsed.prompt,
-      'references': refs.map((asset) => asset.id).toList(),
+      'references': input.map((asset) => asset.id).toList(),
       'model': client.config.imageModel,
       ...jobOptions.toJson(),
       'createdAt': DateTime.now().toIso8601String(),
@@ -2358,10 +2431,11 @@ class Studio extends ChangeNotifier {
         id,
         record,
         parsed.prompt,
-        refs,
+        input,
         jobOptions,
       );
       created.addAll(assets);
+      _seenImages.addAll(assets.map((asset) => asset.id));
       if (assets.isEmpty) return 'The image service returned no image.';
       final ids = assets.map((asset) => asset.id).join(', ');
       return 'Generated ${assets.length} image(s). image_id: $ids. '
