@@ -249,7 +249,7 @@ jobs:
             echo "桌面三平台（deb / rpm / Arch、MSI / EXE、DMG / PKG）构建完成后会补进本页。"
           } > ../NOTES.md
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag }}
           name: ${{ inputs.title }}
@@ -312,7 +312,7 @@ jobs:
             echo "全部附件的 sha256 见 \`SHA256SUMS\`。"
           } > ../NOTES.md
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag }}
           name: ${{ inputs.title }}
