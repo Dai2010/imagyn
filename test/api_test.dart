@@ -208,16 +208,14 @@ void main() {
 
   group('validateToolCall', () {
     test('trims and accepts a usable prompt', () {
-      expect(
-        validateToolCall({'prompt': '  a cat  '}),
-        (
-          prompt: 'a cat',
-          aspectRatio: null,
-          quality: null,
-          style: null,
-          referenceIds: <String>[],
-        ),
-      );
+      // Compared field by field: the record now carries a list, and two lists
+      // are never equal by value, so the whole record can no longer be matched.
+      final call = validateToolCall({'prompt': '  a cat  '});
+      expect(call.prompt, 'a cat');
+      expect(call.aspectRatio, isNull);
+      expect(call.quality, isNull);
+      expect(call.style, isNull);
+      expect(call.referenceIds, isEmpty);
     });
 
     test('keeps a known aspect ratio and reads auto as no choice', () {
