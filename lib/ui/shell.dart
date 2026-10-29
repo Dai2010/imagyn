@@ -1116,6 +1116,7 @@ class _StudioShellState extends State<StudioShell> {
                       ),
                     ],
                   ),
+                  if (agent) _usageLine(),
                 ],
               ),
             ),
@@ -1123,6 +1124,44 @@ class _StudioShellState extends State<StudioShell> {
         ),
       ),
     );
+  }
+
+  /// The context budget, always on screen but never loud: one thin line of
+  /// numbers under the composer. Nothing here is a word, so it reads the same
+  /// in all six languages.
+  Widget _usageLine() {
+    final theme = Theme.of(context);
+    final used = studio.contextTokensUsed;
+    final limit = studio.contextTokensLimit;
+    final style = theme.textTheme.labelSmall?.copyWith(
+      color: theme.colorScheme.outline,
+    );
+    return Padding(
+      key: const ValueKey('contextUsage'),
+      padding: const EdgeInsets.only(top: 6, left: 4),
+      child: Row(
+        children: [
+          Icon(
+            Icons.data_usage_rounded,
+            size: 11,
+            color: theme.colorScheme.outline,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            limit > 0
+                ? '${_tokenCount(used)} / ${_tokenCount(limit)}'
+                : _tokenCount(used),
+            style: style,
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _tokenCount(int value) {
+    if (value >= 1000000) return '${(value / 1000000).toStringAsFixed(1)}M';
+    if (value >= 1000) return '${(value / 1000).toStringAsFixed(1)}k';
+    return '$value';
   }
 
   /// The slash-command list, or null when the text is not a command. `/style`

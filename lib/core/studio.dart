@@ -135,6 +135,17 @@ class Studio extends ChangeNotifier {
         : activeConfig.agentOptions;
   }
 
+  /// Roughly what the next request would carry, counted the way the compaction
+  /// budget counts it: system prompt, tool schemas and the whole history.
+  int get contextTokensUsed =>
+      estimateTokens(agentOptions.requestPrompt) +
+      _toolTokens +
+      estimateHistoryTokens(chat) +
+      8;
+
+  /// The ceiling the user set for this model; 0 means "no automatic cut".
+  int get contextTokensLimit => agentOptions.contextTokens;
+
   Future<void> _loadConversationSettings() async {
     _conversationSettings = Map<String, dynamic>.from(
       jsonDecode(await store.setting('conversation:$session') ?? '{}') as Map,
