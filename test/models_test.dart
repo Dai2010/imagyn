@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:imagyn/core/api.dart';
 import 'package:imagyn/core/models.dart';
 
 void main() {
@@ -163,13 +164,20 @@ void main() {
     final parameters = imageTool['parameters'] as Map;
     final properties = parameters['properties'] as Map;
     expect(imageTool['name'], 'generate_image');
-    expect(properties.keys, ['prompt', 'aspect_ratio', 'quality', 'style']);
+    expect(properties.keys, [
+      'prompt',
+      'aspect_ratio',
+      'quality',
+      'style',
+      'reference_ids',
+    ]);
     // OpenAI strict tools require every property to be listed as required.
     expect(parameters['required'], [
       'prompt',
       'aspect_ratio',
       'quality',
       'style',
+      'reference_ids',
     ]);
     expect(parameters['additionalProperties'], isFalse);
     expect(
@@ -180,5 +188,34 @@ void main() {
       ((properties['quality'] as Map)['enum'] as List).toSet(),
       {'auto', 'low', 'medium', 'high'},
     );
+  });
+
+  test('reference ids are trimmed, de-duplicated and capped', () {
+    final picked = validateToolCall({
+      'prompt': 'x',
+      'reference_ids': [' a ', 'a', '', 'b'],
+    });
+    expect(picked.referenceIds, ['a', 'b']);
+    expect(validateToolCall({'prompt': 'x'}).referenceIds, isEmpty);
+    expect(
+      () => validateToolCall({'prompt': 'x', 'reference_ids': 'a'}),
+      throwsFormatException,
+    );
+    expect(
+      () => validateToolCall({
+        'prompt': 'x',
+        'reference_ids': List.generate(11, (index) => '$index'),
+      }),
+      throwsFormatException,
+    );
+  });
+
+  test('the gallery tools are offered to the model', () {
+    expect(
+      agentTools.map((tool) => tool['name']),
+      containsAll(['list_images', 'delete_image']),
+    );
+    final list = agentTools.firstWhere((tool) => tool['name'] == 'list_images');
+    expect((list['parameters'] as Map)['required'], ['limit', 'query']);
   });
 }
