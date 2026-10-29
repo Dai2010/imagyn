@@ -394,6 +394,8 @@ class _StudioShellState extends State<StudioShell> {
           ),
           streaming: true,
         ),
+      if (studio.busy && studio.runningTool != null)
+        _runningRow(studio.runningTool!),
     ];
     return Align(
       alignment: Alignment.topCenter,
@@ -587,18 +589,96 @@ class _StudioShellState extends State<StudioShell> {
           ),
       ],
     );
-    if (deck == null) {
+    if (deck == null && entry.assetIds.isEmpty) {
       return Padding(padding: const EdgeInsets.only(bottom: 10), child: row);
     }
+    final line = deck == null
+        ? row
+        : InkWell(
+            onTap: () => _deck(deck),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: row,
+            ),
+          );
+    if (entry.assetIds.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: line,
+      );
+    }
+    // A picture belongs to the call that made it: it sits under that call's
+    // row the moment it arrives, instead of waiting for the turn to end.
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: InkWell(
-        onTap: () => _deck(deck),
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: row,
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(bottom: 6, top: deck == null ? 0 : 4),
+            child: line,
+          ),
+          for (final id in entry.assetIds)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: _toolThumb(id),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _toolThumb(String id) => FutureBuilder<Asset?>(
+    future: studio.store.asset(id),
+    builder: (context, snapshot) {
+      final asset = snapshot.data;
+      if (asset == null) return const SizedBox.shrink();
+      return GestureDetector(
+        onTap: () => _preview(asset),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 260, maxWidth: 360),
+            child: _image(asset),
+          ),
         ),
+      );
+    },
+  );
+
+  /// A call that is still running: the row it will leave behind, plus the
+  /// spinner saying why the transcript has not moved yet.
+  Widget _runningRow(String name) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        key: const ValueKey('runningTool'),
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.6,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            name,
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            s.t('working'),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+        ],
       ),
     );
   }
