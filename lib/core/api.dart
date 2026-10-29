@@ -117,6 +117,33 @@ class StudioApi {
   Future<List<String>> listVideoModels() =>
       _listModelsAt(config.videoEndpoint('models'), videoHeaders);
 
+  /// True when the chat endpoint is DeepSeek's own service, which offers a
+  /// server-side fetcher at `POST {base}/tools/fetch`. That fetcher returns the
+  /// page already reduced to Markdown and is not refused by sites that block
+  /// unknown clients, which is the difference from the local one.
+  bool get isDeepSeek {
+    final host = Uri.tryParse(config.baseUrl.trim())?.host ?? '';
+    return config.protocol == ApiProtocol.openai &&
+        (config.agentModel.toLowerCase().contains('deepseek') ||
+            host.toLowerCase().contains('deepseek'));
+  }
+
+  /// Fetches one page through the service. Throws when the service does not
+  /// answer with usable text, so the caller can fall back to the local fetcher
+  /// instead of turning a refusal into a failed turn.
+  Future<({String title, String content})> fetchPage(String url) async {
+    final response = await dio.postUri(
+      config.endpoint('tools/fetch'),
+      data: {'url': url},
+      options: Options(headers: {...agentHeaders, 'accept': 'application/json'}),
+    );
+    final body = response.data;
+    final map = body is Map ? body : const {};
+    final content = '${map['content'] ?? ''}'.trim();
+    if (content.isEmpty) throw const FormatException('fetchEmpty');
+    return (title: '${map['title'] ?? ''}'.trim(), content: content);
+  }
+
   Future<List<String>> _listModelsAt(
     Uri start,
     Map<String, String> headers,
@@ -696,12 +723,7 @@ class StudioApi {
   /// DeepSeek's thinking mode is the one OpenAI-compatible service known to
   /// require `reasoning_content` back whenever `tools` is present; echoing it
   /// to other endpoints can be rejected, so the field follows the provider.
-  bool get _echoReasoning {
-    final host = Uri.tryParse(config.baseUrl.trim())?.host ?? '';
-    return config.protocol == ApiProtocol.openai &&
-        (config.agentModel.toLowerCase().contains('deepseek') ||
-            host.toLowerCase().contains('deepseek'));
-  }
+  bool get _echoReasoning => isDeepSeek;
 
   List<Map<String, dynamic>> _assistantCalls(ChatEntry entry) =>
       switch (config.protocol) {
