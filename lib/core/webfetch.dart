@@ -386,9 +386,11 @@ String htmlToMarkdown(String html, Uri base) {
         ),
         '\n',
       )
-      .replaceAll(RegExp(r'<(strong|b)[^>]*>', caseSensitive: false), '**')
+      // The optional attribute group has to start with a space: without it
+      // `<b…>` also swallows `<body>` and `<i…>` eats `<img …>`.
+      .replaceAll(RegExp(r'<(strong|b)(\s[^>]*)?>', caseSensitive: false), '**')
       .replaceAll(RegExp(r'</(strong|b)>', caseSensitive: false), '**')
-      .replaceAll(RegExp(r'<(em|i)[^>]*>', caseSensitive: false), '*')
+      .replaceAll(RegExp(r'<(em|i)(\s[^>]*)?>', caseSensitive: false), '*')
       .replaceAll(RegExp(r'</(em|i)>', caseSensitive: false), '*');
 
   text = text.replaceAllMapped(
