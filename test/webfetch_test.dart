@@ -159,4 +159,50 @@ void main() {
     expect(text, contains('(truncated)'));
     expect(text.length, lessThan(maxFetchChars + 200));
   });
+
+  test('html becomes markdown with its structure intact', () {
+    const page = '''
+<html><head><title> 标题 &amp; 副题 </title>
+<style>p{color:red}</style></head>
+<body>
+<h1>第一节</h1>
+<p>一段<strong>重点</strong>文字，见<a href="/docs/start">文档</a>。</p>
+<ul><li>甲</li><li>乙</li></ul>
+<pre><code>void main() {
+  run();
+}</code></pre>
+<blockquote>引用</blockquote>
+<hr>
+<img src="https://img.example.com/a.png" alt="配图">
+<script>alert(1)</script>
+</body></html>
+''';
+
+    final markdown = htmlToMarkdown(page, Uri.parse('https://example.com/base/'));
+    final title = htmlTitle(page);
+
+    expect(title, '标题 & 副题');
+    expect(markdown, contains('# 第一节'));
+    expect(markdown, contains('**重点**'));
+    expect(markdown, contains('[文档](https://example.com/docs/start)'));
+    expect(markdown, contains('- 甲'));
+    expect(markdown, contains('```\nvoid main() {\n  run();\n}\n```'));
+    expect(markdown, contains('> 引用'));
+    expect(markdown, contains('---'));
+    expect(markdown, contains('![配图](https://img.example.com/a.png)'));
+    expect(markdown, isNot(contains('alert(1)')));
+    expect(markdown, isNot(contains('color:red')));
+  });
+
+  test('the plain-text path keeps the words but drops the markers', () {
+    const page = '<html><body><h2>小标题</h2><p>正文</p>'
+        '<ul><li>甲</li></ul></body></html>';
+
+    final text = htmlToText(page);
+
+    expect(text, contains('小标题'));
+    expect(text, contains('正文'));
+    expect(text, isNot(contains('#')));
+    expect(text, isNot(contains('**')));
+  });
 }

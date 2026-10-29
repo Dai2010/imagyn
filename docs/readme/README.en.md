@@ -41,7 +41,7 @@ Settings has its own page with three tabs: **Images / Agent / General**. Switch 
 | Video generation (`videos` submit → `videos/{id}` polling → `url` or `videos/{id}/content` download) | Implemented; multipart submission by default, tolerating `id`/`task_id`, `status`/`task_status` and `url`/`video_url`/`data[0]` (not yet tested against a real gateway) |
 | Agent multi-step tool loop (`generate_image`, `generate_video`, `create_deck`, `add_slide`, `add_table`, `ask_user`, …) | Implemented, up to 32 steps per turn; tool failures return to the model as results |
 | Presentation export (`.pptx`, text boxes / pictures / tables) | Native OOXML; editable in PowerPoint / WPS (opening on a real device is still untested) |
-| WebFetch / `fetch_url` | Implemented; fetches public http(s) pages only, refusing loopback, private and link-local addresses |
+| WebFetch / `fetch_url` | Implemented; pages come back as Markdown, DeepSeek endpoints fetch server-side and fall back to the local fetcher; public http(s) pages only, refusing loopback, private and link-local addresses |
 | OpenAI Images SSE results | Implemented; enable it in the image API compatibility options |
 | Responses built-in `image_generation` tool | Not implemented; Agent uses the app’s `generate_image` function to call the separate Images API |
 | Mask editing, batch jobs, cloud sync, local inference | Not implemented; possible future extensions |

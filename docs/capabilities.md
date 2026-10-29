@@ -21,7 +21,7 @@
 | Agent 工具循环 | 18 个工具（生图、视频、演示文稿、抓网页、提问），单轮最多 32 步 | 已实现 |
 | Agent 流式显示 | 文本与思考增量逐段显示 | 已实现，三种协议都支持 |
 | 演示文稿导出 | 原生 OOXML `.pptx`，文本框 / 图片 / 表格可继续编辑 | 已实现；PowerPoint / WPS 真机打开**尚未实测** |
-| WebFetch `fetch_url` | 抓取一个公开 http(s) 页面的正文 | 已实现；拒绝回环、私网与链路本地地址，代理模式下不抓，超长截断 |
+| WebFetch `fetch_url` | 抓取一个公开 http(s) 页面的正文，默认转成 Markdown | 已实现；DeepSeek 端点改由服务端 `POST /tools/fetch` 抓取、失败回退本地；拒绝回环、私网与链路本地地址，代理模式下不抓，超长截断 |
 | 提问 `ask_user` | 回合内向用户提问，回合在此结束 | 已实现 |
 | 上下文压缩 | 旧回合由同一个模型总结，最近窗口原样保留；`/compact` 手动触发 | 已实现 |
 | OpenAI Responses 内置 `image_generation` 工具 | 用 Responses 自带的工具生图 | **未实现**；Agent 一律调用应用的 `generate_image`，走独立 Images 接口 |

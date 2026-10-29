@@ -179,8 +179,9 @@ const builtInAgentPrompt =
     '(gradient), border, radius, shadow and rotation (degrees); widen short '
     'display words with letter_spacing and keep body text plain so it stays '
     'readable. remove_element deletes one element by the id the tool returned. '
-    'For a public link or page call fetch_url with an absolute URL: it returns '
-    'readable text and refuses private addresses. Do not repeat a failed fetch; '
+    'For a public link or page call fetch_url with an absolute URL and a '
+    'format: it returns that page as markdown by default and refuses private '
+    'addresses. Do not repeat a failed fetch; '
     'say what went wrong. A user message may carry <file name="…"> blocks: '
     'treat their contents as source material for the request. '
     'generate_video renders a short clip when the user explicitly asks for a '
@@ -1994,10 +1995,11 @@ const askUserTool = {
 const fetchTool = {
   'name': 'fetch_url',
   'description':
-      'Fetch one public http or https page and return its readable text. Use '
-      'it only when the user gives a link or needs information that is not in '
-      'the conversation. Loopback, private and link-local addresses are '
-      'refused by the app, and a long page is truncated.',
+      'Fetch one public http or https page and read it. Markdown is the '
+      'default: headings, lists, links and code keep their shape. Use it only '
+      'when the user gives a link or needs information that is not in the '
+      'conversation. Loopback, private and link-local addresses are refused, '
+      'and a long page is truncated.',
   'parameters': {
     'type': 'object',
     'properties': {
@@ -2005,8 +2007,15 @@ const fetchTool = {
         'type': 'string',
         'description': 'Absolute http or https URL, including the scheme.',
       },
+      'format': {
+        'type': 'string',
+        'enum': ['markdown', 'text'],
+        'description':
+            'Use markdown unless the user asks for the page as plain text; '
+            'text drops headings, links and code fences.',
+      },
     },
-    'required': ['url'],
+    'required': ['url', 'format'],
     'additionalProperties': false,
   },
 };

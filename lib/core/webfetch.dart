@@ -18,6 +18,11 @@ const fetchTimeout = Duration(seconds: 15);
 /// page can have.
 const maxFetchChars = 20000;
 
+/// How the page is reduced before the model sees it. Markdown keeps headings,
+/// lists and links, which is also the shape a server-side fetcher returns, so
+/// both paths hand the model the same thing.
+enum FetchFormat { markdown, text }
+
 /// The text one `fetch_url` call produces. `url` is the address that actually
 /// answered after redirects, so the card can show where the text came from.
 class FetchResult {
@@ -27,12 +32,24 @@ class FetchResult {
     required this.bytes,
     required this.text,
     required this.truncated,
+    this.title = '',
+    this.format = FetchFormat.markdown,
+    this.server = false,
   });
   final String url;
   final int status;
   final int bytes;
   final String text;
   final bool truncated;
+
+  /// The document title when the page carries one; empty otherwise, and
+  /// always empty on the plain-text path.
+  final String title;
+  final FetchFormat format;
+
+  /// True when the service did the fetching and returned Markdown, rather than
+  /// the app downloading the page itself.
+  final bool server;
 
   /// What the model receives. The header states the source and the size so a
   /// truncated page is never mistaken for the whole document.
@@ -42,10 +59,13 @@ class FetchResult {
     final body = clipped
         ? '${String.fromCharCodes(runes.take(maxChars))}\n\n[truncated]'
         : text;
-    final buffer = StringBuffer()
-      ..writeln('URL: $url')
+    final buffer = StringBuffer()..writeln('URL: $url');
+    if (title.isNotEmpty) buffer.writeln('TITLE: $title');
+    buffer
       ..writeln(
-        'HTTP: $status · $bytes bytes'
+        'HTTP: $status · $bytes bytes · '
+        '${format == FetchFormat.markdown ? 'markdown' : 'text'}'
+        '${server ? ' · fetched by the service' : ''}'
         '${truncated || clipped ? ' (truncated)' : ''}',
       )
       ..writeln()
@@ -67,6 +87,7 @@ Future<FetchResult> fetchUrl(
   String raw, {
   HttpClient? client,
   HostPolicy policy = ensurePublicHost,
+  FetchFormat format = FetchFormat.markdown,
 }) async {
   var uri = _parse(raw);
   final owned = client == null;
@@ -102,7 +123,21 @@ Future<FetchResult> fetchUrl(
         ..followRedirects = false
         ..headers.set(
           HttpHeaders.userAgentHeader,
-          'Imagyn/0.1 (+https://github.com/Dai2010/imagyn)',
+          'Mozilla/5.0 (compatible; Imagyn/0.2; +https://github.com/Dai2010/imagyn)',
+        )
+        // Servers that render two versions pick the one the client asks for;
+        // asking for Markdown first is what makes the plain path usable too.
+        ..headers.set(
+          HttpHeaders.acceptHeader,
+          format == FetchFormat.markdown
+              ? 'text/markdown;q=1.0, text/x-markdown;q=0.9, '
+                    'text/plain;q=0.8, text/html;q=0.7, */*;q=0.1'
+              : 'text/plain;q=1.0, text/markdown;q=0.9, '
+                    'text/html;q=0.8, */*;q=0.1',
+        )
+        ..headers.set(
+          HttpHeaders.acceptLanguageHeader,
+          'zh-CN,zh;q=0.9,en;q=0.8',
         );
       final response = await request.close().timeout(remaining());
       if (response.isRedirect) {
@@ -137,8 +172,12 @@ Future<FetchResult> fetchUrl(
       }
       final charset = response.headers.contentType?.charset ?? 'utf-8';
       var text = _decode(bytes, charset);
+      var title = '';
       if (type == 'text/html' || type == 'application/xhtml+xml') {
-        text = htmlToText(text);
+        title = htmlTitle(text);
+        text = format == FetchFormat.markdown
+            ? htmlToMarkdown(text, uri)
+            : htmlToText(text);
       }
       return FetchResult(
         url: uri.toString(),
@@ -146,6 +185,8 @@ Future<FetchResult> fetchUrl(
         bytes: bytes.length,
         text: text.trim(),
         truncated: truncated,
+        title: title,
+        format: format,
       );
     }
     throw const FormatException('fetchRedirects');
@@ -246,22 +287,198 @@ String _decode(List<int> bytes, String charset) {
 /// spaces, and decode the few entities that otherwise read as noise. The model
 /// gets text, not a DOM, and the raw page is never trusted as instructions.
 String htmlToText(String html) {
-  var text = html
+  final text = html
       .replaceAll(
         RegExp(r'<(script|style|noscript)[^>]*>[\s\S]*?</\1>', caseSensitive: false),
         ' ',
       )
       .replaceAll(RegExp(r'<!--[\s\S]*?-->'), ' ')
       .replaceAll(RegExp(r'<[^>]+>'), ' ');
+  return decodeEntities(text)
+      .replaceAll(RegExp(r'[ \t\r\f]+'), ' ')
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+      .trim();
+}
+
+/// The document title, or an empty string when the page has none.
+String htmlTitle(String html) {
+  final match = RegExp(
+    r'<title[^>]*>([\s\S]*?)</title>',
+    caseSensitive: false,
+  ).firstMatch(html);
+  if (match == null) return '';
+  return decodeEntities(match.group(1) ?? '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+/// Turns a page into Markdown: headings, lists, code, quotes, links and the
+/// table rows that survive as pipe-separated lines.
+///
+/// The reduction is deliberately shallow. A model needs the structure of an
+/// article, not a faithful copy of the DOM, and anything invented here is text
+/// the page never said.
+String htmlToMarkdown(String html, Uri base) {
+  final blocks = <String>[];
+  String keep(String value) {
+    blocks.add(value);
+    return '\u0000${blocks.length - 1}\u0000';
+  }
+
+  var text = html
+      .replaceAll(
+        RegExp(
+          r'<(script|style|noscript|template|svg|head)[^>]*>[\s\S]*?</\1>',
+          caseSensitive: false,
+        ),
+        ' ',
+      )
+      .replaceAll(RegExp(r'<!--[\s\S]*?-->'), ' ');
+
+  // Code keeps its own whitespace, so it is pulled out before any tag becomes
+  // a line break. A fence inside the code would end the block early, hence the
+  // tilde fallback.
+  text = text.replaceAllMapped(
+    RegExp(r'<pre[^>]*>([\s\S]*?)</pre>', caseSensitive: false),
+    (match) {
+      final code = decodeEntities(
+        (match.group(1) ?? '').replaceAll(RegExp(r'<[^>]+>'), ''),
+      ).trimRight();
+      if (code.trim().isEmpty) return ' ';
+      final fence = code.contains('```') ? '~~~' : '```';
+      return keep('\n\n$fence\n$code\n$fence\n\n');
+    },
+  );
+
+  text = text.replaceAllMapped(
+    RegExp(r'<code[^>]*>([\s\S]*?)</code>', caseSensitive: false),
+    (match) {
+      final code = decodeEntities(
+        (match.group(1) ?? '').replaceAll(RegExp(r'<[^>]+>'), ''),
+      ).replaceAll(RegExp(r'\s+'), ' ').trim();
+      return code.isEmpty ? '' : '`$code`';
+    },
+  );
+
+  text = text
+      .replaceAllMapped(
+        RegExp(r'<h([1-6])[^>]*>', caseSensitive: false),
+        (match) => '\n\n${'#' * int.parse(match.group(1)!)} ',
+      )
+      .replaceAll(RegExp(r'</h[1-6]>', caseSensitive: false), '\n\n')
+      .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+      .replaceAll(RegExp(r'<p[^>]*>', caseSensitive: false), '\n\n')
+      .replaceAll(RegExp(r'</p>', caseSensitive: false), '\n\n')
+      .replaceAll(RegExp(r'<li[^>]*>', caseSensitive: false), '\n- ')
+      .replaceAll(RegExp(r'</li>', caseSensitive: false), '')
+      .replaceAll(RegExp(r'</?(ul|ol)[^>]*>', caseSensitive: false), '\n')
+      .replaceAll(RegExp(r'<hr[^>]*>', caseSensitive: false), '\n\n---\n\n')
+      .replaceAll(RegExp(r'<blockquote[^>]*>', caseSensitive: false), '\n\n> ')
+      .replaceAll(RegExp(r'</blockquote>', caseSensitive: false), '\n\n')
+      .replaceAll(RegExp(r'<tr[^>]*>', caseSensitive: false), '\n| ')
+      .replaceAll(RegExp(r'</t[dh]>', caseSensitive: false), ' | ')
+      .replaceAll(RegExp(r'<table[^>]*>', caseSensitive: false), '\n\n')
+      .replaceAll(RegExp(r'</table>', caseSensitive: false), '\n\n')
+      .replaceAll(
+        RegExp(
+          r'</?(div|section|article|header|footer|main|aside|nav|figure)[^>]*>',
+          caseSensitive: false,
+        ),
+        '\n',
+      )
+      .replaceAll(RegExp(r'<(strong|b)[^>]*>', caseSensitive: false), '**')
+      .replaceAll(RegExp(r'</(strong|b)>', caseSensitive: false), '**')
+      .replaceAll(RegExp(r'<(em|i)[^>]*>', caseSensitive: false), '*')
+      .replaceAll(RegExp(r'</(em|i)>', caseSensitive: false), '*');
+
+  text = text.replaceAllMapped(
+    RegExp(r"""<a\b[^>]*href\s*=\s*["']([^"']*)["'][^>]*>([\s\S]*?)</a>""",
+        caseSensitive: false),
+    (match) {
+      final href = _absolute(match.group(1) ?? '', base);
+      final label = (match.group(2) ?? '')
+          .replaceAll(RegExp(r'<[^>]+>'), ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (href.isEmpty || label.isEmpty) return label;
+      if (label == href) return '<$href>';
+      return '[$label]($href)';
+    },
+  );
+
+  text = text.replaceAllMapped(
+    RegExp(r'<img\b[^>]*>', caseSensitive: false),
+    (match) {
+      final tag = match.group(0) ?? '';
+      final src = _attribute(tag, 'src');
+      final alt = _attribute(tag, 'alt');
+      if (src.isEmpty) return alt;
+      return '![${alt.isEmpty ? 'image' : alt}](${_absolute(src, base)})';
+    },
+  );
+
+  text = decodeEntities(text.replaceAll(RegExp(r'<[^>]+>'), ''));
+
+  final lines = text
+      .split('\n')
+      .map((line) => line.replaceAll(RegExp(r'[ \t\r\f]+'), ' ').trimRight())
+      .toList();
+  var out = lines.join('\n').replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+  out = out.replaceAllMapped(
+    RegExp(r'\u0000(\d+)\u0000'),
+    (match) => blocks[int.parse(match.group(1)!)],
+  );
+  return out.trim();
+}
+
+/// An address the page linked to, made absolute so the model can cite it.
+String _absolute(String value, Uri base) {
+  final raw = value.trim();
+  if (raw.isEmpty) return '';
+  final resolved = Uri.tryParse(raw);
+  if (resolved == null) return raw;
+  if (resolved.hasScheme) return resolved.toString();
+  return base.resolveUri(resolved).toString();
+}
+
+String _attribute(String tag, String name) {
+  final match = RegExp(
+    "${RegExp.escape(name)}\\s*=\\s*[\"']([^\"']*)[\"']",
+    caseSensitive: false,
+  ).firstMatch(tag);
+  return match?.group(1) ?? '';
+}
+
+/// The handful of entities a page uses for punctuation. Nothing here guesses at
+/// markup: an unknown entity stays as written, because inventing a character
+/// is worse than passing the raw one through.
+String decodeEntities(String text) {
   const entities = {
     '&nbsp;': ' ',
     '&amp;': '&',
     '&lt;': '<',
     '&gt;': '>',
     '&quot;': '"',
+    '&apos;': "'",
     '&#39;': "'",
     '&#x27;': "'",
+    '&mdash;': '—',
+    '&ndash;': '–',
+    '&hellip;': '…',
+    '&lsquo;': '‘',
+    '&rsquo;': '’',
+    '&ldquo;': '“',
+    '&rdquo;': '”',
   };
-  entities.forEach((from, to) => text = text.replaceAll(from, to));
-  return text.replaceAll(RegExp(r'[ \t\r\f]+'), ' ').replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+  var result = text;
+  entities.forEach((from, to) => result = result.replaceAll(from, to));
+  return result.replaceAllMapped(
+    RegExp(r'&#(x?)([0-9a-fA-F]+);'),
+    (match) {
+      final hex = (match.group(1) ?? '').isNotEmpty;
+      final code = int.tryParse(match.group(2) ?? '', radix: hex ? 16 : 10);
+      if (code == null || code <= 0 || code > 0x10FFFF) return match.group(0)!;
+      return String.fromCharCode(code);
+    },
+  );
 }

@@ -1971,15 +1971,41 @@ class Studio extends ChangeNotifier {
 
   /// Fetches one public page for the model. The executor owns the address
   /// rules; its codes become a readable result instead of ending the turn.
-  Future<String> _fetch(AgentCall call) async {
+  ///
+  /// On DeepSeek the service fetches the page itself and returns Markdown,
+  /// which is the only path that survives sites that block unknown clients or
+  /// render with JavaScript. Any failure there falls back to the local
+  /// fetcher, so every other endpoint keeps working exactly as before.
+  Future<String> _fetch(StudioApi client, AgentCall call) async {
     final String url;
     try {
       url = _argText(call, 'url');
     } on FormatException {
       return 'Invalid arguments for fetch_url: pass an absolute http(s) URL.';
     }
+    final format =
+        (call.arguments['format'] as String?)?.trim().toLowerCase() == 'text'
+        ? FetchFormat.text
+        : FetchFormat.markdown;
+    if (client.isDeepSeek) {
+      try {
+        final page = await client.fetchPage(url);
+        return FetchResult(
+          url: url,
+          status: 200,
+          bytes: page.content.length,
+          text: page.content,
+          truncated: false,
+          title: page.title,
+          server: true,
+        ).asToolResult();
+      } on Object {
+        // The service refused or is not reachable; the local fetcher still
+        // knows the address rules, so try it rather than reporting a failure.
+      }
+    }
     try {
-      final result = await fetchUrl(url);
+      final result = await fetchUrl(url, format: format);
       return result.asToolResult();
     } on FormatException catch (error) {
       final code = error.message;
@@ -2284,7 +2310,7 @@ class Studio extends ChangeNotifier {
       case 'finish_deck':
         return _finishDeck(call);
       case 'fetch_url':
-        return _fetch(call);
+        return _fetch(client, call);
       case 'ask_user':
         return _askUser(call);
       case 'generate_video':
