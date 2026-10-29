@@ -7,6 +7,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A pull request does not always produce a run (seen twice), and this job is
+  # the only thing that compiles the Dart, so it can also be started by hand
+  # against any branch.
+  workflow_dispatch:
 
 permissions:
   contents: read
