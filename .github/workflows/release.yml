@@ -250,15 +250,12 @@ jobs:
             映想 Imagyn ${{ github.ref_name }}
 
             **本次更新**
-            - **图片挂在发起它的那次调用下**：一次回合里调几次 `generate_image`，每张图就显示在对应那行工具调用的下面，不再等回合结束全堆到回答里；中途提问或回合失败也不会丢。正在执行的调用会显示名字和加载圈。
-            - **抓网页返回 Markdown**：`fetch_url` 默认把页面转成 Markdown（标题、列表、链接、代码块保留结构），新增 `format` 参数可选纯文本。DeepSeek 端点改由服务端 `POST /tools/fetch` 抓取，失败自动回退本地，其余端点行为不变。
-            - **Agent 能管理画廊**：新增 `list_images`（按词过滤、倒序列出 id / 日期 / 提示词）与 `delete_image`；`generate_image` 新增 `reference_ids`，可以把画廊里的某一张或几张喂回图像模型（最多 10 张）。删除与取参考都只认本会话里真见过的 id。
-            - **上下文用量常驻显示**：Agent 输入区底下一行小字显示当前上下文占用与上限，回合进行中随历史增长。
-            - 依赖升级（dio、image、gpt_markdown、file_selector、sqflite 等），CI 的 `upload-artifact` 升到 v7。
+            - **没出图的那几条记录也能交给 Agent 管**：画廊里「结果未知 / 失败 / 仍在提交」的行不是成品图，之前模型列不到也删不掉。现在 `list_images` 在成品图之后列出这些记录（id · 日期 · 状态 · 提示词），`delete_image` 能按 id 清除；仍在提交的记录会先停掉请求再删。删除仍只认本会话列表里出现过的 id。
+            - 内置提示词补一句，说明这类记录也在同一份列表里。
 
             **验证范围**
-            - 静态分析零告警；**241 项**离线测试通过（CI 实测）。
-            - **未实机验证**：DeepSeek 的 `/tools/fetch` 只按文档实现，没有真实 key 联调（失败会回退本地抓取）；`list_images` / `delete_image` / `reference_ids` 与上下文用量那一行都还没装机看过；Android 7–9 的存图与权限申请（手上没有对应设备）；视频 `/models` 与任务接口尚未与真实网关联调；0.2.2–0.2.10 的 .pptx 导入版式、备注页与图表排版也仍未在 WPS / PowerPoint 实机确认。
+            - 静态分析零告警；**242 项**离线测试通过（CI 实测）。
+            - **未实机验证**：这次只动了 Agent 的两个工具与提示词，还没有装机让模型实际清理过记录；0.2.11 列出的未验证项（DeepSeek `/tools/fetch` 没有真实 key 联调、`list_images` / `delete_image` / `reference_ids` 与上下文用量行、Android 7–9 的存图与权限、视频 `/models` 与任务接口、0.2.2–0.2.10 的 .pptx 版式）同样仍未验证。
 
             **签名状态 / Signing**
             - Android APK — signed with the release keystore.
