@@ -51,6 +51,59 @@ class Studio extends ChangeNotifier {
   /// carries usage; reset when a new turn starts.
   TokenUsage? turnUsage;
 
+  /// Messages typed while an Agent turn is running. They are not part of the
+  /// request in flight; they join the history once every call of the current
+  /// assistant message has a result, so tool pairing stays intact.
+  final List<String> _queued = [];
+
+  /// A queued message that could not be sent: the turn ended by asking a
+  /// question, by failing, or by being stopped. The composer takes it back.
+  String? _draft;
+
+  bool _agentTurn = false;
+
+  int get queuedCount => _queued.length;
+
+  /// What the queued line previews: the first message, since the composer is
+  /// too narrow to list them all.
+  String? get queuedPreview => _queued.isEmpty ? null : _queued.first;
+
+  /// Queues one message for the running Agent turn. Returns false when there
+  /// is no turn to interject into, or when the text is a slash command — those
+  /// need an idle app and stay in the composer instead.
+  bool interject(String prompt) {
+    if (!busy || !_agentTurn) return false;
+    final text = prompt.trim();
+    if (text.isEmpty || text.startsWith('/')) return false;
+    _queued.add(text);
+    notifyListeners();
+    return true;
+  }
+
+  void clearQueued() {
+    if (_queued.isEmpty) return;
+    _queued.clear();
+    notifyListeners();
+  }
+
+  /// Takes the message the composer should show after a turn that could not
+  /// carry the queue. Clears it, so the same text is never restored twice.
+  String? takeDraft() {
+    final draft = _draft;
+    _draft = null;
+    return draft;
+  }
+
+  /// Joins everything queued into one user message. In order, so an
+  /// interjection reads the way it was typed.
+  String? _drainQueue() {
+    if (_queued.isEmpty) return null;
+    final text = _queued.join('\n\n');
+    _queued.clear();
+    notifyListeners();
+    return text;
+  }
+
   /// Ids this conversation has been shown. A model may reference or delete
   /// only pictures it has actually seen, so a mistyped or invented id cannot
   /// reach an asset the user never mentioned.
@@ -1034,7 +1087,10 @@ class Studio extends ChangeNotifier {
     ImageOptions options, {
     VoidCallback? onAccepted,
   }) async {
-    if (busy) return;
+    if (busy) {
+      if (agent && _agentTurn) interject(prompt);
+      return;
+    }
     // Imported files become part of the message, so a later request replays the
     // source along with the question that referred to it.
     final message = agent
@@ -1065,6 +1121,7 @@ class Studio extends ChangeNotifier {
       rethrow;
     }
     busy = true;
+    _agentTurn = agent;
     error = null;
     errorDetail = null;
     _asked = false;
@@ -1229,6 +1286,15 @@ class Studio extends ChangeNotifier {
             }
           }
           if (_asked) break;
+          // Every call of this assistant message now has a result, so a user
+          // message can sit between it and the next request without breaking
+          // the pairing either protocol requires.
+          final interjection = _drainQueue();
+          if (interjection != null) {
+            await store.addMessage(session, ChatEntry('user', interjection));
+            chat = await store.messages(session);
+            notifyListeners();
+          }
         }
         // Every image above was produced by a call; the single-shot path below
         // belongs to the gallery.
@@ -1323,10 +1389,27 @@ class Studio extends ChangeNotifier {
         jobs = await store.jobs();
       }
     } finally {
+      // A normal end carries the queue into a new turn. A question, a failure
+      // or a stop hands it back to the composer instead: sending it
+      // automatically would answer the question with the wrong text, or repeat
+      // the same request into the endpoint that just failed.
+      final asked = _asked;
+      final failed = error != null;
+      String? continuation;
+      if (_queued.isNotEmpty) {
+        final text = _queued.join('\n\n');
+        _queued.clear();
+        if (!asked && !failed) {
+          continuation = text;
+        } else {
+          _draft = _draft == null ? text : '$_draft\n\n$text';
+        }
+      }
       client.close();
       _api = null;
       _cancel = null;
       busy = false;
+      _agentTurn = false;
       _asked = false;
       _clearStream();
       unawaited(Background.end());
@@ -1343,6 +1426,10 @@ class Studio extends ChangeNotifier {
         );
       }
       notifyListeners();
+      final next = continuation;
+      if (next != null) {
+        unawaited(Future<void>(() => submit(next, true, imageOptions)));
+      }
     }
   }
 
