@@ -47,6 +47,10 @@ class Studio extends ChangeNotifier {
   /// something can say what it is waiting for instead of a generic spinner.
   String? runningTool;
 
+  /// Tokens the service reported for this turn so far. Null until a reply
+  /// carries usage; reset when a new turn starts.
+  TokenUsage? turnUsage;
+
   /// Ids this conversation has been shown. A model may reference or delete
   /// only pictures it has actually seen, so a mistyped or invented id cannot
   /// reach an asset the user never mentioned.
@@ -1064,6 +1068,7 @@ class Studio extends ChangeNotifier {
     error = null;
     errorDetail = null;
     _asked = false;
+    if (agent) turnUsage = null;
     stage = agent ? 'discussing' : 'working';
     _cancel = CancelToken();
     _api = client;
@@ -1138,6 +1143,10 @@ class Studio extends ChangeNotifier {
                 );
           reply = result.text;
           reasoning = result.reasoning;
+          final usage = result.usage;
+          if (usage != null) {
+            turnUsage = (turnUsage ?? const TokenUsage(0, 0)) + usage;
+          }
           if (wrapUp || result.calls.isEmpty) break;
           await store.addMessage(
             session,

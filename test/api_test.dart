@@ -95,6 +95,54 @@ void main() {
       expect(responses.aspectRatio, '1:1');
     });
 
+    test('reads the token usage each protocol reports', () {
+      final openai = parseAgentReply({
+        'choices': [
+          {
+            'message': {'content': 'ok'},
+          },
+        ],
+        'usage': {'prompt_tokens': 1200, 'completion_tokens': 34},
+      }, ApiProtocol.openai);
+      expect(openai.usage?.input, 1200);
+      expect(openai.usage?.output, 34);
+
+      final anthropic = parseAgentReply({
+        'content': [
+          {'type': 'text', 'text': 'ok'},
+        ],
+        'usage': {'input_tokens': 900, 'output_tokens': 12},
+      }, ApiProtocol.anthropic);
+      expect(anthropic.usage?.input, 900);
+      expect(anthropic.usage?.output, 12);
+
+      final responses = parseAgentReply({
+        'status': 'completed',
+        'output': [
+          {
+            'type': 'message',
+            'content': [
+              {'type': 'output_text', 'text': 'ok'},
+            ],
+          },
+        ],
+        'usage': {'input_tokens': 700, 'output_tokens': 5},
+      }, ApiProtocol.responses);
+      expect(responses.usage?.input, 700);
+      expect(responses.usage?.output, 5);
+    });
+
+    test('leaves usage null when the service sends none', () {
+      final reply = parseAgentReply({
+        'choices': [
+          {
+            'message': {'content': 'ok'},
+          },
+        ],
+      }, ApiProtocol.openai);
+      expect(reply.usage, isNull);
+    });
+
     test('records a tool this build does not know', () {
       final reply = parseAgentReply({
         'choices': [
