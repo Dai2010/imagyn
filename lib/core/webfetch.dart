@@ -195,6 +195,15 @@ Future<FetchResult> fetchUrl(
   }
 }
 
+/// Whether a failed fetch is worth a second attempt through the service.
+///
+/// Only a page that answered but refused this client (403) or asked it to slow
+/// down (429) qualifies. A missing page, a private address or a timeout is
+/// answered from the app's own attempt: retrying those elsewhere would report
+/// another server's view of the page instead of what it told us.
+bool fetchWantsService(String code) =>
+    code == 'fetchStatus 403' || code == 'fetchStatus 429';
+
 /// Reads at most a small amount before letting the connection go. A redirect or
 /// an error page can be arbitrarily large, and draining it fully is how a
 /// rejected response turns into a hang.

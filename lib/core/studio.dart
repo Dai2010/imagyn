@@ -2096,10 +2096,12 @@ class Studio extends ChangeNotifier {
   /// Fetches one public page for the model. The executor owns the address
   /// rules; its codes become a readable result instead of ending the turn.
   ///
-  /// On DeepSeek the service fetches the page itself and returns Markdown,
-  /// which is the only path that survives sites that block unknown clients or
-  /// render with JavaScript. Any failure there falls back to the local
-  /// fetcher, so every other endpoint keeps working exactly as before.
+  /// The app fetches the page itself, because that is the only path that can
+  /// report the status the page really returned, the number of bytes it really
+  /// sent and the address the redirects really ended at. The service is asked
+  /// only when the page refuses this client (403 or 429) and markdown was
+  /// wanted: sites that filter unknown clients still open up for it, while
+  /// every readable page keeps the app's own numbers.
   Future<String> _fetch(StudioApi client, AgentCall call) async {
     final String url;
     try {
@@ -2111,28 +2113,29 @@ class Studio extends ChangeNotifier {
         (call.arguments['format'] as String?)?.trim().toLowerCase() == 'text'
         ? FetchFormat.text
         : FetchFormat.markdown;
-    if (client.isDeepSeek) {
-      try {
-        final page = await client.fetchPage(url);
-        return FetchResult(
-          url: url,
-          status: 200,
-          bytes: page.content.length,
-          text: page.content,
-          truncated: false,
-          title: page.title,
-          server: true,
-        ).asToolResult();
-      } on Object {
-        // The service refused or is not reachable; the local fetcher still
-        // knows the address rules, so try it rather than reporting a failure.
-      }
-    }
     try {
       final result = await fetchUrl(url, format: format);
       return result.asToolResult();
     } on FormatException catch (error) {
       final code = error.message;
+      if (client.isDeepSeek &&
+          format == FetchFormat.markdown &&
+          fetchWantsService(code)) {
+        try {
+          final page = await client.fetchPage(url);
+          return FetchResult(
+            url: url,
+            status: int.parse(code.substring(12)),
+            bytes: utf8.encode(page.content).length,
+            text: page.content,
+            truncated: false,
+            title: page.title,
+            server: true,
+          ).asToolResult();
+        } on Object {
+          // The service could not help either; the page's own answer stands.
+        }
+      }
       return switch (code) {
         'fetchScheme' => 'fetch_url needs an absolute http or https URL.',
         'fetchPrivate' =>
