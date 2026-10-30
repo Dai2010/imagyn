@@ -190,7 +190,8 @@ const builtInAgentPrompt =
     'Each generated picture shows under the call that made it; refer back to '
     'one by its image_id. list_images lists older ones with their ids: pass up '
     'to ten ids as reference_ids to reuse them, or delete_image to remove one, '
-    'and only one the user asked to delete.';
+    'and only one the user asked to delete. Records that produced no picture '
+    'are listed too; delete_image clears them by their id.';
 
 /// The editable prompt starts empty: the tool instructions above are always
 /// sent, and this is where the user adds their own standing instructions.
@@ -683,8 +684,10 @@ const listImagesTool = {
   'name': 'list_images',
   'description':
       'List the pictures in the gallery, newest first, with their ids, dates '
-      'and prompts. Use it before reusing or deleting an older picture: the '
-      'ids it returns are what generate_image and delete_image accept.',
+      'and prompts, then the records that produced no picture (still '
+      'submitting, result unknown, failed) with their ids and states. Use it '
+      'before reusing or deleting an older picture: the ids it returns are what '
+      'generate_image and delete_image accept.',
   'parameters': {
     'type': 'object',
     'properties': {
@@ -692,7 +695,7 @@ const listImagesTool = {
         'type': 'integer',
         'minimum': 1,
         'maximum': 50,
-        'description': 'How many pictures to list, newest first.',
+        'description': 'How many pictures and records to list, newest first.',
       },
       'query': {
         'type': 'string',
@@ -709,9 +712,10 @@ const listImagesTool = {
 const deleteImageTool = {
   'name': 'delete_image',
   'description':
-      'Delete one picture from the gallery permanently. Only an id that '
-      'list_images or generate_image returned in this conversation can be '
-      'deleted, and only when the user asked to remove that picture.',
+      'Delete one picture, or one record that produced no picture, from the '
+      'gallery permanently. Only an id that list_images or generate_image '
+      'returned in this conversation can be deleted, and only when the user '
+      'asked to remove that picture or clear that record.',
   'parameters': {
     'type': 'object',
     'properties': {
