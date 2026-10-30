@@ -250,12 +250,12 @@ jobs:
             映想 Imagyn ${{ github.ref_name }}
 
             **本次更新**
-            - **没出图的那几条记录也能交给 Agent 管**：画廊里「结果未知 / 失败 / 仍在提交」的行不是成品图，之前模型列不到也删不掉。现在 `list_images` 在成品图之后列出这些记录（id · 日期 · 状态 · 提示词），`delete_image` 能按 id 清除；仍在提交的记录会先停掉请求再删。删除仍只认本会话列表里出现过的 id。
-            - 内置提示词补一句，说明这类记录也在同一份列表里。
+            - **用量行现在显示服务回报的真实 token**：输入区底部那行不再只有本地估算，右侧补上本回合的 `↑ 输入 / ↓ 输出`。Chat Completions、Anthropic、Responses 三处都读服务返回的 `usage`；一个回合里工具循环发了多次请求，显示的是累加值。服务没有回报时右侧不出现，左侧估算保持不变。
+            - 流式 Chat Completions 会请求 `stream_options.include_usage` 才会拿到统计；个别网关不认这个字段，遇到明确因此报 400 时会去掉它重试一次，流式不受影响。
 
             **验证范围**
-            - 静态分析零告警；**242 项**离线测试通过（CI 实测）。
-            - **未实机验证**：这次只动了 Agent 的两个工具与提示词，还没有装机让模型实际清理过记录；0.2.11 列出的未验证项（DeepSeek `/tools/fetch` 没有真实 key 联调、`list_images` / `delete_image` / `reference_ids` 与上下文用量行、Android 7–9 的存图与权限、视频 `/models` 与任务接口、0.2.2–0.2.10 的 .pptx 版式）同样仍未验证。
+            - 静态分析零告警；**247 项**离线测试通过（CI 实测）。
+            - **未实机验证**：真实网关是否回报 `usage`、`include_usage` 在你所使用的端点上的表现都还没有联调；0.2.11 / 0.2.12 列出的未验证项（DeepSeek `/tools/fetch`、`list_images` / `delete_image` / `reference_ids`、上下文用量行、Android 7–9 的存图与权限、视频 `/models` 与任务接口、0.2.2–0.2.12 的 .pptx 版式）同样仍未验证。
 
             **签名状态 / Signing**
             - Android APK — signed with the release keystore.
