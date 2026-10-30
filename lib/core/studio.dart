@@ -2057,32 +2057,64 @@ class Studio extends ChangeNotifier {
     }
   }
 
-  /// The gallery, as the model sees it: ids, dates and prompts, newest first.
+  /// The gallery, as the model sees it: ids, dates and prompts, newest first,
+  /// followed by the records that never produced a picture. Those records are
+  /// rows in the same Gallery, so a model asked to tidy up has to see them.
   Future<String> _listImages(AgentCall call) async {
     final requested = call.arguments['limit'];
     final limit = requested is int ? requested.clamp(1, 50) : 20;
     final query = (call.arguments['query'] as String? ?? '').trim().toLowerCase();
+    bool matches(String prompt) =>
+        query.isEmpty || prompt.toLowerCase().contains(query);
     final matched = gallery
-        .where((asset) => query.isEmpty || asset.prompt.toLowerCase().contains(query))
+        .where((asset) => matches(asset.prompt))
         .take(limit)
         .toList();
-    if (matched.isEmpty) {
+    final records = jobs
+        .where((job) => matches('${job.record['prompt'] ?? ''}'))
+        .take(limit)
+        .toList();
+    if (matched.isEmpty && records.isEmpty) {
       return query.isEmpty
           ? 'The gallery is empty.'
           : 'No picture matches "$query".';
     }
     _seenImages.addAll(matched.map((asset) => asset.id));
+    _seenImages.addAll(records.map((job) => job.id));
     return [
-      'Pictures, newest first (id · date · prompt):',
-      for (final asset in matched)
-        '${asset.id} · ${asset.createdAt.toIso8601String().split('T').first} · '
-            '${asset.prompt.isEmpty ? '(no prompt)' : asset.prompt}',
+      if (matched.isNotEmpty) ...[
+        'Pictures, newest first (id · date · prompt):',
+        for (final asset in matched)
+          '${asset.id} · ${asset.createdAt.toIso8601String().split('T').first} · '
+              '${asset.prompt.isEmpty ? '(no prompt)' : asset.prompt}',
+      ],
+      if (records.isNotEmpty) ...[
+        'Records that produced no picture, newest first '
+            '(id · date · state · prompt):',
+        for (final job in records)
+          '${job.id} · ${_dayOf(job.record['createdAt'])} · '
+              '${_recordState(job)} · ${_promptOf(job.record)}',
+      ],
     ].join('\n');
   }
 
-  /// Removes one picture the user asked to delete. The id has to come from an
-  /// earlier result in this conversation; anything else is refused, because a
-  /// wrong id here destroys artwork and there is no undo.
+  String _dayOf(Object? stamp) => stamp is String ? stamp.split('T').first : '';
+
+  String _promptOf(Map<String, dynamic> record) {
+    final prompt = '${record['prompt'] ?? ''}';
+    return prompt.isEmpty ? '(no prompt)' : prompt;
+  }
+
+  String _recordState(ImageJob job) => switch (job.state) {
+    'submitting' => 'still submitting',
+    'unknown' => 'result unknown, possibly billed',
+    _ => 'failed${job.record['error'] == null ? '' : ' (${job.record['error']})'}',
+  };
+
+  /// Removes one picture, or one record that never produced a picture, after
+  /// the user asked for it. The id has to come from an earlier result in this
+  /// conversation; anything else is refused, because a wrong id here destroys
+  /// artwork and there is no undo.
   Future<String> _deleteImage(AgentCall call) async {
     final id = (call.arguments['image_id'] as String? ?? '').trim();
     if (id.isEmpty) return 'delete_image needs an image_id.';
@@ -2091,7 +2123,15 @@ class Studio extends ChangeNotifier {
           'Call list_images first and use an id it returned.';
     }
     final asset = await store.asset(id);
-    if (asset == null) return 'No picture has the id $id.';
+    if (asset == null) {
+      for (final job in jobs) {
+        if (job.id != id) continue;
+        await deleteJob(job);
+        return 'Deleted the record $id ("${_promptOf(job.record)}") that never '
+            'produced a picture.';
+      }
+      return 'No picture or record has the id $id.';
+    }
     await store.deleteAsset(id);
     galleryRefs.removeWhere((item) => item.id == id);
     agentRefs.removeWhere((item) => item.id == id);

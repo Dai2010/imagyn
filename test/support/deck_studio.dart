@@ -18,6 +18,14 @@ class DeckStore extends MemoryStore {
   Future<Asset?> asset(String id) async => savedAssets[id];
 
   @override
+  Future<List<ImageJob>> jobs() async => savedJobs.values.toList();
+
+  @override
+  Future<void> deleteJob(String id) async {
+    savedJobs.remove(id);
+  }
+
+  @override
   Future<void> job(String id, String state, Map<String, dynamic> record) async {
     savedJobs[id] = ImageJob(id, state, record);
   }
