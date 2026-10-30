@@ -13,6 +13,8 @@ void main() {
     await studio.initialize();
     await tester.pumpWidget(ImagynApp(studio: studio));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('homeCreate')));
+    await tester.pumpAndSettle();
 
     // The gallery can add references but has nowhere to send a document.
     await tester.tap(find.byKey(const ValueKey('attach')));
@@ -22,7 +24,9 @@ void main() {
     await tester.tapAt(const Offset(8, 8));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Agent').last);
+    await tester.tap(find.byTooltip('首页'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('homeAgent')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('attach')));
     await tester.pumpAndSettle();

@@ -61,7 +61,7 @@ class _GalleryViewState extends State<GalleryView> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 14),
           child: Row(
             children: [
               IconButton.filledTonal(
@@ -159,12 +159,12 @@ class _GalleryViewState extends State<GalleryView> {
                         ? 2
                         : 1;
                     return GridView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: columns,
-                        mainAxisExtent: 200,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
+                        mainAxisExtent: 360,
+                        mainAxisSpacing: 18,
+                        crossAxisSpacing: 18,
                       ),
                       itemCount: jobs.length + assets.length,
                       itemBuilder: (_, index) => index < jobs.length
@@ -183,23 +183,23 @@ class _GalleryViewState extends State<GalleryView> {
     clipBehavior: Clip.antiAlias,
     elevation: 0,
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(24),
       side: BorderSide(
         color: Theme.of(
           context,
-        ).colorScheme.outlineVariant.withValues(alpha: .5),
+        ).colorScheme.outlineVariant.withValues(alpha: .55),
       ),
     ),
     child: InkWell(
       onTap: onTap,
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(flex: 5, child: image),
-          Expanded(
-            flex: 6,
+          Expanded(child: image),
+          SizedBox(
+            height: 176,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 4, 4),
+              padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
               child: details,
             ),
           ),
@@ -230,15 +230,18 @@ class _GalleryViewState extends State<GalleryView> {
         if (asset.parameters['size'] != null ||
             asset.parameters['actualSize'] != null)
           PositionedDirectional(
-            start: 8,
-            top: 8,
+            start: 10,
+            top: 10,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: Colors.black54,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Padding(
-                padding: const EdgeInsets.all(5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 5,
+                ),
                 child: Text(
                   _assetSize(asset),
                   style: const TextStyle(color: Colors.white, fontSize: 11),

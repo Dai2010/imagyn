@@ -45,6 +45,8 @@ void main() {
     (tester) async {
       final studio = ComposerStudio();
       await tester.pumpWidget(ImagynApp(studio: studio));
+      await tester.tap(find.byKey(const ValueKey('homeCreate')));
+      await tester.pumpAndSettle();
       final input = find.widgetWithText(TextField, '描述你想画的内容……');
       await tester.enterText(input, 'first image');
       await tester.tap(find.byKey(const ValueKey('submit')));
@@ -63,6 +65,8 @@ void main() {
   testWidgets('local validation failure retains the prompt', (tester) async {
     final studio = ComposerStudio()..reject = true;
     await tester.pumpWidget(ImagynApp(studio: studio));
+    await tester.tap(find.byKey(const ValueKey('homeCreate')));
+    await tester.pumpAndSettle();
     final input = find.widgetWithText(TextField, '描述你想画的内容……');
     await tester.enterText(input, 'keep this prompt');
     await tester.tap(find.byKey(const ValueKey('submit')));

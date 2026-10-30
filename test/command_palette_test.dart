@@ -37,6 +37,8 @@ void main() {
     await studio.initialize();
     await tester.pumpWidget(ImagynApp(studio: studio));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('homeCreate')));
+    await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).last, '/');
     await tester.pumpAndSettle();

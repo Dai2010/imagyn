@@ -351,7 +351,7 @@ void main() {
     await tester.pumpWidget(ImagynApp(studio: studio));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.forum_outlined));
+    await tester.tap(find.byKey(const ValueKey('homeAgent')));
     await tester.pumpAndSettle();
     expect(find.text('create_deck'), findsOneWidget);
 

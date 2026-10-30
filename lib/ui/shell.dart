@@ -9,6 +9,7 @@ import '../core/styles.dart';
 import '../l10n/strings.dart';
 import 'settings.dart';
 import 'gallery.dart';
+import 'home.dart';
 import 'image_options.dart';
 import 'agent_options.dart';
 import 'ask_card.dart';
@@ -16,6 +17,7 @@ import 'model_picker.dart';
 import 'deck_workspace.dart';
 import 'style_editor.dart';
 import 'video.dart';
+import 'visuals.dart';
 
 class StudioShell extends StatefulWidget {
   const StudioShell({super.key, required this.studio});
@@ -62,6 +64,9 @@ class _StudioShellState extends State<StudioShell> {
   void _settings() => Navigator.of(
     context,
   ).push(MaterialPageRoute<void>(builder: (_) => SettingsPage(studio: studio)));
+  void _video() => Navigator.of(context).push(
+    MaterialPageRoute<void>(builder: (_) => VideoPage(studio: studio)),
+  );
   void _switch(int page) => setState(() {
     _forward = page > _page;
     _page = page;
@@ -103,9 +108,13 @@ class _StudioShellState extends State<StudioShell> {
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= 760;
     if (studio.onboarding) return _welcome();
-    final title = _page == 0 ? s.t('gallery') : s.t('agent');
+    final title = switch (_page) {
+      0 => 'Imagyn',
+      1 => s.t('create'),
+      2 => s.t('agent'),
+      _ => s.t('gallery'),
+    };
     final content = Column(
       children: [
         Expanded(
@@ -114,7 +123,17 @@ class _StudioShellState extends State<StudioShell> {
             transitionBuilder: _pageTransition,
             child: KeyedSubtree(
               key: ValueKey(_page),
-              child: _page == 0 ? _gallery() : _conversation(),
+              child: switch (_page) {
+                0 => StudioHome(
+                  onCreate: () => _switch(1),
+                  onAgent: () => _switch(2),
+                  onVideo: _video,
+                  onLibrary: () => _switch(3),
+                ),
+                1 => _create(),
+                2 => _conversation(),
+                _ => _gallery(),
+              },
             ),
           ),
         ),
@@ -170,117 +189,66 @@ class _StudioShellState extends State<StudioShell> {
                 )
               : const SizedBox.shrink(),
         ),
-        _composer(),
+        if (_page == 1 || _page == 2) _composer(),
       ],
     );
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        actions: [
-          if (studio.decks.isNotEmpty)
-            IconButton(
-              key: const ValueKey('deckList'),
-              tooltip: s.t('decks'),
-              onPressed: () => _decks(),
-              icon: const Icon(Icons.slideshow_rounded),
-            ),
-          if (_page == 0)
-            IconButton(
-              key: const ValueKey('videoPage'),
-              tooltip: s.t('video'),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => VideoPage(studio: studio),
+    return PopScope(
+      canPop: _page == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _switch(0);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: _page == 0
+              ? null
+              : IconButton(
+                  tooltip: s.t('home'),
+                  onPressed: () => _switch(0),
+                  icon: const Icon(Icons.arrow_back_rounded),
                 ),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          actions: [
+            if (_page == 2 && studio.decks.isNotEmpty)
+              IconButton(
+                key: const ValueKey('deckList'),
+                tooltip: s.t('decks'),
+                onPressed: () => _decks(),
+                icon: const Icon(Icons.slideshow_rounded),
               ),
-              icon: const Icon(Icons.movie_outlined),
-            ),
-          if (_page == 1) ...[
-            IconButton(
-              tooltip: s.t('history'),
-              onPressed: studio.busy ? null : _history,
-              icon: const Icon(Icons.history_rounded),
-            ),
-            IconButton(
-              tooltip: s.t('newChat'),
-              onPressed: studio.busy
-                  ? null
-                  : () => _guard(studio.newConversation),
-              icon: const Icon(Icons.add_comment_outlined),
-            ),
-          ],
-          if (!wide)
+            if (_page == 1)
+              IconButton(
+                key: const ValueKey('videoPage'),
+                tooltip: s.t('video'),
+                onPressed: _video,
+                icon: const Icon(Icons.movie_outlined),
+              ),
+            if (_page == 2) ...[
+              IconButton(
+                tooltip: s.t('history'),
+                onPressed: studio.busy ? null : _history,
+                icon: const Icon(Icons.history_rounded),
+              ),
+              IconButton(
+                tooltip: s.t('newChat'),
+                onPressed: studio.busy
+                    ? null
+                    : () => _guard(studio.newConversation),
+                icon: const Icon(Icons.add_comment_outlined),
+              ),
+            ],
             IconButton(
               tooltip: s.t('settings'),
               onPressed: studio.busy ? null : _settings,
               icon: const Icon(Icons.settings_outlined),
             ),
-          const SizedBox(width: 8),
-        ],
+            const SizedBox(width: 8),
+          ],
+        ),
+        body: SafeArea(top: false, child: content),
       ),
-      body: SafeArea(
-        top: false,
-        bottom: wide,
-        child: wide
-            ? Row(
-                children: [
-                  NavigationRail(
-                    selectedIndex: _page,
-                    onDestinationSelected: _switch,
-                    labelType: NavigationRailLabelType.all,
-                    leading: const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Icon(Icons.auto_awesome_rounded, size: 28),
-                    ),
-                    trailing: Expanded(
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: IconButton(
-                            tooltip: s.t('settings'),
-                            onPressed: studio.busy ? null : _settings,
-                            icon: const Icon(Icons.settings_outlined),
-                          ),
-                        ),
-                      ),
-                    ),
-                    destinations: [
-                      NavigationRailDestination(
-                        icon: const Icon(Icons.grid_view_outlined),
-                        selectedIcon: const Icon(Icons.grid_view_rounded),
-                        label: Text(s.t('gallery')),
-                      ),
-                      NavigationRailDestination(
-                        icon: const Icon(Icons.forum_outlined),
-                        selectedIcon: const Icon(Icons.forum_rounded),
-                        label: Text(s.t('agent')),
-                      ),
-                    ],
-                  ),
-                  Expanded(child: content),
-                ],
-              )
-            : content,
-      ),
-      bottomNavigationBar: wide
-          ? null
-          : NavigationBar(
-              selectedIndex: _page,
-              onDestinationSelected: _switch,
-              destinations: [
-                NavigationDestination(
-                  icon: const Icon(Icons.grid_view_outlined),
-                  selectedIcon: const Icon(Icons.grid_view_rounded),
-                  label: s.t('gallery'),
-                ),
-                NavigationDestination(
-                  icon: const Icon(Icons.forum_outlined),
-                  selectedIcon: const Icon(Icons.forum_rounded),
-                  label: s.t('agent'),
-                ),
-              ],
-            ),
     );
   }
 
@@ -323,6 +291,48 @@ class _StudioShellState extends State<StudioShell> {
       ),
     ),
   );
+
+  /// The create page keeps only the prompt and the newest result. The grid
+  /// lives in the library page, so neither screen carries the other's
+  /// controls.
+  Widget _create() {
+    final asset = studio.gallery.isEmpty ? null : studio.gallery.first;
+    if (asset == null) {
+      return Center(
+        key: const ValueKey('create'),
+        child: _empty(Icons.auto_awesome_outlined, 'emptyGallery'),
+      );
+    }
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 780),
+        child: ListView(
+          key: const ValueKey('create'),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          children: [
+            GestureDetector(
+              onTap: () => _preview(asset),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: SizedBox(
+                  height: 360,
+                  width: double.infinity,
+                  child: _image(asset, fit: BoxFit.cover),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              asset.prompt,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _gallery() => GalleryView(
     studio: studio,
@@ -816,26 +826,18 @@ class _StudioShellState extends State<StudioShell> {
   );
 
   Widget _composer() {
-    final agent = _page == 1;
+    final agent = _page == 2;
     final refs = agent ? studio.agentRefs : studio.galleryRefs;
     final controller = agent ? _agentPrompt : _galleryPrompt;
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 980),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
           child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: Theme.of(
-                  context,
-                ).colorScheme.outlineVariant.withValues(alpha: .5),
-              ),
-            ),
+            decoration: StudioVisuals.glass(context, radius: 26),
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
