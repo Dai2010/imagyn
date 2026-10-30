@@ -11,6 +11,28 @@ import 'store.dart';
 import 'styles.dart';
 import 'video.dart';
 
+/// What the service reports a request and its answer cost, in tokens. Some
+/// OpenAI-compatible gateways omit the field; then the reply carries no usage
+/// rather than a fabricated zero.
+class TokenUsage {
+  const TokenUsage(this.input, this.output);
+  final int input, output;
+
+  static TokenUsage? from(Object? value) {
+    if (value is! Map) return null;
+    final input = value['input_tokens'] ?? value['prompt_tokens'];
+    final output = value['output_tokens'] ?? value['completion_tokens'];
+    if (input is! num && output is! num) return null;
+    return TokenUsage(
+      input is num ? input.toInt() : 0,
+      output is num ? output.toInt() : 0,
+    );
+  }
+
+  TokenUsage operator +(TokenUsage other) =>
+      TokenUsage(input + other.input, output + other.output);
+}
+
 class AgentReply {
   const AgentReply(
     this.text,
@@ -18,6 +40,7 @@ class AgentReply {
     this.reasoning = '',
     this.aspectRatio,
     this.calls = const [],
+    this.usage,
   });
   final String text;
   final String? imagePrompt;
@@ -35,6 +58,9 @@ class AgentReply {
   /// `reasoning_content`, an Anthropic `thinking` block, or a Responses
   /// reasoning summary. Empty when the service sends none.
   final String reasoning;
+
+  /// What the service said this request cost; null when it said nothing.
+  final TokenUsage? usage;
 }
 
 /// One piece of a streaming turn. [text] and [reasoning] are the deltas carried
@@ -507,23 +533,43 @@ class StudioApi {
     void Function(AgentDelta delta)? onDelta,
   }) async {
     final request = await _agentRequest(history, refs, options);
-    final response = await dio.postUri<ResponseBody>(
-      config.endpoint(config.protocol.chatPath),
-      data: _agentBody(request, stream: true, allowTools: allowTools),
-      options: Options(
-        headers: agentHeaders,
-        responseType: ResponseType.stream,
-        receiveTimeout: const Duration(minutes: 10),
-        validateStatus: (_) => true,
-      ),
-      cancelToken: cancel,
-    );
-    final stream = response.data!.stream;
-    final status = response.statusCode ?? 0;
+    Future<Response<ResponseBody>> send({bool includeUsage = true}) =>
+        dio.postUri<ResponseBody>(
+          config.endpoint(config.protocol.chatPath),
+          data: _agentBody(
+            request,
+            stream: true,
+            allowTools: allowTools,
+            includeUsage: includeUsage,
+          ),
+          options: Options(
+            headers: agentHeaders,
+            responseType: ResponseType.stream,
+            receiveTimeout: const Duration(minutes: 10),
+            validateStatus: (_) => true,
+          ),
+          cancelToken: cancel,
+        );
+    var response = await send();
+    var status = response.statusCode ?? 0;
     if (status < 200 || status >= 300) {
-      final failure = await _httpFailure(status, stream);
-      throw failure;
+      final failure = await _httpFailure(status, response.data!.stream);
+      // A gateway that does not know `stream_options` rejects the whole
+      // request with 400. Asking again without it keeps streaming usable;
+      // usage then simply stays unknown for that endpoint.
+      if (status == 400 &&
+          config.protocol == ApiProtocol.openai &&
+          failure.detail.contains('stream_options')) {
+        response = await send(includeUsage: false);
+        status = response.statusCode ?? 0;
+        if (status < 200 || status >= 300) {
+          throw await _httpFailure(status, response.data!.stream);
+        }
+      } else {
+        throw failure;
+      }
     }
+    final stream = response.data!.stream;
     final bounded = _limitBytes(stream, maxAgentBytes, 'responseTooLarge');
     // A service that ignores `stream: true` still answers with one JSON body;
     // accepting that is better than failing the turn over the transport.
@@ -786,6 +832,7 @@ class StudioApi {
     _AgentRequest request, {
     required bool stream,
     bool allowTools = true,
+    bool includeUsage = true,
   }) {
     final settings = request.settings;
     final system = request.system;
@@ -827,6 +874,9 @@ class StudioApi {
               'temperature': settings.temperature,
             if (settings.topP != null) 'top_p': settings.topP,
             if (stream) 'stream': true,
+            // Chat Completions only reports usage on a stream when asked to.
+            if (stream && !anthropic && includeUsage)
+              'stream_options': const {'include_usage': true},
             if (allowTools)
               'tools': [
                 for (final tool in agentTools)
@@ -856,6 +906,7 @@ class StudioApi {
     final arguments = <int, StringBuffer>{};
     final order = <int>[];
     String? finish;
+    Map? usage;
     var done = false;
     await for (final event in _sseEvents(source)) {
       if (event.isEmpty) {
@@ -869,6 +920,10 @@ class StudioApi {
           error is Map ? '${error['message'] ?? error}' : '$error',
         );
       }
+      // With `stream_options.include_usage` the last chunk carries only usage
+      // and has no choices, so it has to be read before the branch below.
+      final reported = event['usage'];
+      if (reported is Map) usage = reported;
       final choices = event['choices'];
       if (choices is! List || choices.isEmpty) continue;
       final choice = choices.first;
@@ -916,6 +971,7 @@ class StudioApi {
       throw const FormatException('incompleteStream');
     }
     return parseAgentReply({
+      if (usage != null) 'usage': usage,
       'choices': [
         {
           'finish_reason': finish,
@@ -952,6 +1008,7 @@ class StudioApi {
   ) async {
     final blocks = <int, Map<String, dynamic>>{};
     final partials = <int, StringBuffer>{};
+    final usage = <String, dynamic>{};
     String? stop;
     var stopped = false;
     await for (final event in _sseEvents(source)) {
@@ -967,10 +1024,23 @@ class StudioApi {
           error is Map ? '${error['message'] ?? error}' : '${error ?? type}',
         );
       }
+      // Anthropic splits usage: input tokens arrive with the message start and
+      // the running output count with each message delta.
+      if (type == 'message_start') {
+        final message = event['message'];
+        if (message is Map && message['usage'] is Map) {
+          usage.addAll(Map<String, dynamic>.from(message['usage'] as Map));
+        }
+        continue;
+      }
       if (type == 'message_delta') {
         final delta = event['delta'];
         if (delta is Map && delta['stop_reason'] is String) {
           stop = delta['stop_reason'] as String;
+        }
+        final reported = event['usage'];
+        if (reported is Map) {
+          usage.addAll(Map<String, dynamic>.from(reported));
         }
         continue;
       }
@@ -1030,6 +1100,7 @@ class StudioApi {
     return parseAgentReply({
       'stop_reason': stop,
       'content': content,
+      if (usage.isNotEmpty) 'usage': usage,
     }, ApiProtocol.anthropic);
   }
 
@@ -1263,6 +1334,7 @@ AgentReply parseAgentReply(
   final texts = <String>[];
   final calls = <AgentCall>[];
   final reasons = <String>[];
+  final usage = TokenUsage.from(response['usage']);
   if (protocol == ApiProtocol.responses) {
     if (response['error'] != null ||
         (response['status'] != null && response['status'] != 'completed')) {
@@ -1427,6 +1499,7 @@ AgentReply parseAgentReply(
     reasoning: reasons.join('\n'),
     aspectRatio: image?.aspectRatio,
     calls: calls,
+    usage: usage,
   );
 }
 

@@ -1133,6 +1133,7 @@ class _StudioShellState extends State<StudioShell> {
     final theme = Theme.of(context);
     final used = studio.contextTokensUsed;
     final limit = studio.contextTokensLimit;
+    final turn = studio.turnUsage;
     final style = theme.textTheme.labelSmall?.copyWith(
       color: theme.colorScheme.outline,
     );
@@ -1153,6 +1154,13 @@ class _StudioShellState extends State<StudioShell> {
                 : _tokenCount(used),
             style: style,
           ),
+          if (turn != null) ...[
+            const Spacer(),
+            Text(
+              '↑ ${_tokenCount(turn.input)}  ↓ ${_tokenCount(turn.output)}',
+              style: style,
+            ),
+          ],
         ],
       ),
     );

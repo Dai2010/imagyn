@@ -151,6 +151,34 @@ void main() {
     expect(reply.imagePrompt, 'a red fox');
   });
 
+  test('OpenAI reads usage from the choices-less final chunk', () async {
+    final client = await serve(
+      ApiProtocol.openai,
+      frames([
+        jsonEncode({
+          'choices': [
+            {
+              'finish_reason': 'stop',
+              'delta': {'content': 'ok'},
+            },
+          ],
+        }),
+        jsonEncode({
+          'choices': [],
+          'usage': {'prompt_tokens': 1200, 'completion_tokens': 34},
+        }),
+      ]),
+    );
+    final reply = await client.converseStream(
+      [const ChatEntry('user', 'hi')],
+      [],
+      CancelToken(),
+    );
+    expect(reply.text, 'ok');
+    expect(reply.usage?.input, 1200);
+    expect(reply.usage?.output, 34);
+  });
+
   test('OpenAI refuses a call from a turn that did not finish as one', () async {
     final client = await serve(
       ApiProtocol.openai,
@@ -246,6 +274,44 @@ void main() {
     expect(reply.text, 'On it.');
     expect(reply.reasoning, 'Maybe a fox.');
     expect(reply.imagePrompt, 'a red fox');
+  });
+
+  test('Anthropic joins usage from message start and delta', () async {
+    final client = await serve(
+      ApiProtocol.anthropic,
+      frames([
+        jsonEncode({
+          'type': 'message_start',
+          'message': {
+            'usage': {'input_tokens': 900, 'output_tokens': 1},
+          },
+        }),
+        jsonEncode({
+          'type': 'content_block_start',
+          'index': 0,
+          'content_block': {'type': 'text', 'text': ''},
+        }),
+        jsonEncode({
+          'type': 'content_block_delta',
+          'index': 0,
+          'delta': {'type': 'text_delta', 'text': 'ok'},
+        }),
+        jsonEncode({
+          'type': 'message_delta',
+          'delta': {'stop_reason': 'end_turn'},
+          'usage': {'output_tokens': 12},
+        }),
+        jsonEncode({'type': 'message_stop'}),
+      ]),
+    );
+    final reply = await client.converseStream(
+      [const ChatEntry('user', 'hi')],
+      [],
+      CancelToken(),
+    );
+    expect(reply.text, 'ok');
+    expect(reply.usage?.input, 900);
+    expect(reply.usage?.output, 12);
   });
 
   test('Anthropic refuses tool input that never finished', () async {
