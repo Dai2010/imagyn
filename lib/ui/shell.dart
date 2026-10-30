@@ -977,6 +977,7 @@ class _StudioShellState extends State<StudioShell> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          if (agent && studio.queuedCount > 0) _queuedLine(),
                           if (style != null)
                             Align(
                               alignment: AlignmentDirectional.centerStart,
@@ -1089,10 +1090,17 @@ class _StudioShellState extends State<StudioShell> {
                       const Spacer(),
                       FilledButton.icon(
                         key: const ValueKey('submit'),
-                        onPressed: studio.busy
+                        // An Agent turn can take a message while it runs: the
+                        // text waits until the current tool calls are answered
+                        // instead of starting a second turn.
+                        onPressed: studio.busy && !agent
                             ? null
                             : () => _guard(() async {
                                 final text = controller.text;
+                                if (agent && studio.busy) {
+                                  if (studio.interject(text)) controller.clear();
+                                  return;
+                                }
                                 // A slash command is an action, not a message:
                                 // /compact folds the older turns right away
                                 // instead of waiting for the token limit.
@@ -1106,6 +1114,7 @@ class _StudioShellState extends State<StudioShell> {
                                   studio.imageOptions,
                                   onAccepted: controller.clear,
                                 );
+                                if (agent) _restoreDraft();
                               }),
                         icon: Icon(
                           agent
@@ -1122,6 +1131,53 @@ class _StudioShellState extends State<StudioShell> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// What is waiting for the current tool call to finish. Language-free like
+  /// the usage line: a clock, the first message, a count when there are more,
+  /// and a cross to drop the queue.
+  Widget _queuedLine() {
+    final theme = Theme.of(context);
+    final style = theme.textTheme.labelSmall?.copyWith(
+      color: theme.colorScheme.outline,
+    );
+    final count = studio.queuedCount;
+    final preview = studio.queuedPreview ?? '';
+    return Padding(
+      key: const ValueKey('queuedInterjections'),
+      padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
+      child: Row(
+        children: [
+          Icon(
+            Icons.schedule_rounded,
+            size: 13,
+            color: theme.colorScheme.outline,
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              count > 1 ? '$preview  +${count - 1}' : preview,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          ),
+          InkWell(
+            key: const ValueKey('clearQueued'),
+            onTap: studio.clearQueued,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Icon(
+                Icons.close_rounded,
+                size: 14,
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1273,8 +1329,19 @@ class _StudioShellState extends State<StudioShell> {
 
   /// The answer to an `ask_user` card is the next user message, exactly as if
   /// it had been typed into the composer.
-  Future<void> _answer(String text) =>
-      _guard(() => studio.submit(text, true, studio.imageOptions));
+  Future<void> _answer(String text) => _guard(() async {
+    await studio.submit(text, true, studio.imageOptions);
+    _restoreDraft();
+  });
+
+  /// Text queued during a turn that ended by asking a question, failing or
+  /// being stopped goes back into the composer instead of being sent.
+  void _restoreDraft() {
+    final draft = studio.takeDraft();
+    if (draft == null || draft.isEmpty) return;
+    final current = _agentPrompt.text.trim();
+    _writePrompt(_agentPrompt, current.isEmpty ? draft : '$current\n\n$draft');
+  }
 
   String _styleName(ImageStyle style) =>
       style.isBuiltIn ? s.t(style.label) : style.label;
