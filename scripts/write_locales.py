@@ -3,6 +3,7 @@ from pathlib import Path
 
 languages = ['en', 'zh', 'fr', 'es', 'ru', 'ar']
 rows = {
+'home': ['Home','首页','Accueil','Inicio','Главная','الرئيسية'],
 'gallery': ['Gallery','画廊','Galerie','Galería','Галерея','المعرض'],
 'agent': ['Agent','Agent','Agent','Agente','Агент','الوكيل'],
 'settings': ['Settings','设置','Paramètres','Ajustes','Настройки','الإعدادات'],
