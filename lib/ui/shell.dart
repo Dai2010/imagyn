@@ -13,6 +13,7 @@ import 'home.dart';
 import 'image_options.dart';
 import 'agent_options.dart';
 import 'ask_card.dart';
+import 'markdown_theme.dart';
 import 'model_picker.dart';
 import 'deck_workspace.dart';
 import 'style_editor.dart';
@@ -779,13 +780,16 @@ class _StudioShellState extends State<StudioShell> {
       return SelectableText(text, style: style);
     }
     return SelectionArea(
-      child: GptMarkdown(
-        text,
-        style: style,
-        textDirection: Directionality.of(context),
-        // Models write `$…$`, not the package's `\(…\)`.
-        useDollarSignsForLatex: true,
-        imageBuilder: _blockedImage,
+      child: GptMarkdownTheme(
+        gptThemeData: studioMarkdownTheme(theme),
+        child: GptMarkdown(
+          text,
+          style: style,
+          textDirection: Directionality.of(context),
+          // Models write `$…$`, not the package's `\(…\)`.
+          useDollarSignsForLatex: true,
+          imageBuilder: _blockedImage,
+        ),
       ),
     );
   }

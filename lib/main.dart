@@ -96,7 +96,7 @@ ThemeData studioTheme(Brightness brightness) {
     outline: dark ? const Color(0xff9b90b5) : const Color(0xff7a718c),
     outlineVariant: dark ? const Color(0xff433955) : const Color(0xffd9d0ea),
   );
-  return ThemeData(
+  final theme = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     fontFamily: interfaceFont(),
