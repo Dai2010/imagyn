@@ -5,7 +5,6 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/store.dart';
 import 'core/studio.dart';
 import 'l10n/strings.dart';
-import 'ui/markdown_theme.dart';
 import 'ui/shell.dart';
 import 'ui/visuals.dart';
 
@@ -96,7 +95,7 @@ ThemeData studioTheme(Brightness brightness) {
     outline: dark ? const Color(0xff9b90b5) : const Color(0xff7a718c),
     outlineVariant: dark ? const Color(0xff433955) : const Color(0xffd9d0ea),
   );
-  final theme = ThemeData(
+  return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     fontFamily: interfaceFont(),
@@ -153,7 +152,4 @@ ThemeData studioTheme(Brightness brightness) {
       thickness: 1,
     ),
   );
-  // Registered as an extension so every GptMarkdown in the app reads the same
-  // colours without each call site passing them.
-  return theme.copyWith(extensions: [studioMarkdownTheme(theme)]);
 }
