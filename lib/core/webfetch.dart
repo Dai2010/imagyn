@@ -190,10 +190,61 @@ Future<FetchResult> fetchUrl(
       );
     }
     throw const FormatException('fetchRedirects');
+  } on FormatException {
+    rethrow;
+  } on SocketException catch (error) {
+    // The operating system knows which of these it was; the message alone
+    // ("Connection failed") does not, and the two cases point at opposite
+    // places to look: a closed port versus a server that never answered.
+    throw FormatException(_socketCode(error));
+  } on HandshakeException {
+    throw const FormatException('fetchTls');
+  } on TlsException {
+    throw const FormatException('fetchTls');
+  } on TimeoutException {
+    throw const FormatException('fetchTimeout');
+  } on HttpException {
+    throw const FormatException('fetchHttp');
   } finally {
     if (owned) http.close(force: true);
   }
 }
+
+/// The failure a socket error names, in the form the tool reports it.
+String _socketCode(SocketException error) {
+  final code = error.osError?.errorCode;
+  final text =
+      '${error.message} ${error.osError?.message ?? ''}'.toLowerCase();
+  if (text.contains('refused') || code == 111 || code == 61) {
+    return 'fetchRefused';
+  }
+  if (text.contains('host lookup') ||
+      text.contains('name or service not known') ||
+      text.contains('nodename nor servname') ||
+      code == 7 ||
+      code == 8) {
+    return 'fetchDns';
+  }
+  if (text.contains('reset') || code == 104 || code == 54) {
+    return 'fetchReset';
+  }
+  if (text.contains('timed out') || code == 110) {
+    return 'fetchTimeout';
+  }
+  if (text.contains('unreachable') || code == 101 || code == 113) {
+    return 'fetchUnreachable';
+  }
+  return code == null ? 'fetchSocket' : 'fetchSocket $code';
+}
+
+/// Whether a failed fetch is worth a second attempt through the service.
+///
+/// Only a page that answered but refused this client (403) or asked it to slow
+/// down (429) qualifies. A missing page, a private address or a timeout is
+/// answered from the app's own attempt: retrying those elsewhere would report
+/// another server's view of the page instead of what it told us.
+bool fetchWantsService(String code) =>
+    code == 'fetchStatus 403' || code == 'fetchStatus 429';
 
 /// Reads at most a small amount before letting the connection go. A redirect or
 /// an error page can be arbitrarily large, and draining it fully is how a

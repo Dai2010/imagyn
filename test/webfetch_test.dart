@@ -126,6 +126,53 @@ void main() {
     );
   });
 
+  test('a missing page keeps the status the server sent', () async {
+    handler = (request) async {
+      request.response.statusCode = HttpStatus.notFound;
+      request.response.headers.contentType = ContentType.html;
+      request.response.write('<html><body>nope</body></html>');
+      await request.response.close();
+    };
+    await expectLater(
+      fetchUrl('http://127.0.0.1:${server.port}/gone', policy: allowAll),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          'fetchStatus 404',
+        ),
+      ),
+    );
+  });
+
+  test('a closed port is a refusal, not a generic failure', () async {
+    final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final closedPort = probe.port;
+    await probe.close();
+    await expectLater(
+      fetchUrl(
+        'http://127.0.0.1:$closedPort/',
+        policy: (_) async => InternetAddress.loopbackIPv4,
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          'fetchRefused',
+        ),
+      ),
+    );
+  });
+
+  test('only a page that refuses this client is retried elsewhere', () {
+    expect(fetchWantsService('fetchStatus 403'), isTrue);
+    expect(fetchWantsService('fetchStatus 429'), isTrue);
+    expect(fetchWantsService('fetchStatus 404'), isFalse);
+    expect(fetchWantsService('fetchStatus 500'), isFalse);
+    expect(fetchWantsService('fetchPrivate'), isFalse);
+    expect(fetchWantsService('fetchTimeout'), isFalse);
+  });
+
   test('gives up on an endless redirect chain', () async {
     handler = (request) async {
       request.response.statusCode = 302;
