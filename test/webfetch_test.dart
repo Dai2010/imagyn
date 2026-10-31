@@ -145,6 +145,25 @@ void main() {
     );
   });
 
+  test('a closed port is a refusal, not a generic failure', () async {
+    final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final closedPort = probe.port;
+    await probe.close();
+    await expectLater(
+      fetchUrl(
+        'http://127.0.0.1:$closedPort/',
+        policy: (_) async => InternetAddress.loopbackIPv4,
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          'fetchRefused',
+        ),
+      ),
+    );
+  });
+
   test('only a page that refuses this client is retried elsewhere', () {
     expect(fetchWantsService('fetchStatus 403'), isTrue);
     expect(fetchWantsService('fetchStatus 429'), isTrue);

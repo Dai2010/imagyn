@@ -770,9 +770,11 @@ class _StudioShellState extends State<StudioShell> {
   /// fence cannot be parsed at all, and re-parsing every frame would only make
   /// the text flicker.
   Widget _text(String text, {required bool user, required bool streaming}) {
-    final style = Theme.of(
-      context,
-    ).textTheme.bodyMedium?.copyWith(height: 1.6);
+    final theme = Theme.of(context);
+    final style = theme.textTheme.bodyMedium?.copyWith(
+      height: 1.6,
+      color: theme.colorScheme.onSurface,
+    );
     if (user || streaming) {
       return SelectableText(text, style: style);
     }
