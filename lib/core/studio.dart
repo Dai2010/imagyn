@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 import '../l10n/strings.dart';
 import 'api.dart';
 import 'background.dart';
+import 'failure.dart';
 import 'import.dart';
 import 'models.dart';
 import 'pptx.dart';
@@ -2113,6 +2114,10 @@ class Studio extends ChangeNotifier {
         (call.arguments['format'] as String?)?.trim().toLowerCase() == 'text'
         ? FetchFormat.text
         : FetchFormat.markdown;
+    // A refused port answers in single-digit milliseconds and a server that
+    // never replies burns the whole deadline; the number is what tells the two
+    // apart, so every failure carries it.
+    final watch = Stopwatch()..start();
     try {
       final result = await fetchUrl(url, format: format);
       return result.asToolResult();
@@ -2136,6 +2141,7 @@ class Studio extends ChangeNotifier {
           // The service could not help either; the page's own answer stands.
         }
       }
+      final ms = watch.elapsedMilliseconds;
       return switch (code) {
         'fetchScheme' => 'fetch_url needs an absolute http or https URL.',
         'fetchPrivate' =>
@@ -2143,16 +2149,34 @@ class Studio extends ChangeNotifier {
               'link-local. Only public http(s) pages can be fetched.',
         'fetchContentType' =>
           'fetch_url refused: the response is not readable text.',
-        'fetchTimeout' => 'fetch_url timed out.',
+        'fetchTimeout' => 'fetch_url timed out after $ms ms.',
+        'fetchRefused' =>
+          'fetch_url failed: connection refused after $ms ms — nothing is '
+              'listening on that host and port.',
+        'fetchDns' =>
+          'fetch_url failed: the host name did not resolve ($ms ms).',
+        'fetchTls' =>
+          'fetch_url failed: the TLS handshake failed ($ms ms) — wrong port '
+              'for https, or an untrusted certificate.',
+        'fetchReset' =>
+          'fetch_url failed: the connection was reset by the server '
+              '($ms ms).',
+        'fetchUnreachable' =>
+          'fetch_url failed: the host was unreachable ($ms ms).',
+        'fetchHttp' =>
+          'fetch_url failed: the server closed the connection without a '
+              'complete reply ($ms ms).',
         'fetchProxy' => 'fetch_url cannot run through a proxy.',
         'fetchRedirect' || 'fetchRedirects' =>
           'fetch_url refused: an invalid or endless redirect.',
         _ when code.startsWith('fetchStatus ') =>
-          'fetch_url failed: unexpected HTTP ${code.substring(12)}.',
-        _ => 'fetch_url failed: $code.',
+          'fetch_url failed: unexpected HTTP ${code.substring(12)} '
+              '($ms ms).',
+        _ => 'fetch_url failed: $code ($ms ms).',
       };
-    } on Object {
-      return 'fetch_url failed: the page could not be reached.';
+    } on Object catch (error) {
+      return 'fetch_url failed: the page could not be reached '
+          '(${watch.elapsedMilliseconds} ms, ${error.runtimeType}).';
     }
   }
 
@@ -2575,6 +2599,7 @@ class Studio extends ChangeNotifier {
     onJob(id, record);
     jobs = await store.jobs();
     notifyListeners();
+    final watch = Stopwatch()..start();
     try {
       final assets = await _runJob(
         client,
@@ -2596,7 +2621,11 @@ class Studio extends ChangeNotifier {
       // model gets the code and decides whether to retry, change the prompt,
       // or ask the user. Only a failing text-model request ends the turn.
       final code = errorCode(e);
-      final detail = errorDetailOf(e, secrets: [key, imageKey]);
+      final detail = errorDetailOf(
+        e,
+        secrets: [key, imageKey],
+        elapsed: watch.elapsed,
+      );
       final uncertain =
           code == 'unknown' ||
           code == 'cancelled' ||
@@ -2972,25 +3001,160 @@ String errorCode(Object error, {bool submitted = false}) {
 /// returned: a gateway or a compatible service may echo the request (including
 /// its `Authorization` header) back inside an error body, and this text is
 /// rendered in the UI.
-String? errorDetailOf(Object failure, {List<String> secrets = const []}) {
+String? errorDetailOf(
+  Object failure, {
+  List<String> secrets = const [],
+  Duration? elapsed,
+}) {
+  final ms = elapsed == null ? null : '${elapsed.inMilliseconds} ms';
   if (failure is ImageApiException) {
     final detail = redact(failure.detail, secrets);
-    return detail.length > 500 ? '${detail.substring(0, 500)}…' : detail;
+    final clipped = detail.length > 500 ? '${detail.substring(0, 500)}…' : detail;
+    return [clipped, ?ms].where((part) => part.isNotEmpty).join(' · ');
   }
   if (failure is DioException) {
     final response = failure.response;
     final status = response?.statusCode;
-    var text = redact(response?.data?.toString().trim() ?? '', secrets);
+    final body = _bodyText(response?.data);
+    var text = redact(body, secrets);
     if (text.length > 300) text = '${text.substring(0, 300)}…';
+    final code = connectionCodeOf(failure) ?? providerCodeOf(status, body);
+    // A gateway may say whether trying again is worth it; its word wins over
+    // the guess made from the code alone.
+    final hint = response?.headers.value('x-should-retry')?.trim().toLowerCase();
+    final retryable = switch (hint) {
+      'true' => true,
+      'false' => false,
+      _ => code?.retryable ?? false,
+    };
     final parts = <String>[
+      if (code != null) code.id,
+      if (retryable) 'retryable',
+      ?ms,
       if (status != null) 'HTTP $status',
       if (text.isNotEmpty) text,
-      if (status == null && text.isEmpty) failure.message ?? '',
+      ?requestIdOf(response),
     ];
-    return redact(parts.where((part) => part.isNotEmpty).join(' · '), secrets);
+    // A failure with no status and no body is the connection layer giving up.
+    // Naming the exception type is the difference between an empty string and
+    // something a reader can act on.
+    if (parts.isEmpty) parts.add(failure.type.name);
+    return redact(parts.join(' · '), secrets);
   }
   if (failure is FormatException) return failure.message;
   return redact(failure.toString(), secrets);
+}
+
+/// The transport failure, named the way the operating system names it. A
+/// refusal and a timeout are the same "connection failed" to Dio, and they send
+/// a reader to opposite places: a closed port versus a server that never
+/// answered.
+FailureCode? connectionCodeOf(DioException failure) {
+  switch (failure.type) {
+    case DioExceptionType.connectionTimeout:
+    case DioExceptionType.sendTimeout:
+    case DioExceptionType.receiveTimeout:
+      return FailureCode.timeout;
+    case DioExceptionType.badCertificate:
+      return FailureCode.tlsFailure;
+    default:
+      break;
+  }
+  final error = failure.error;
+  if (error is TimeoutException) return FailureCode.timeout;
+  if (error is HandshakeException || error is TlsException) {
+    return FailureCode.tlsFailure;
+  }
+  if (error is SocketException) {
+    final code = error.osError?.errorCode;
+    final text = '${error.message} ${error.osError?.message ?? ''}'.toLowerCase();
+    if (text.contains('refused') || code == 111 || code == 61) {
+      return FailureCode.connectionRefused;
+    }
+    if (text.contains('host lookup') ||
+        text.contains('name or service not known') ||
+        text.contains('nodename nor servname') ||
+        code == 7 ||
+        code == 8) {
+      return FailureCode.dnsFailure;
+    }
+    if (text.contains('reset') || code == 104 || code == 54) {
+      return FailureCode.connectionReset;
+    }
+    if (text.contains('timed out') || code == 110) return FailureCode.timeout;
+    if (text.contains('unreachable') || code == 101 || code == 113) {
+      return FailureCode.hostUnreachable;
+    }
+    return FailureCode.socketError;
+  }
+  if (failure.type == DioExceptionType.connectionError) {
+    return FailureCode.socketError;
+  }
+  return null;
+}
+
+/// The gateway's own sentence, turned into a code of ours.
+///
+/// A relay that answers `503 No available compatible accounts` has said
+/// something specific — there is no account behind it right now — and folding
+/// that into "the upstream is broken" throws away the only part that tells the
+/// user whether to wait, switch keys, or top up.
+FailureCode? providerCodeOf(int? status, String body) {
+  final text = body.toLowerCase();
+  if (text.contains('no available compatible accounts')) {
+    return FailureCode.providerNoAccount;
+  }
+  if (text.contains('insufficient_quota') ||
+      text.contains('exceeded your current quota') ||
+      text.contains('billing')) {
+    return FailureCode.quota;
+  }
+  if (text.contains('invalid_api_key') || text.contains('incorrect api key')) {
+    return FailureCode.auth;
+  }
+  if (status == 429) return FailureCode.rateLimit;
+  if (status == 401 || status == 403) return FailureCode.auth;
+  if (status != null && status >= 500) return FailureCode.providerUpstream;
+  if (status != null && status >= 400) return FailureCode.httpStatus;
+  return null;
+}
+
+/// The identifier a gateway puts on its side of the request, if it sent one.
+/// Without it a report of a failure cannot be matched to anything on the
+/// provider's logs.
+String? requestIdOf(Response<dynamic>? response) {
+  if (response == null) return null;
+  for (final name in const [
+    'x-request-id',
+    'x-oneapi-request-id',
+    'x-new-api-request-id',
+    'cf-ray',
+    'x-amzn-requestid',
+  ]) {
+    final value = response.headers.value(name)?.trim();
+    if (value != null && value.isNotEmpty) return 'req $value';
+  }
+  final data = response.data;
+  if (data is Map) {
+    for (final key in const ['request_id', 'requestId', 'trace_id']) {
+      final value = data[key];
+      if (value is String && value.isNotEmpty && value.length <= 64) {
+        return 'req $value';
+      }
+    }
+  }
+  return null;
+}
+
+/// A response body as text, whether the gateway sent JSON or plain words.
+String _bodyText(Object? data) {
+  if (data == null) return '';
+  if (data is String) return data.trim();
+  try {
+    return jsonEncode(data);
+  } on Object {
+    return data.toString();
+  }
 }
 
 /// Removes anything credential-shaped from diagnostic text: the configured keys
