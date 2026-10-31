@@ -17,14 +17,15 @@ name: build
 on:
   push:
     branches: [main]
-  # A manual run can attach the packages to a GitHub prerelease. Avoid a "v"
-  # prefix on the tag: v* runs release.yml, which needs the signing keystore.
+  # A manual run can attach the packages to a GitHub prerelease. A preview tag
+  # is the version plus a suffix — v0.3.0-preview2 — which release.yml ignores,
+  # so a formal release and a preview never share an entry point.
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag for the prerelease. Do not start it with "v".'
+        description: 'Tag for the prerelease, e.g. v0.3.0-preview2'
         required: true
-        default: 'preview'
+        default: 'v0.3.0-preview'
       title:
         description: 'Release title'
         required: false

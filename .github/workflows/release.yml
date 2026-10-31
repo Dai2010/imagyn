@@ -1,6 +1,10 @@
 # Publish a release: the signed Android APK plus the Linux, Windows and macOS
-# packages. Triggered by a v* tag; a manual dispatch from a branch fails in the
-# guard job, because the publish step needs a tag.
+# packages. Triggered by a plain vX.Y.Z tag; a manual dispatch from a branch
+# fails in the guard job, because the publish step needs a tag.
+#
+# Preview tags carry a suffix (v0.3.0-preview2) and belong to build.yml, so they
+# are excluded here: the formal job needs the release keystore and the preview
+# job must not be able to start it.
 #
 # Only the Android APK is signed. The desktop packages are unsigned — there is
 # no Authenticode certificate and no Apple Developer ID — so Windows
@@ -10,7 +14,7 @@ name: release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', '!v*-*']
   workflow_dispatch:
 
 permissions:
