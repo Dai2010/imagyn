@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api.dart';
 import '../core/models.dart';
+import '../core/providers.dart';
 import '../core/studio.dart';
 import '../l10n/strings.dart';
 import 'agent_options.dart';
@@ -290,11 +291,13 @@ class _SettingsPageState extends State<SettingsPage> {
     bool url = false,
     String? hint,
     ValueChanged<String>? onSubmitted,
+    ValueChanged<String>? onChanged,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 14),
     child: TextField(
       controller: c,
       onSubmitted: onSubmitted,
+      onChanged: onChanged,
       // A key stays hidden until it is asked for; an address is meant to be
       // read, and gets the keyboard that knows about dots and slashes.
       obscureText: secret && !(_revealed[c] ?? false),
@@ -320,6 +323,268 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     ),
   );
+
+  /// The address a request will actually be sent to. The field above shows what
+  /// was typed; this shows what it resolves to, which is where a doubled `/v1`
+  /// or a missing path becomes visible — before the first failed request rather
+  /// than after it.
+  Widget _endpointPreview(TextEditingController c, {String path = ''}) {
+    final host = c.text.trim().replaceFirst(RegExp(r'/+$'), '');
+    final suffix = path.isEmpty ? '' : '/$path';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Text(
+        '${s.t('preview')}: ${host.isEmpty ? '—' : '$host$suffix'}',
+        style: Theme.of(context).textTheme.bodySmall,
+        textDirection: TextDirection.ltr,
+      ),
+    );
+  }
+
+  /// Fills the address — and, for the chat service, the protocol — from a known
+  /// provider. A dropdown rather than a list of cards: the point is to save
+  /// typing, not to become a directory of everything on the internet.
+  Widget _builtinPicker(
+    String service,
+    TextEditingController host, {
+    bool setsProtocol = false,
+  }) {
+    final providers = providersOf(service);
+    if (providers.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: DropdownButtonFormField<String>(
+        key: ValueKey('provider:$service'),
+        isExpanded: true,
+        decoration: InputDecoration(labelText: s.t('builtinProvider')),
+        hint: Text(s.t('customProvider')),
+        items: [
+          for (final provider in providers)
+            DropdownMenuItem(
+              value: provider.id,
+              child: Text(
+                provider.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        onChanged: (id) {
+          BuiltinProvider? found;
+          for (final provider in providers) {
+            if (provider.id == id) found = provider;
+          }
+          final chosen = found;
+          if (chosen == null) return;
+          setState(() {
+            host.text = chosen.host;
+            if (setsProtocol) _protocol = chosen.protocol;
+          });
+        },
+      ),
+    );
+  }
+
+  /// The model library of one service. The selection still travels in the form
+  /// and is written when the form is saved; the library is written on every
+  /// change, because it outlives any single selection.
+  Widget _modelSection(
+    String service,
+    TextEditingController selected, {
+    ValueChanged<String>? onSelect,
+  }) {
+    final entries = widget.studio.modelsOf(service);
+    final current = selected.text.trim();
+    final missing = current.isNotEmpty && !entries.any((e) => e.id == current);
+
+    // Selecting has to go through the caller for the agent service: its
+    // parameter profile is keyed by model id, so writing the text alone would
+    // leave the editor showing the previous model's options.
+    void choose(String id) {
+      if (onSelect != null) {
+        onSelect(id);
+      } else {
+        selected.text = id;
+      }
+      setState(() {});
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  s.t('modelLibrary'),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () =>
+                    _editModel(service, entries, choose: choose, current: current),
+                icon: const Icon(Icons.add, size: 18),
+                label: Text(s.t('addModel')),
+              ),
+            ],
+          ),
+          if (entries.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                s.t('noModelsYet'),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          for (final entry in entries)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              leading: Icon(
+                entry.id == current
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                size: 20,
+              ),
+              title: Text(
+                entry.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: _capabilityLine(entry),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: s.t('editModel'),
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    onPressed: () => _editModel(
+                      service,
+                      entries,
+                      choose: choose,
+                      current: current,
+                      entry: entry,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: s.t('deleteModel'),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    onPressed: () =>
+                        _deleteModel(service, entries, choose, current, entry),
+                  ),
+                ],
+              ),
+              onTap: () => choose(entry.id),
+            ),
+          // A value saved by an older build, or typed by hand, is not in the
+          // library yet. Say so instead of showing nothing selected.
+          if (missing)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${s.t('modelId')}: $current',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// What the row says about a model besides its name: the capability marks
+  /// and the window, so the list answers "which one do I want" without opening
+  /// each entry.
+  Widget? _capabilityLine(ModelEntry entry) {
+    final marks = <Widget>[
+      if (entry.supports(ModelCapability.vision))
+        Icon(Icons.visibility_outlined, size: 14, color: Theme.of(context).colorScheme.primary),
+      if (entry.supports(ModelCapability.reasoning))
+        Icon(Icons.lightbulb_outline, size: 14, color: Theme.of(context).colorScheme.tertiary),
+      if (entry.supports(ModelCapability.toolUse))
+        Icon(Icons.build_outlined, size: 14, color: Theme.of(context).colorScheme.secondary),
+      if (entry.contextWindow > 0)
+        Text(
+          '${entry.contextWindow} tokens',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+    ];
+    if (marks.isEmpty) return null;
+    return Row(mainAxisSize: MainAxisSize.min, children: marks);
+  }
+
+  Future<void> _editModel(
+    String service,
+    List<ModelEntry> entries, {
+    required void Function(String id) choose,
+    required String current,
+    ModelEntry? entry,
+  }) async {
+    final result = await showDialog<ModelEntry>(
+      context: context,
+      builder: (_) => ModelEntryDialog(service: service, initial: entry),
+    );
+    if (result == null || !mounted) return;
+    final id = result.id.trim();
+    if (entries.any((other) => other.id == id && other.id != entry?.id)) {
+      _finish('modelExists');
+      return;
+    }
+    await widget.studio.saveModelLibrary(service, [
+      for (final other in entries)
+        if (other.id != entry?.id) other,
+      result.copyWith(id: id),
+    ]);
+    if (!mounted) return;
+    // A model added here becomes this service's model: adding it and then
+    // hunting for it in the list would be two steps for one intent. Renaming
+    // another model leaves the selection where it was.
+    if (entry == null || entry.id == current) {
+      choose(id);
+    } else {
+      setState(() {});
+    }
+  }
+
+  Future<void> _deleteModel(
+    String service,
+    List<ModelEntry> entries,
+    void Function(String id) choose,
+    String current,
+    ModelEntry entry,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(s.t('deleteModel')),
+        content: Text(s.t('deleteModelQuestion')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(s.t('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(s.t('delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.studio.saveModelLibrary(service, [
+      for (final other in entries)
+        if (other.id != entry.id) other,
+    ]);
+    if (!mounted) return;
+    // Deleting the selected model leaves the field empty rather than silently
+    // pointing at whatever happened to be first in the list.
+    if (entry.id == current) {
+      choose('');
+    } else {
+      setState(() {});
+    }
+  }
 
   /// A row that opens [url]. No icon: the address is the label's other half.
   Widget _link(String label, String address, String url) => ListTile(
@@ -453,48 +718,17 @@ class _SettingsPageState extends State<SettingsPage> {
                   if (_module == null) _entries(),
                   if (_module == 0)
                     _section('imageConnection', [
+                      _builtinPicker('image', _imageBase),
                       _field(
                         _imageBase,
                         'imageEndpoint',
                         url: true,
                         hint: 'https://…/v1',
+                        onChanged: (_) => setState(() {}),
                       ),
+                      _endpointPreview(_imageBase),
                       _field(_imageKey, 'imageKey', secret: true),
-                      _field(_imageModel, 'imageModel'),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: DropdownButtonFormField<String>(
-                          key: const ValueKey('imagePreset'),
-                          isExpanded: true,
-                          decoration: InputDecoration(
-                            labelText: s.t('modelPreset'),
-                            helperText: s.t('imagePresetNote'),
-                            helperMaxLines: 3,
-                          ),
-                          items: [
-                            for (final preset in imagePresets)
-                              DropdownMenuItem(
-                                value: preset.model,
-                                child: Text(
-                                  preset.model,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                          ],
-                          onChanged: (model) {
-                            if (model == null) return;
-                            final preset = imagePresets.firstWhere(
-                              (preset) => preset.model == model,
-                            );
-                            setState(() {
-                              _imageModel.text = preset.model;
-                              final refs = preset.maxReferences;
-                              if (refs != null) _limit = refs;
-                            });
-                          },
-                        ),
-                      ),
+                      _modelSection('image', _imageModel),
                       DropdownButtonFormField<int>(
                         initialValue: _limit,
                         decoration: InputDecoration(labelText: s.t('limit')),
@@ -578,12 +812,20 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 14),
-                      _field(_base, 'endpoint', url: true, hint: 'https://…/v1'),
-                      _field(_key, 'key', secret: true),
+                      _builtinPicker('agent', _base, setsProtocol: true),
                       _field(
+                        _base,
+                        'endpoint',
+                        url: true,
+                        hint: 'https://…/v1',
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      _endpointPreview(_base, path: _protocol.chatPath),
+                      _field(_key, 'key', secret: true),
+                      _modelSection(
+                        'agent',
                         _agentModel,
-                        'agentModel',
-                        onSubmitted: _selectAgentModel,
+                        onSelect: _selectAgentModel,
                       ),
                       Padding(
                         padding: const EdgeInsets.only(bottom: 16),
@@ -716,4 +958,213 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     ),
   );
+}
+
+/// One model, edited in place. The id is what travels in the request and the
+/// alias is what the lists show, so the two are separate fields: renaming a
+/// model for readability must not break the request.
+class ModelEntryDialog extends StatefulWidget {
+  const ModelEntryDialog({super.key, required this.service, this.initial});
+  final String service;
+  final ModelEntry? initial;
+  @override
+  State<ModelEntryDialog> createState() => _ModelEntryDialogState();
+}
+
+class _ModelEntryDialogState extends State<ModelEntryDialog> {
+  late final _id = TextEditingController(text: widget.initial?.id ?? '');
+  late final _alias = TextEditingController(text: widget.initial?.alias ?? '');
+  late final _context = TextEditingController(
+    text: switch (widget.initial?.contextWindow ?? 0) {
+      0 => '',
+      final value => '$value',
+    },
+  );
+  late final _output = TextEditingController(
+    text: switch (widget.initial?.maxOutput ?? 0) {
+      0 => '',
+      final value => '$value',
+    },
+  );
+  late final Set<ModelCapability> _capabilities = {
+    for (final capability
+        in widget.initial?.capabilities ?? const <ModelCapability>[])
+      capability,
+  };
+
+  /// Only a chat model has these: an image endpoint has no tool calling and no
+  /// context window, so offering the switches there would be a lie.
+  bool get _chat => widget.service == 'agent';
+
+  /// The models this app already knows a starting point for. Picking one fills
+  /// the id and, for a chat model, the window the provider documents.
+  List<String> get _suggestions => switch (widget.service) {
+    'agent' => [for (final preset in agentPresets) preset.model],
+    'image' => [for (final preset in imagePresets) preset.model],
+    _ => const [],
+  };
+
+  void _suggest(String model) {
+    setState(() {
+      _id.text = model;
+      if (!_chat) return;
+      for (final preset in agentPresets) {
+        if (preset.model != model) continue;
+        _context.text = '${preset.contextTokens}';
+        _output.text = '${preset.maxOutputTokens}';
+      }
+    });
+  }
+
+  void _toggle(ModelCapability capability, bool on) => setState(() {
+    if (on) {
+      _capabilities.add(capability);
+    } else {
+      _capabilities.remove(capability);
+    }
+  });
+
+  @override
+  void dispose() {
+    _id.dispose();
+    _alias.dispose();
+    _context.dispose();
+    _output.dispose();
+    super.dispose();
+  }
+
+  int _count(TextEditingController c) => int.tryParse(c.text.trim()) ?? 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Strings.of(context);
+    final suggestions = _suggestions;
+    return AlertDialog(
+      title: Text(s.t('editModel')),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (suggestions.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final model in suggestions)
+                        ActionChip(
+                          label: Text(
+                            model,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onPressed: () => _suggest(model),
+                        ),
+                    ],
+                  ),
+                ),
+              TextField(
+                controller: _id,
+                autocorrect: false,
+                enableSuggestions: false,
+                textDirection: TextDirection.ltr,
+                decoration: InputDecoration(labelText: s.t('modelId')),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _alias,
+                decoration: InputDecoration(
+                  labelText: s.t('alias'),
+                  helperText: s.t('aliasNote'),
+                  helperMaxLines: 2,
+                ),
+              ),
+              if (_chat) ...[
+                const SizedBox(height: 6),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: _capabilities.contains(ModelCapability.vision),
+                  title: Text(s.t('vision')),
+                  onChanged: (on) =>
+                      _toggle(ModelCapability.vision, on ?? false),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: _capabilities.contains(ModelCapability.reasoning),
+                  title: Text(s.t('reasoning')),
+                  onChanged: (on) =>
+                      _toggle(ModelCapability.reasoning, on ?? false),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: _capabilities.contains(ModelCapability.toolUse),
+                  title: Text(s.t('toolUse')),
+                  subtitle: Text(s.t('toolUseNote')),
+                  onChanged: (on) =>
+                      _toggle(ModelCapability.toolUse, on ?? false),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _context,
+                        keyboardType: TextInputType.number,
+                        // Numbers without units are what makes a window read as
+                        // ambiguous; the label carries the unit.
+                        decoration: InputDecoration(
+                          labelText: s.t('contextWindow'),
+                          hintText: '128000',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: _output,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: s.t('maxOutput'),
+                          hintText: '4096',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(s.t('cancel')),
+        ),
+        FilledButton(
+          onPressed: _id.text.trim().isEmpty
+              ? null
+              : () => Navigator.pop(
+                  context,
+                  ModelEntry(
+                    id: _id.text.trim(),
+                    alias: _alias.text.trim(),
+                    capabilities: _chat ? _capabilities : const {},
+                    contextWindow: _chat ? _count(_context) : 0,
+                    maxOutput: _chat ? _count(_output) : 0,
+                  ),
+                ),
+          child: Text(s.t('save')),
+        ),
+      ],
+    );
+  }
 }
