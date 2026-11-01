@@ -846,12 +846,20 @@ const videoTool = {
   'description':
       'Render a short video clip from a prompt. Use it only when the user '
       'explicitly asks for a video: it takes minutes and the clip is saved to '
-      'the video page, so never describe it as an inline picture. The newest '
-      'conversation image, if any, is used as the first frame.',
+      'the video page, so never describe it as an inline picture. Pass '
+      'image_id to start the clip from a picture you made; without it the '
+      'newest conversation image is used.',
   'parameters': {
     'type': 'object',
     'properties': {
       'prompt': {'type': 'string'},
+      'image_id': {
+        'type': 'string',
+        'description':
+            'The picture this shot starts from: an image_id returned by '
+            'generate_image, or "last" for the newest one. The result names '
+            'the frame it used, so it can be checked.',
+      },
       'model': {
         'type': 'string',
         'description':
