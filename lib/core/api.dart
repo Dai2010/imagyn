@@ -770,11 +770,16 @@ class StudioApi {
     // model decides the next step blind, which is what made "look at the result
     // and fix it" impossible.
     if (config.vision) {
-      final feedback = agentVisionMessage(
-        config.protocol,
-        await _turnImages(agentTurnImageIds(history)),
-      );
-      if (feedback != null) messages.add(feedback);
+      final produced = agentTurnImageIds(history);
+      // Nothing to show is the common case; it must not cost a trip to the
+      // store, which a request without pictures never touches.
+      if (produced.isNotEmpty) {
+        final feedback = agentVisionMessage(
+          config.protocol,
+          await _turnImages(produced),
+        );
+        if (feedback != null) messages.add(feedback);
+      }
     }
     return _AgentRequest(settings, messages, settings.requestPrompt);
   }
