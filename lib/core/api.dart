@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:http_parser/http_parser.dart';
+import 'package:image/image.dart' as img;
 
 import 'models.dart';
 import 'store.dart';
@@ -76,6 +78,82 @@ class ImageApiException implements Exception {
   final List<String> outputs;
   @override
   String toString() => detail;
+}
+
+/// How many pictures of the current turn travel back to the text model, and how
+/// far they are shrunk first. The model has to recognise what it made, not read
+/// fine print, and a full-size picture on every step would cost more traffic
+/// than the look is worth.
+const agentVisionMaxImages = 4;
+const agentVisionMaxSide = 768;
+
+/// One picture as whichever protocol spells an inline image.
+Map<String, dynamic> agentImagePart(
+  ApiProtocol protocol,
+  String mime,
+  String data,
+) => protocol == ApiProtocol.responses
+    ? {'type': 'input_image', 'image_url': 'data:$mime;base64,$data'}
+    : protocol == ApiProtocol.anthropic
+    ? {
+        'type': 'image',
+        'source': {'type': 'base64', 'media_type': mime, 'data': data},
+      }
+    : {
+        'type': 'image_url',
+        'image_url': {'url': 'data:$mime;base64,$data'},
+      };
+
+/// The pictures produced since the user last spoke, newest first.
+///
+/// A turn's product is attached to the tool result that made it, and the
+/// gallery-style result also files an assistant entry carrying the same ids;
+/// stopping at the user's own message keeps the two from arriving twice, and
+/// keeps a picture the user attached from being read back as a product.
+List<String> agentTurnImageIds(
+  List<ChatEntry> history, {
+  int max = agentVisionMaxImages,
+}) {
+  final ids = <String>[];
+  final seen = <String>{};
+  for (var i = history.length - 1; i >= 0; i--) {
+    final entry = history[i];
+    if (entry.role == 'user' &&
+        (entry.text.trim().isNotEmpty || entry.assetIds.isNotEmpty)) {
+      break;
+    }
+    for (final id in entry.assetIds) {
+      if (!seen.add(id)) continue;
+      ids.add(id);
+      if (ids.length >= max) return ids;
+    }
+  }
+  return ids;
+}
+
+/// The message that shows the text model what this turn has produced so far.
+///
+/// It rides as its own user message rather than inside the tool result because
+/// only the Anthropic shape lets a result carry a picture: the OpenAI chat shape
+/// requires a result to be a string. A user message after the results is legal
+/// in all three protocols and leaves the call pairing untouched.
+Map<String, dynamic>? agentVisionMessage(
+  ApiProtocol protocol,
+  List<({String mime, String data})> images,
+) {
+  if (images.isEmpty) return null;
+  return {
+    'role': 'user',
+    'content': [
+      for (final image in images)
+        agentImagePart(protocol, image.mime, image.data),
+      {
+        'type': protocol == ApiProtocol.responses ? 'input_text' : 'text',
+        'text': 'The ${images.length == 1 ? 'picture' : 'pictures'} above '
+            'were produced by this turn, in the order they were made.',
+      },
+    ],
+  };
 }
 
 class StudioApi {
@@ -640,26 +718,12 @@ class StudioApi {
       if (await file.length() > maxImageBytes) {
         throw const FormatException('imageTooLarge');
       }
-      final data = base64Encode(await file.readAsBytes());
       contents.add(
-        config.protocol == ApiProtocol.responses
-            ? {
-                'type': 'input_image',
-                'image_url': 'data:${asset.mime};base64,$data',
-              }
-            : config.protocol == ApiProtocol.anthropic
-            ? {
-                'type': 'image',
-                'source': {
-                  'type': 'base64',
-                  'media_type': asset.mime,
-                  'data': data,
-                },
-              }
-            : {
-                'type': 'image_url',
-                'image_url': {'url': 'data:${asset.mime};base64,$data'},
-              },
+        agentImagePart(
+          config.protocol,
+          asset.mime,
+          base64Encode(await file.readAsBytes()),
+        ),
       );
     }
     final messages = <Map<String, dynamic>>[];
@@ -703,7 +767,63 @@ class StudioApi {
         });
       }
     }
+    // What this turn has made so far goes with the request: without it the text
+    // model decides the next step blind, which is what made "look at the result
+    // and fix it" impossible.
+    if (config.vision) {
+      final feedback = agentVisionMessage(
+        config.protocol,
+        await _turnImages(agentTurnImageIds(history)),
+      );
+      if (feedback != null) messages.add(feedback);
+    }
     return _AgentRequest(settings, messages, settings.requestPrompt);
+  }
+
+  /// Reads a turn's pictures in the order they were made, shrunk to what a
+  /// vision model needs. A picture that cannot be read is left out instead of
+  /// failing the request: the tool result still says what was produced.
+  Future<List<({String mime, String data})>> _turnImages(
+    List<String> ids,
+  ) async {
+    final payloads = <({String mime, String data})>[];
+    for (final id in ids.reversed) {
+      final asset = await store.asset(id);
+      if (asset == null) continue;
+      final payload = await _shrunk(asset);
+      if (payload != null) payloads.add(payload);
+    }
+    return payloads;
+  }
+
+  Future<({String mime, String data})?> _shrunk(Asset asset) async {
+    try {
+      final bytes = await store.file(asset).readAsBytes();
+      if (bytes.length > maxImageBytes) return null;
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) {
+        return (mime: asset.mime, data: base64Encode(bytes));
+      }
+      final long = math.max(decoded.width, decoded.height);
+      final sized = long <= agentVisionMaxSide
+          ? decoded
+          : img.copyResize(
+              decoded,
+              width: decoded.width >= decoded.height
+                  ? agentVisionMaxSide
+                  : null,
+              height: decoded.height > decoded.width
+                  ? agentVisionMaxSide
+                  : null,
+              interpolation: img.Interpolation.average,
+            );
+      return (
+        mime: 'image/jpeg',
+        data: base64Encode(img.encodeJpg(sized, quality: 82)),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Every assistant turn that called a tool has to be followed by one tool
