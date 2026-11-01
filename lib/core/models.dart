@@ -274,6 +274,121 @@ const imagePresets = <ImagePreset>[
   ImagePreset(model: 'wan2.7-image-pro'),
 ];
 
+/// The three services a request can go to. Each keeps its own model library,
+/// because a gateway that renders clips is often not the one that chats.
+const modelServices = ['image', 'agent', 'video'];
+
+/// A capability belongs to the model, not to the endpoint: one gateway usually
+/// serves a vision model beside a text-only one, so a switch on the service is
+/// wrong for at least one of them.
+enum ModelCapability { vision, reasoning, toolUse }
+
+/// One model the user configured: the id that travels in the request, plus
+/// what is known about it. Zero in [contextWindow] and [maxOutput] means
+/// "unknown" rather than "unlimited" — neither turns a limit off.
+class ModelEntry {
+  const ModelEntry({
+    required this.id,
+    this.alias = '',
+    this.capabilities = const {},
+    this.contextWindow = 0,
+    this.maxOutput = 0,
+  });
+
+  final String id;
+  final String alias;
+  final Set<ModelCapability> capabilities;
+  final int contextWindow;
+  final int maxOutput;
+
+  /// What the lists show. An alias exists because provider ids are often
+  /// unreadable (`x-ai/grok-imagine-image`), while requests need the id itself.
+  String get name => alias.trim().isEmpty ? id : alias.trim();
+
+  bool supports(ModelCapability capability) => capabilities.contains(capability);
+
+  ModelEntry copyWith({
+    String? id,
+    String? alias,
+    Set<ModelCapability>? capabilities,
+    int? contextWindow,
+    int? maxOutput,
+  }) => ModelEntry(
+    id: id ?? this.id,
+    alias: alias ?? this.alias,
+    capabilities: capabilities ?? this.capabilities,
+    contextWindow: contextWindow ?? this.contextWindow,
+    maxOutput: maxOutput ?? this.maxOutput,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    if (alias.trim().isNotEmpty) 'alias': alias.trim(),
+    if (capabilities.isNotEmpty)
+      'capabilities': [
+        for (final capability in ModelCapability.values)
+          if (capabilities.contains(capability)) capability.name,
+      ],
+    if (contextWindow > 0) 'contextWindow': contextWindow,
+    if (maxOutput > 0) 'maxOutput': maxOutput,
+  };
+
+  factory ModelEntry.fromJson(Map<String, dynamic> j) => ModelEntry(
+    id: switch (j['id']) {
+      final String value => value,
+      _ => '',
+    },
+    alias: switch (j['alias']) {
+      final String value => value,
+      _ => '',
+    },
+    capabilities: {
+      for (final value in (j['capabilities'] is List
+          ? j['capabilities'] as List
+          : const []))
+        for (final capability in ModelCapability.values)
+          if (capability.name == value) capability,
+    },
+    contextWindow: _intOf(j['contextWindow']),
+    maxOutput: _intOf(j['maxOutput']),
+  );
+
+  /// Counts are read leniently: a value saved as text, or hand-edited into
+  /// something else, becomes zero ("unknown") instead of failing the load and
+  /// taking the whole library with it.
+  static int _intOf(Object? value) => switch (value) {
+    final num number => number.toInt(),
+    final String text => int.tryParse(text.trim()) ?? 0,
+    _ => 0,
+  };
+
+  /// Reads a saved library, dropping anything without an id: a half-written
+  /// row would otherwise travel as a request with an empty model.
+  static List<ModelEntry> listFromJson(Object? raw) {
+    final entries = <ModelEntry>[];
+    if (raw is! List) return entries;
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final id = item['id'];
+      if (id is String && id.trim().isNotEmpty) {
+        entries.add(ModelEntry.fromJson(Map<String, dynamic>.from(item)));
+      }
+    }
+    return entries;
+  }
+
+  /// Duplicates by id are collapsed: the same model listed twice would show
+  /// twice in the picker and answer the same either way.
+  static List<ModelEntry> normalize(Iterable<ModelEntry> entries) {
+    final seen = <String>{};
+    return [
+      for (final entry in entries)
+        if (entry.id.trim().isNotEmpty && seen.add(entry.id.trim()))
+          entry.copyWith(id: entry.id.trim()),
+    ];
+  }
+}
+
 class AgentOptions {
   const AgentOptions({
     this.systemPrompt = defaultAgentPrompt,
