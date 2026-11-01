@@ -1,17 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:http_parser/http_parser.dart';
-import 'package:image/image.dart' as img;
+import 'package:path/path.dart' as p;
 
 import 'models.dart';
 import 'store.dart';
 import 'styles.dart';
 import 'video.dart';
+import 'vision_cache.dart';
 
 /// What the service reports a request and its answer cost, in tokens. Some
 /// OpenAI-compatible gateways omit the field; then the reply carries no usage
@@ -80,12 +80,9 @@ class ImageApiException implements Exception {
   String toString() => detail;
 }
 
-/// How many pictures of the current turn travel back to the text model, and how
-/// far they are shrunk first. The model has to recognise what it made, not read
-/// fine print, and a full-size picture on every step would cost more traffic
-/// than the look is worth.
+/// How many pictures of the current turn travel back to the text model. The
+/// copies themselves are sized and rotated by [VisionCache].
 const agentVisionMaxImages = 4;
-const agentVisionMaxSide = 768;
 
 /// One picture as whichever protocol spells an inline image.
 Map<String, dynamic> agentImagePart(
@@ -122,7 +119,9 @@ List<String> agentTurnImageIds(
         (entry.text.trim().isNotEmpty || entry.assetIds.isNotEmpty)) {
       break;
     }
-    for (final id in entry.assetIds) {
+    // A result lists its pictures in the order they were made, so the newest
+    // one sits last.
+    for (final id in entry.assetIds.reversed) {
       if (!seen.add(id)) continue;
       ids.add(id);
       if (ids.length >= max) return ids;
@@ -780,50 +779,25 @@ class StudioApi {
     return _AgentRequest(settings, messages, settings.requestPrompt);
   }
 
-  /// Reads a turn's pictures in the order they were made, shrunk to what a
-  /// vision model needs. A picture that cannot be read is left out instead of
-  /// failing the request: the tool result still says what was produced.
+  /// Reads a turn's pictures in the order they were made, through the small
+  /// copies [VisionCache] keeps on disk. A picture that cannot be read is left
+  /// out instead of failing the request: the tool result still says what was
+  /// produced.
   Future<List<({String mime, String data})>> _turnImages(
     List<String> ids,
   ) async {
+    final cache = VisionCache(Directory(p.join(store.root.path, 'vision')));
     final payloads = <({String mime, String data})>[];
     for (final id in ids.reversed) {
       final asset = await store.asset(id);
       if (asset == null) continue;
-      final payload = await _shrunk(asset);
+      final payload = await cache.get(
+        id,
+        () => store.file(asset).readAsBytes(),
+      );
       if (payload != null) payloads.add(payload);
     }
     return payloads;
-  }
-
-  Future<({String mime, String data})?> _shrunk(Asset asset) async {
-    try {
-      final bytes = await store.file(asset).readAsBytes();
-      if (bytes.length > maxImageBytes) return null;
-      final decoded = img.decodeImage(bytes);
-      if (decoded == null) {
-        return (mime: asset.mime, data: base64Encode(bytes));
-      }
-      final long = math.max(decoded.width, decoded.height);
-      final sized = long <= agentVisionMaxSide
-          ? decoded
-          : img.copyResize(
-              decoded,
-              width: decoded.width >= decoded.height
-                  ? agentVisionMaxSide
-                  : null,
-              height: decoded.height > decoded.width
-                  ? agentVisionMaxSide
-                  : null,
-              interpolation: img.Interpolation.average,
-            );
-      return (
-        mime: 'image/jpeg',
-        data: base64Encode(img.encodeJpg(sized, quality: 82)),
-      );
-    } catch (_) {
-      return null;
-    }
   }
 
   /// Every assistant turn that called a tool has to be followed by one tool
