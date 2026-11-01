@@ -188,7 +188,10 @@ const builtInAgentPrompt =
     'video: it takes minutes and the clip is saved to the video page, so never '
     'describe it as an inline picture and never call it for a still. '
     'Each generated picture shows under the call that made it; refer back to '
-    'one by its image_id. list_images lists older ones with their ids: pass up '
+    'one by its image_id. Pictures this turn produced are sent back to you with '
+    'the next request when a vision model is configured, so look at what came '
+    'out before deciding the next step. '
+    'list_images lists older ones with their ids: pass up '
     'to ten ids as reference_ids to reuse them, or delete_image to remove one, '
     'and only one the user asked to delete. Records that produced no picture '
     'are listed too; delete_image clears them by their id.';

@@ -5,11 +5,13 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:http_parser/http_parser.dart';
+import 'package:path/path.dart' as p;
 
 import 'models.dart';
 import 'store.dart';
 import 'styles.dart';
 import 'video.dart';
+import 'vision_cache.dart';
 
 /// What the service reports a request and its answer cost, in tokens. Some
 /// OpenAI-compatible gateways omit the field; then the reply carries no usage
@@ -76,6 +78,81 @@ class ImageApiException implements Exception {
   final List<String> outputs;
   @override
   String toString() => detail;
+}
+
+/// How many pictures of the current turn travel back to the text model. The
+/// copies themselves are sized and rotated by [VisionCache].
+const agentVisionMaxImages = 4;
+
+/// One picture as whichever protocol spells an inline image.
+Map<String, dynamic> agentImagePart(
+  ApiProtocol protocol,
+  String mime,
+  String data,
+) => protocol == ApiProtocol.responses
+    ? {'type': 'input_image', 'image_url': 'data:$mime;base64,$data'}
+    : protocol == ApiProtocol.anthropic
+    ? {
+        'type': 'image',
+        'source': {'type': 'base64', 'media_type': mime, 'data': data},
+      }
+    : {
+        'type': 'image_url',
+        'image_url': {'url': 'data:$mime;base64,$data'},
+      };
+
+/// The pictures produced since the user last spoke, newest first.
+///
+/// A turn's product is attached to the tool result that made it, and the
+/// gallery-style result also files an assistant entry carrying the same ids;
+/// stopping at the user's own message keeps the two from arriving twice, and
+/// keeps a picture the user attached from being read back as a product.
+List<String> agentTurnImageIds(
+  List<ChatEntry> history, {
+  int max = agentVisionMaxImages,
+}) {
+  final ids = <String>[];
+  final seen = <String>{};
+  for (var i = history.length - 1; i >= 0; i--) {
+    final entry = history[i];
+    if (entry.role == 'user' &&
+        (entry.text.trim().isNotEmpty || entry.assetIds.isNotEmpty)) {
+      break;
+    }
+    // A result lists its pictures in the order they were made, so the newest
+    // one sits last.
+    for (final id in entry.assetIds.reversed) {
+      if (!seen.add(id)) continue;
+      ids.add(id);
+      if (ids.length >= max) return ids;
+    }
+  }
+  return ids;
+}
+
+/// The message that shows the text model what this turn has produced so far.
+///
+/// It rides as its own user message rather than inside the tool result because
+/// only the Anthropic shape lets a result carry a picture: the OpenAI chat shape
+/// requires a result to be a string. A user message after the results is legal
+/// in all three protocols and leaves the call pairing untouched.
+Map<String, dynamic>? agentVisionMessage(
+  ApiProtocol protocol,
+  List<({String mime, String data})> images,
+) {
+  if (images.isEmpty) return null;
+  return {
+    'role': 'user',
+    'content': [
+      for (final image in images)
+        agentImagePart(protocol, image.mime, image.data),
+      {
+        'type': protocol == ApiProtocol.responses ? 'input_text' : 'text',
+        'text': 'The ${images.length == 1 ? 'picture' : 'pictures'} above '
+            'were produced by this turn, in the order they were made.',
+      },
+    ],
+  };
 }
 
 class StudioApi {
@@ -640,26 +717,12 @@ class StudioApi {
       if (await file.length() > maxImageBytes) {
         throw const FormatException('imageTooLarge');
       }
-      final data = base64Encode(await file.readAsBytes());
       contents.add(
-        config.protocol == ApiProtocol.responses
-            ? {
-                'type': 'input_image',
-                'image_url': 'data:${asset.mime};base64,$data',
-              }
-            : config.protocol == ApiProtocol.anthropic
-            ? {
-                'type': 'image',
-                'source': {
-                  'type': 'base64',
-                  'media_type': asset.mime,
-                  'data': data,
-                },
-              }
-            : {
-                'type': 'image_url',
-                'image_url': {'url': 'data:${asset.mime};base64,$data'},
-              },
+        agentImagePart(
+          config.protocol,
+          asset.mime,
+          base64Encode(await file.readAsBytes()),
+        ),
       );
     }
     final messages = <Map<String, dynamic>>[];
@@ -703,7 +766,43 @@ class StudioApi {
         });
       }
     }
+    // What this turn has made so far goes with the request: without it the text
+    // model decides the next step blind, which is what made "look at the result
+    // and fix it" impossible.
+    if (config.vision) {
+      final produced = agentTurnImageIds(history);
+      // Nothing to show is the common case; it must not cost a trip to the
+      // store, which a request without pictures never touches.
+      if (produced.isNotEmpty) {
+        final feedback = agentVisionMessage(
+          config.protocol,
+          await _turnImages(produced),
+        );
+        if (feedback != null) messages.add(feedback);
+      }
+    }
     return _AgentRequest(settings, messages, settings.requestPrompt);
+  }
+
+  /// Reads a turn's pictures in the order they were made, through the small
+  /// copies [VisionCache] keeps on disk. A picture that cannot be read is left
+  /// out instead of failing the request: the tool result still says what was
+  /// produced.
+  Future<List<({String mime, String data})>> _turnImages(
+    List<String> ids,
+  ) async {
+    final cache = VisionCache(Directory(p.join(store.root.path, 'vision')));
+    final payloads = <({String mime, String data})>[];
+    for (final id in ids.reversed) {
+      final asset = await store.asset(id);
+      if (asset == null) continue;
+      final payload = await cache.get(
+        id,
+        () => store.file(asset).readAsBytes(),
+      );
+      if (payload != null) payloads.add(payload);
+    }
+    return payloads;
   }
 
   /// Every assistant turn that called a tool has to be followed by one tool
