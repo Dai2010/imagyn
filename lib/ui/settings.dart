@@ -1011,8 +1011,7 @@ class _ModelEntryDialogState extends State<ModelEntryDialog> {
       for (final preset in agentPresets) {
         if (preset.model != model) continue;
         _context.text = '${preset.contextTokens}';
-        final output = preset.maxOutputTokens;
-        if (output != null) _output.text = '$output';
+        _output.text = '${preset.maxOutputTokens}';
       }
     });
   }
