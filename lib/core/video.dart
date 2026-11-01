@@ -263,6 +263,22 @@ typedef VideoCall = ({
   String style,
 });
 
+/// Which picture becomes the clip's first frame.
+///
+/// [known] is every picture this conversation can name, newest first, and
+/// [fallback] is the one checked in the composer. An empty request keeps the
+/// fallback; "last" takes the newest; an id this app never produced comes back
+/// empty so the caller can answer with an error instead of posting a request
+/// the service would reject.
+String firstFrameId(String requested, List<String> known, String fallback) {
+  final wanted = requested.trim();
+  if (wanted.isEmpty) return fallback;
+  if (wanted == 'last' || wanted == 'latest') {
+    return known.isEmpty ? fallback : known.first;
+  }
+  return known.contains(wanted) ? wanted : '';
+}
+
 /// Reads the arguments of a `generate_video` call. Missing optional fields take
 /// the defaults the video page shows; a value outside the documented set is
 /// `invalidTool`, which the model can correct on its next step.

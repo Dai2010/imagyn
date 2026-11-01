@@ -2486,10 +2486,14 @@ class Studio extends ChangeNotifier {
   }
 
   /// The Agent's `generate_video`: the submit → poll → download path the video
-  /// page uses, with the newest conversation image as the first frame. The
-  /// clip is named in the tool result so the model can refer to it, and it
-  /// lands on the video page rather than in the transcript.
-  Future<String> _generateVideoCall(StudioApi client, AgentCall call) async {
+  /// page uses, with the newest conversation image as the first frame unless
+  /// the call names one. The clip is named in the tool result so the model can
+  /// refer to it, and it lands on the video page rather than in the transcript.
+  Future<String> _generateVideoCall(
+    StudioApi client,
+    AgentCall call,
+    List<Asset> created,
+  ) async {
     final parsed = validateVideoCall(call.arguments);
     final options = VideoOptions(
       ratio: parsed.ratio,
@@ -2506,7 +2510,26 @@ class Studio extends ChangeNotifier {
         ? videoModels.first.id
         : videoModel.trim();
     final path = videoPath.trim().isEmpty ? 'videos' : videoPath.trim();
-    final refs = agentRefs.take(1).toList();
+    // The keyframe a shot starts from has to be nameable: with several shots in
+    // one turn, "the picture in the composer" is whichever was checked, not the
+    // one this call just made.
+    final known = <Asset>[...created, ...gallery]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final fallback = agentRefs.isEmpty ? '' : agentRefs.first.id;
+    final requested = _argText(call, 'image_id').trim();
+    final wanted = firstFrameId(
+      requested,
+      known.map((asset) => asset.id).toList(),
+      fallback,
+    );
+    if (requested.isNotEmpty && wanted.isEmpty) {
+      return 'Unknown image_id "$requested". Use an id returned by '
+          'generate_image, or "last" for the newest picture.';
+    }
+    final byId = <String, Asset>{
+      for (final asset in [...known, ...agentRefs]) asset.id: asset,
+    };
+    final refs = <Asset>[if (byId[wanted] != null) byId[wanted]!];
     final record = <String, dynamic>{
       'kind': 'video',
       'prompt': parsed.prompt,
@@ -2559,6 +2582,7 @@ class Studio extends ChangeNotifier {
       'ratio': options.ratio,
       'resolution': options.resolution,
       'seconds': options.seconds,
+      if (wanted.isNotEmpty) 'first_frame': wanted,
       'note': 'Saved to the video page; it cannot be shown in the conversation.',
     });
   }
@@ -2609,7 +2633,7 @@ class Studio extends ChangeNotifier {
       case 'ask_user':
         return _askUser(call);
       case 'generate_video':
-        return _generateVideoCall(client, call);
+        return _generateVideoCall(client, call, created);
     }
     if (call.name != imageTool['name']) {
       return 'Unknown tool "${call.name}": this build has no such tool.';
