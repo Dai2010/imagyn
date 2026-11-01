@@ -132,6 +132,11 @@ class Studio extends ChangeNotifier {
   String videoPath = 'videos';
   List<Asset> videos = [];
 
+  /// The models configured per service, keyed by [modelServices]. Kept apart
+  /// from [config]: a library outlives the selection, so switching models must
+  /// not delete the others, and picking one back must not need retyping it.
+  Map<String, List<ModelEntry>> modelLibrary = const {};
+
   /// Style packs the user wrote, in the order they were added.
   List<ImageStyle> customStyles = const [];
   CancelToken? _cancel;
@@ -279,6 +284,10 @@ class Studio extends ChangeNotifier {
     );
     videoModel = await store.setting('videoModel') ?? videoModels.first.id;
     videoPath = await store.setting('videoPath') ?? 'videos';
+    modelLibrary = {
+      for (final service in modelServices) service: await _readModels(service),
+    };
+    await _seedModelLibrary();
     await _loadConversationSettings();
     await _loadDecks();
     await refresh();
@@ -319,6 +328,55 @@ class Studio extends ChangeNotifier {
   Future<void> setVideoPath(String value) async {
     videoPath = value.trim().isEmpty ? 'videos' : value.trim();
     await store.setSetting('videoPath', videoPath);
+    notifyListeners();
+  }
+
+  /// The models configured for one service, in the order they were added.
+  List<ModelEntry> modelsOf(String service) => modelLibrary[service] ?? const [];
+
+  /// Replaces one service's library. Normalising happens here rather than in
+  /// the form: an empty id or a duplicate saved by whichever screen forgot to
+  /// check would make the picker show two rows that answer the same.
+  Future<void> saveModelLibrary(String service, List<ModelEntry> entries) async {
+    if (busy) return;
+    await _writeModels(service, ModelEntry.normalize(entries));
+  }
+
+  Future<List<ModelEntry>> _readModels(String service) async {
+    final raw = await store.setting('models:$service');
+    if (raw == null || raw.trim().isEmpty) return const [];
+    try {
+      return ModelEntry.normalize(ModelEntry.listFromJson(jsonDecode(raw)));
+    } catch (_) {
+      // One unreadable row must not keep the app from starting: the selected
+      // model still lives in the config, which is what requests use.
+      return const [];
+    }
+  }
+
+  /// An install from before the library existed carries one model id per
+  /// service and no list. Seed the list from that id, so the settings page
+  /// does not greet an existing user with an empty library.
+  Future<void> _seedModelLibrary() async {
+    final selected = {
+      'image': config.imageModel,
+      'agent': config.agentModel,
+      'video': videoModel,
+    };
+    for (final service in modelServices) {
+      if (modelsOf(service).isNotEmpty) continue;
+      final id = (selected[service] ?? '').trim();
+      if (id.isEmpty) continue;
+      await _writeModels(service, [ModelEntry(id: id)]);
+    }
+  }
+
+  Future<void> _writeModels(String service, List<ModelEntry> entries) async {
+    modelLibrary = {...modelLibrary, service: List.unmodifiable(entries)};
+    await store.setSetting(
+      'models:$service',
+      jsonEncode([for (final entry in entries) entry.toJson()]),
+    );
     notifyListeners();
   }
 
