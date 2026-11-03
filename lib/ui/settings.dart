@@ -5,7 +5,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api.dart';
 import '../core/models.dart';
-import '../core/providers.dart';
 import '../core/studio.dart';
 import '../l10n/strings.dart';
 import 'agent_options.dart';
@@ -337,50 +336,6 @@ class _SettingsPageState extends State<SettingsPage> {
         '${s.t('preview')}: ${host.isEmpty ? '—' : '$host$suffix'}',
         style: Theme.of(context).textTheme.bodySmall,
         textDirection: TextDirection.ltr,
-      ),
-    );
-  }
-
-  /// Fills the address — and, for the chat service, the protocol — from a known
-  /// provider. A dropdown rather than a list of cards: the point is to save
-  /// typing, not to become a directory of everything on the internet.
-  Widget _builtinPicker(
-    String service,
-    TextEditingController host, {
-    bool setsProtocol = false,
-  }) {
-    final providers = providersOf(service);
-    if (providers.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: DropdownButtonFormField<String>(
-        key: ValueKey('provider:$service'),
-        isExpanded: true,
-        decoration: InputDecoration(labelText: s.t('builtinProvider')),
-        hint: Text(s.t('customProvider')),
-        items: [
-          for (final provider in providers)
-            DropdownMenuItem(
-              value: provider.id,
-              child: Text(
-                provider.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-        ],
-        onChanged: (id) {
-          BuiltinProvider? found;
-          for (final provider in providers) {
-            if (provider.id == id) found = provider;
-          }
-          final chosen = found;
-          if (chosen == null) return;
-          setState(() {
-            host.text = chosen.host;
-            if (setsProtocol) _protocol = chosen.protocol;
-          });
-        },
       ),
     );
   }
@@ -718,7 +673,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   if (_module == null) _entries(),
                   if (_module == 0)
                     _section('imageConnection', [
-                      _builtinPicker('image', _imageBase),
                       _field(
                         _imageBase,
                         'imageEndpoint',
@@ -812,7 +766,6 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 14),
-                      _builtinPicker('agent', _base, setsProtocol: true),
                       _field(
                         _base,
                         'endpoint',

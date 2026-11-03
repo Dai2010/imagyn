@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:imagyn/core/models.dart';
-import 'package:imagyn/core/providers.dart';
 
 void main() {
   group('model entries', () {
@@ -71,42 +70,6 @@ void main() {
     test('an unknown token count stays zero, which means unknown', () {
       final back = ModelEntry.fromJson({'id': 'x', 'contextWindow': 'later'});
       expect(back.contextWindow, 0);
-    });
-  });
-
-  group('built-in providers', () {
-    test('every preset fills an address a request can be built from', () {
-      for (final service in modelServices) {
-        final providers = providersOf(service);
-        expect(providers, isNotEmpty, reason: service);
-        for (final provider in providers) {
-          final uri = Uri.parse(provider.host);
-          expect(uri.scheme, 'https', reason: '${provider.id} @ $service');
-          expect(uri.host, isNotEmpty, reason: '${provider.id} @ $service');
-          expect(uri.hasQuery, isFalse, reason: '${provider.id} @ $service');
-        }
-      }
-    });
-
-    test('ids are unique within a service', () {
-      for (final service in modelServices) {
-        final ids = [for (final provider in providersOf(service)) provider.id];
-        expect(ids.toSet().length, ids.length, reason: service);
-      }
-    });
-
-    test('the chat list speaks both protocols, the others only OpenAI', () {
-      expect(
-        chatProviders.where((p) => p.protocol == ApiProtocol.anthropic),
-        isNotEmpty,
-      );
-      for (final provider in [...imageProviders, ...videoProviders]) {
-        expect(provider.protocol, ApiProtocol.openai, reason: provider.id);
-      }
-    });
-
-    test('an unknown service gets no presets rather than the chat ones', () {
-      expect(providersOf('deck'), isEmpty);
     });
   });
 }
