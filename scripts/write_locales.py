@@ -553,7 +553,6 @@ rows.update({
                  'Sin modelos. Añade los identificadores que publica el servicio.',
                  'Моделей пока нет. Добавьте идентификаторы, которые публикует сервис.',
                  'لا توجد نماذج بعد. أضف المعرّفات التي تنشرها الخدمة.'],
- 'builtinProvider': ['Provider preset', '内置提供商', 'Fournisseur prédéfini', 'Proveedor predefinido', 'Готовый провайдер', 'مزوّد جاهز'],
  'customProvider': ['Custom (type the address)', '自定义（自己填地址）', 'Personnalisé (saisir l’adresse)', 'Personalizado (escribe la dirección)', 'Свой (введите адрес)', 'مخصّص (أدخل العنوان)'],
  'modelExists': ['That model is already in the library',
                  '这个模型已经在库里',
