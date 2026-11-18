@@ -27,13 +27,12 @@ jobs:
 
       - run: python3 -m unittest discover -s test -p '*_test.py' -v
 
-      # Pinned to the stable channel rather than a version number: the SDK
-      # constraint in pubspec.yaml (>= 3.12.0) is what actually gates the tool
-      # chain, and a guessed version string fails harder than a moving channel.
-      # Pin the exact version once one has been verified green.
+      # Pinned to 3.47.9: stable 3.50.0 deprecated package:flutter/material.dart,
+      # causing `flutter analyze` (which fails on info lints) to exit 1 before
+      # the tree migrates to package:material_ui/material_ui.dart.
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: '3.47.9'
           cache: true
 
       - run: flutter --version
