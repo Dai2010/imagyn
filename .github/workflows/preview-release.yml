@@ -3,6 +3,7 @@ name: 三端预览发布
 
 on:
   push:
+    branches: ['codex/preview6-release']
     tags: ['v*-preview*']
   workflow_dispatch:
 
@@ -11,10 +12,13 @@ permissions:
 
 env:
   FLUTTER_VERSION: '3.47.9'
+  RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.3.0-preview6' }}
 
 jobs:
   build:
-    if: github.ref_type == 'tag' && contains(github.ref_name, '-preview')
+    if: >-
+      (github.ref_type == 'tag' && contains(github.ref_name, '-preview')) ||
+      github.ref == 'refs/heads/codex/preview6-release'
     strategy:
       fail-fast: false
       matrix:
@@ -28,6 +32,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -58,7 +64,7 @@ jobs:
         run: |
           flutter build linux --release --no-pub
           mkdir dist
-          tar -czf "dist/Imagyn-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" \
+          tar -czf "dist/Imagyn-${RELEASE_TAG}-linux-x86_64.tar.gz" \
             -C build/linux/x64/release/bundle .
 
       - if: matrix.platform == 'windows'
@@ -68,7 +74,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory dist | Out-Null
           Compress-Archive -Path build/windows/x64/runner/Release/* `
-            -DestinationPath "dist/Imagyn-$env:GITHUB_REF_NAME-windows-x64.zip"
+            -DestinationPath "dist/Imagyn-$env:RELEASE_TAG-windows-x64.zip"
 
       - if: matrix.platform == 'android'
         run: |
@@ -76,7 +82,7 @@ jobs:
           mkdir dist
           for abi in arm64-v8a armeabi-v7a x86_64; do
             cp "build/app/outputs/flutter-apk/app-$abi-release.apk" \
-              "dist/Imagyn-${GITHUB_REF_NAME}-android-$abi.apk"
+              "dist/Imagyn-${RELEASE_TAG}-android-$abi.apk"
           done
 
       - uses: actions/upload-artifact@v4
@@ -92,6 +98,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -100,7 +108,7 @@ jobs:
         run: |
           (cd dist && sha256sum -- * > SHA256SUMS)
           {
-            if [[ "$GITHUB_REF_NAME" == v0.3.0-preview6 ]]; then
+            if [[ "$RELEASE_TAG" == v0.3.0-preview6 ]]; then
               cat <<'NOTES'
           ## 本次更新
 
@@ -123,11 +131,12 @@ jobs:
           调试签名。覆盖安装需与已安装包的签名一致。桌面包为未签名便携包。
           下载后可用 `SHA256SUMS` 校验文件。
           NOTES
-            printf '\n构建提交：`%s`。\n' "$GITHUB_SHA"
+            printf '\n构建提交：`%s`。\n' "$(git rev-parse HEAD)"
           } > NOTES.md
       - uses: softprops/action-gh-release@v2
         with:
-          name: Imagyn ${{ github.ref_name }}（Linux / Windows / Android）
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Imagyn ${{ env.RELEASE_TAG }}（Linux / Windows / Android）
           prerelease: true
           make_latest: false
           body_path: NOTES.md
