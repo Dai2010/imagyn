@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -136,6 +137,27 @@ def copy_overlay(platform: str, target: Path) -> list[str]:
     return copied
 
 
+def add_browser_query(manifest: str) -> str:
+    """在原有 Android 包可见性声明中补上 HTTPS 浏览器。"""
+    root = ET.fromstring(manifest)
+    ns = "{http://schemas.android.com/apk/res/android}"
+    for intent in root.findall("./queries/intent"):
+        actions = {node.get(ns + "name") for node in intent.findall("action")}
+        schemes = {node.get(ns + "scheme") for node in intent.findall("data")}
+        if "android.intent.action.VIEW" in actions and "https" in schemes:
+            return manifest
+    intent = (
+        "        <intent>\n"
+        '            <action android:name="android.intent.action.VIEW" />\n'
+        '            <data android:scheme="https" />\n'
+        "        </intent>\n"
+    )
+    if "</queries>" in manifest:
+        return manifest.replace("</queries>", "\n" + intent + "    </queries>", 1)
+    query = "    <queries>\n" + intent + "    </queries>\n"
+    return manifest.replace("</manifest>", query + "</manifest>", 1)
+
+
 def patch_android(target: Path, release_signing: bool, preview: bool) -> None:
     gradle = sorted(target.glob("app/build.gradle*"))
     gradle = [path for path in gradle if path.suffix in {".kts", ".gradle"}]
@@ -219,19 +241,7 @@ def patch_android(target: Path, release_signing: bool, preview: bool) -> None:
     # Opening a link needs the browser intent to be visible to this app: from
     # Android 11 on a package that is not queried cannot be resolved, so the tap
     # on an About row would quietly do nothing at all.
-    if "<queries>" not in manifest_text:
-        anchor = "<application"
-        if anchor not in manifest_text:
-            fail("could not find <application in AndroidManifest.xml; "
-                 "the Flutter template changed, update this script")
-        manifest_text = manifest_text.replace(
-            anchor,
-            '    <queries>\n'
-            '        <intent>\n'
-            '            <action android:name="android.intent.action.VIEW" />\n'
-            '            <data android:scheme="https" />\n'
-            '        </intent>\n'
-            '    </queries>\n' + anchor)
+    manifest_text = add_browser_query(manifest_text)
 
     # A turn has to survive the task being swiped away: a dataSync foreground
     # service holds the process, and the activity reattaches to the engine that
@@ -306,6 +316,24 @@ def patch_android(target: Path, release_signing: bool, preview: bool) -> None:
     gradle_file.write_text(text)
 
 
+def patch_linux(target: Path) -> None:
+    """在创建原生窗口时指定客户区装饰，由应用绘制标题栏。"""
+    runner = target / "runner" / "my_application.cc"
+    source = runner.read_text(encoding="utf-8")
+    frame = """  gtk_window_set_title(window, "Imagyn");
+  gtk_window_set_titlebar(window, gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+  gtk_window_set_decorated(window, FALSE);
+
+"""
+    if frame in source:
+        return
+    begin = source.find("  // Use a header bar")
+    end = source.find("  gtk_window_set_default_size(", begin)
+    if begin < 0 or end < 0 or "gtk_window_set_titlebar(" not in source[begin:end]:
+        fail("Linux runner header-bar selection changed; review the template")
+    runner.write_text(source[:begin] + frame + source[end:], encoding="utf-8")
+
+
 def patch_macos(target: Path) -> None:
     for entitlements in (target / "Runner").glob("*.entitlements"):
         with entitlements.open("rb") as source:
@@ -355,6 +383,8 @@ def main() -> None:
             copied = copy_overlay(platform, target)
             print(f"+ {platform}: generated, {len(copied)} file(s) overlaid"
                   + (f" ({', '.join(copied)})" if copied else ""))
+            if platform == "linux":
+                patch_linux(target)
             if platform == "macos":
                 patch_macos(target)
             if platform == "android":

@@ -3,6 +3,9 @@ from pathlib import Path
 
 languages = ['en', 'zh', 'fr', 'es', 'ru', 'ar']
 rows = {
+'minimize': ['Minimize','最小化','Réduire','Minimizar','Свернуть','تصغير'],
+'maximize': ['Maximize','最大化','Agrandir','Maximizar','Развернуть','تكبير'],
+'restoreWindow': ['Restore','还原','Restaurer','Restaurar','Восстановить','استعادة'],
 'home': ['Home','首页','Accueil','Inicio','Главная','الرئيسية'],
 'gallery': ['Gallery','画廊','Galerie','Galería','Галерея','المعرض'],
 'agent': ['Agent','Agent','Agent','Agente','Агент','الوكيل'],

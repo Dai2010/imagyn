@@ -9,6 +9,7 @@ import '../core/providers.dart';
 import '../core/studio.dart';
 import '../l10n/strings.dart';
 import 'agent_options.dart';
+import 'visuals.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.studio});
@@ -329,16 +330,25 @@ class _SettingsPageState extends State<SettingsPage> {
   /// or a missing path becomes visible — before the first failed request rather
   /// than after it.
   Widget _endpointPreview(TextEditingController c, {String path = ''}) {
-    final host = c.text.trim().replaceFirst(RegExp(r'/+$'), '');
-    final suffix = path.isEmpty ? '' : '/$path';
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Text(
-        '${s.t('preview')}: ${host.isEmpty ? '—' : '$host$suffix'}',
-        style: Theme.of(context).textTheme.bodySmall,
-        textDirection: TextDirection.ltr,
-      ),
-    );
+        final scheme = Theme.of(context).colorScheme;
+        final host = c.text.trim().replaceFirst(RegExp(r'/+$'), '');
+        final suffix = path.isEmpty ? '' : '/$path';
+        return Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                        decoration: BoxDecoration(
+                                color: scheme.surfaceContainerHighest.withValues(alpha: .6),
+                                borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                                '${s.t('preview')}: ${host.isEmpty ? '—' : '$host$suffix'}',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                                textDirection: TextDirection.ltr,
+                        ),
+                ),
+        );
   }
 
   /// Fills the address — and, for the chat service, the protocol — from a known
@@ -624,41 +634,145 @@ class _SettingsPageState extends State<SettingsPage> {
       context,
     ).showSnackBar(SnackBar(content: SelectableText(url)));
   }
+  /// One module as a card: each connection reads as its own unit instead of
+  /// one long form, and the icon says which service it is at a glance.
   Widget _section(String label, List<Widget> children) => Padding(
-    padding: const EdgeInsets.only(bottom: 28),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: Text(
-            s.t(label),
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+        padding: const EdgeInsets.only(bottom: 20),
+        child: StudioSurface(
+                child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                        child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                        Row(
+                                                children: [
+                                                        _iconBubble(_sectionIcon(label)),
+                                                        const SizedBox(width: 12),
+                                                        Expanded(
+                                                                child: Text(
+                                                                        s.t(label),
+                                                                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                                                                fontWeight: FontWeight.w600,
+                                                                        ),
+                                                                ),
+                                                        ),
+                                                ],
+                                        ),
+                                        const SizedBox(height: 16),
+                                        ...children,
+                                ],
+                        ),
+                ),
         ),
-        ...children,
-      ],
-    ),
   );
 
-  /// The settings home: one row per module, in the order the app is used.
-  Widget _entries() => Column(
-    children: [
-      for (final entry in const [
-        (0, 'gallery'),
-        (1, 'agent'),
-        (4, 'videoConnection'),
-        (2, 'generalSettings'),
-        (3, 'about'),
-      ])
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(s.t(entry.$2)),
-          trailing: const Icon(Icons.chevron_right_rounded),
-          onTap: () => _openModule(entry.$1),
+  IconData _sectionIcon(String label) => switch (label) {
+        'imageConnection' => Icons.image_outlined,
+        'connection' => Icons.hub_outlined,
+        'videoConnection' => Icons.movie_outlined,
+        'appearance' => Icons.palette_outlined,
+        'network' => Icons.lan_outlined,
+        'storage' => Icons.storage_outlined,
+        _ => Icons.info_outline_rounded,
+  };
+
+  Widget _iconBubble(IconData icon) => Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
+                borderRadius: BorderRadius.circular(12),
         ),
-    ],
+        child: Icon(icon, size: 19, color: Theme.of(context).colorScheme.primary),
   );
+
+  /// The outcome of the last check or save, as a tinted band rather than a bare
+  /// line of text: primary tint for a reachable service, error tint otherwise.
+  Widget _statusPill() {
+        final scheme = Theme.of(context).colorScheme;
+        final ok = _status == 'connected';
+        final ink = ok ? scheme.onPrimaryContainer : scheme.onErrorContainer;
+        return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: DecoratedBox(
+                        decoration: BoxDecoration(
+                                color: ok ? scheme.primaryContainer : scheme.errorContainer,
+                                borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                                child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                                Icon(
+                                                        ok ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+                                                        size: 18,
+                                                        color: ink,
+                                                ),
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                        child: Column(
+                                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                                children: [
+                                                                        Text(
+                                                                                s.t(_status!),
+                                                                                style: TextStyle(color: ink, fontWeight: FontWeight.w600),
+                                                                        ),
+                                                                        if (_detail != null)
+                                                                                Padding(
+                                                                                        padding: const EdgeInsets.only(top: 6),
+                                                                                        child: SelectableText(
+                                                                                                _detail!,
+                                                                                                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: ink),
+                                                                                        ),
+                                                                                ),
+                                                                ],
+                                                        ),
+                                                ),
+                                        ],
+                                ),
+                        ),
+                ),
+        );
+  }
+
+  /// The value a settings row shows as its subtitle: what is saved, or a dash
+  /// when nothing is.
+  String _summary(String value) => value.trim().isEmpty ? '—' : value.trim();
+
+  /// The settings home: one card per module, in the order the app is used. Each
+  /// row names what is currently saved for it, so the list answers "is my API
+  /// set up" without opening anything.
+  Widget _entries() {
+        final c = widget.studio.config;
+        final List<(int, String, IconData, String?)> rows = [
+                (0, 'gallery', Icons.grid_view_rounded, _summary(c.imageModel)),
+                (1, 'agent', Icons.forum_rounded, _summary(c.agentModel)),
+                (4, 'videoConnection', Icons.movie_rounded, _summary(c.videoBaseUrl)),
+                (2, 'generalSettings', Icons.tune_rounded, null),
+                (3, 'about', Icons.info_outline_rounded, null),
+        ];
+        return Column(
+                children: [
+                        for (final row in rows)
+                                Padding(
+                                        padding: const EdgeInsets.only(bottom: 12),
+                                        child: StudioSurface(
+                                                child: ListTile(
+                                                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                                        leading: _iconBubble(row.$3),
+                                                        title: Text(s.t(row.$2)),
+                                                        subtitle: row.$4 == null
+                                                                ? null
+                                                                : Text(row.$4!, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                                        trailing: const Icon(Icons.chevron_right_rounded),
+                                                        onTap: () => _openModule(row.$1),
+                                                ),
+                                        ),
+                                ),
+                ],
+        );
+  }
 
   /// Opens a module, keeping the Agent editor's pending edit when it is valid.
   /// Enters a module. Named `_openModule` rather than `_open` because the class
@@ -690,10 +804,29 @@ class _SettingsPageState extends State<SettingsPage> {
     _ => s.t('settings'),
   };
 
+  bool get _canSaveModule => _module != null && _module != 3;
+
+  Widget _saveButton({bool compact = false}) => FilledButton(
+    style: compact
+        ? null
+        : FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+    onPressed: _checking || _saving ? null : _save,
+    child: Text(s.t('save')),
+  );
+
+  bool get _narrow => MediaQuery.sizeOf(context).width < 600;
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: Text(_title),
+      title: Text(_title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      actions: [
+        if (_narrow && _canSaveModule)
+          Padding(
+            padding: const EdgeInsetsDirectional.only(end: 12),
+            child: _saveButton(compact: true),
+          ),
+      ],
       leading: _module == null ? null : BackButton(onPressed: _close),
     ),
     body: Center(
@@ -930,29 +1063,8 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 20),
             if (_checking) const LinearProgressIndicator(),
-            if (_status != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(s.t(_status!)),
-                    if (_detail != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: SelectableText(
-                          _detail!,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            if (_module != null && _module != 3)
-              FilledButton(
-                onPressed: _checking || _saving ? null : _save,
-                child: Text(s.t('save')),
-              ),
+            if (_status != null) _statusPill(),
+            if (!_narrow && _canSaveModule) _saveButton(),
           ],
         ),
       ),

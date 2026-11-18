@@ -6,13 +6,19 @@ import '../core/styles.dart';
 import '../core/video.dart';
 import '../l10n/strings.dart';
 import 'model_picker.dart';
+import 'visuals.dart';
 
 /// Video generation lives on a screen of its own rather than in the Gallery or
 /// the Agent: a clip is a task that is polled for minutes, and both of those
 /// pages would have to grow a second mode to host it.
 class VideoPage extends StatefulWidget {
-  const VideoPage({super.key, required this.studio});
+  const VideoPage({
+    super.key,
+    required this.studio,
+    this.embedded = false,
+  });
   final Studio studio;
+  final bool embedded;
 
   @override
   State<VideoPage> createState() => _VideoPageState();
@@ -81,161 +87,234 @@ class _VideoPageState extends State<VideoPage> {
   @override
   Widget build(BuildContext context) {
     final s = Strings.of(context);
-    return Scaffold(
-      appBar: AppBar(title: Text(s.t('video'))),
-      body: ListenableBuilder(
-        listenable: studio,
-        builder: (context, _) => ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          children: [
-            TextField(
-              controller: _prompt,
-              minLines: 1,
-              maxLines: 4,
-              decoration: InputDecoration(hintText: s.t('prompt')),
-            ),
-            const SizedBox(height: 16),
-            _label(s.t('style')),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ChoiceChip(
-                  key: const ValueKey('videoStyleNone'),
-                  label: Text(s.t('styleNone')),
-                  selected: _options.style.isEmpty,
-                  onSelected: (_) => _update(_options.copyWith(style: '')),
-                ),
-                for (final style in [...builtInStyles, ...studio.customStyles])
-                  ChoiceChip(
-                    key: ValueKey('videoStyle-${style.id}'),
-                    label: Text(
-                      style.isBuiltIn ? s.t(style.label) : style.label,
-                    ),
-                    selected: _options.style == style.id,
-                    onSelected: (_) =>
-                        _update(_options.copyWith(style: style.id)),
+    final theme = Theme.of(context);
+    final body = ListenableBuilder(
+      listenable: studio,
+      builder: (context, _) => Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 780),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+            children: [
+              DecoratedBox(
+                decoration: StudioVisuals.glass(context),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: _prompt,
+                        minLines: 2,
+                        maxLines: 5,
+                        decoration: InputDecoration(
+                          hintText: s.t('prompt'),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _label(s.t('style')),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ChoiceChip(
+                            key: const ValueKey('videoStyleNone'),
+                            label: Text(s.t('styleNone')),
+                            selected: _options.style.isEmpty,
+                            onSelected: (_) =>
+                                _update(_options.copyWith(style: '')),
+                          ),
+                          for (final style in [
+                            ...builtInStyles,
+                            ...studio.customStyles,
+                          ])
+                            ChoiceChip(
+                              key: ValueKey('videoStyle-${style.id}'),
+                              label: Text(
+                                style.isBuiltIn
+                                    ? s.t(style.label)
+                                    : style.label,
+                              ),
+                              selected: _options.style == style.id,
+                              onSelected: (_) => _update(
+                                _options.copyWith(style: style.id),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                   ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            InkWell(
-              key: const ValueKey('videoModelPick'),
-              borderRadius: BorderRadius.circular(8),
-              onTap: studio.busy ? null : _pickModel,
-              child: InputDecorator(
-                decoration: InputDecoration(
-                  labelText: s.t('videoModel'),
-                  suffixIcon: const Icon(Icons.expand_more_rounded),
-                ),
-                child: Text(
-                  _model.text.trim().isEmpty
-                      ? s.t('videoModel')
-                      : _model.text.trim(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const ValueKey('videoPath'),
-              controller: _path,
-              decoration: InputDecoration(
-                labelText: s.t('videoPath'),
-                hintText: 'videos',
-              ),
-            ),
-            const SizedBox(height: 16),
-            _label(s.t('videoRatio')),
-            _choices(
-              values: VideoOptions.ratios,
-              selected: _options.ratio,
-              onPick: (value) => _update(_options.copyWith(ratio: value)),
-            ),
-            const SizedBox(height: 12),
-            _label(s.t('videoResolution')),
-            _choices(
-              values: VideoOptions.resolutions,
-              selected: _options.resolution,
-              onPick: (value) => _update(_options.copyWith(resolution: value)),
-            ),
-            const SizedBox(height: 12),
-            _label(s.t('videoDuration')),
-            _choices(
-              values: const ['3', '5', '8', '10', '12'],
-              selected: '${_options.seconds}',
-              suffix: s.t('videoSecondsUnit'),
-              onPick: (value) =>
-                  _update(_options.copyWith(seconds: int.parse(value))),
-            ),
-            SwitchListTile(
-              key: const ValueKey('videoWatermark'),
-              contentPadding: EdgeInsets.zero,
-              title: Text(s.t('videoWatermark')),
-              value: _options.watermark,
-              onChanged: (value) =>
-                  _update(_options.copyWith(watermark: value)),
-            ),
-            const SizedBox(height: 8),
-            FilledButton.icon(
-              key: const ValueKey('submitVideo'),
-              onPressed: studio.busy ? null : _submit,
-              icon: const Icon(Icons.movie_creation_outlined),
-              label: Text(s.t('create')),
-            ),
-            if (studio.busy) ...[
               const SizedBox(height: 16),
-              const LinearProgressIndicator(),
-              const SizedBox(height: 8),
-              Text(s.t('working')),
-            ],
-            if (studio.error != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                s.t(studio.error!),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              DecoratedBox(
+                decoration: StudioVisuals.glass(context),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      InkWell(
+                        key: const ValueKey('videoModelPick'),
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: studio.busy ? null : _pickModel,
+                        child: InputDecorator(
+                          decoration: InputDecoration(
+                            labelText: s.t('videoModel'),
+                            suffixIcon: const Icon(Icons.expand_more_rounded),
+                          ),
+                          child: Text(
+                            _model.text.trim().isEmpty
+                                ? s.t('videoModel')
+                                : _model.text.trim(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        key: const ValueKey('videoPath'),
+                        controller: _path,
+                        decoration: InputDecoration(
+                          labelText: s.t('videoPath'),
+                          hintText: 'videos',
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _label(s.t('videoRatio')),
+                      _choices(
+                        values: VideoOptions.ratios,
+                        selected: _options.ratio,
+                        onPick: (value) =>
+                            _update(_options.copyWith(ratio: value)),
+                      ),
+                      const SizedBox(height: 14),
+                      _label(s.t('videoResolution')),
+                      _choices(
+                        values: VideoOptions.resolutions,
+                        selected: _options.resolution,
+                        onPick: (value) =>
+                            _update(_options.copyWith(resolution: value)),
+                      ),
+                      const SizedBox(height: 14),
+                      _label(s.t('videoDuration')),
+                      _choices(
+                        values: const ['3', '5', '8', '10', '12'],
+                        selected: '${_options.seconds}',
+                        suffix: s.t('videoSecondsUnit'),
+                        onPick: (value) => _update(
+                          _options.copyWith(seconds: int.parse(value)),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      SwitchListTile(
+                        key: const ValueKey('videoWatermark'),
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(s.t('videoWatermark')),
+                        value: _options.watermark,
+                        onChanged: (value) =>
+                            _update(_options.copyWith(watermark: value)),
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: FilledButton.icon(
+                          key: const ValueKey('submitVideo'),
+                          onPressed: studio.busy ? null : _submit,
+                          icon: const Icon(Icons.movie_creation_outlined),
+                          label: Text(s.t('create')),
+                        ),
+                      ),
+                      if (studio.busy && !widget.embedded) ...[
+                        const SizedBox(height: 16),
+                        const LinearProgressIndicator(),
+                        const SizedBox(height: 8),
+                        Text(s.t('working')),
+                      ],
+                      if (studio.error != null && !widget.embedded) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          s.t(studio.error!),
+                          style: TextStyle(color: theme.colorScheme.error),
+                        ),
+                        if (studio.errorDetail != null)
+                          SelectableText(
+                            studio.errorDetail!,
+                            style: theme.textTheme.bodySmall,
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-              if (studio.errorDetail != null)
-                SelectableText(
-                  studio.errorDetail!,
-                  style: Theme.of(context).textTheme.bodySmall,
+              const SizedBox(height: 20),
+              _label(s.t('video')),
+              if (studio.videos.isEmpty)
+                DecoratedBox(
+                  decoration: StudioVisuals.glass(context),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Center(
+                      child: Text(
+                        s.t('videoEmpty'),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              for (final asset in studio.videos)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: DecoratedBox(
+                    decoration: StudioVisuals.glass(context, radius: 12),
+                    child: ListTile(
+                      key: ValueKey('video-${asset.id}'),
+                      leading: Icon(
+                        Icons.play_circle_outline_rounded,
+                        color: theme.colorScheme.primary,
+                      ),
+                      title: Text(
+                        asset.prompt.isEmpty ? asset.id : asset.prompt,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        '${asset.parameters['resolution'] ?? ''} · '
+                        '${asset.parameters['ratio'] ?? ''} · '
+                        '${asset.parameters['seconds'] ?? ''}${s.t('videoSecondsUnit')}',
+                      ),
+                      trailing: IconButton(
+                        tooltip: s.t('videoSave'),
+                        onPressed: _saving ? null : () => _save(asset),
+                        icon: const Icon(Icons.download_rounded),
+                      ),
+                    ),
+                  ),
                 ),
             ],
-            const SizedBox(height: 24),
-            _label(s.t('video')),
-            if (studio.videos.isEmpty)
-              Text(s.t('videoEmpty'), style: Theme.of(context).textTheme.bodySmall),
-            for (final asset in studio.videos)
-              ListTile(
-                key: ValueKey('video-${asset.id}'),
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.play_circle_outline),
-                title: Text(
-                  asset.prompt.isEmpty ? asset.id : asset.prompt,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  '${asset.parameters['resolution'] ?? ''} · '
-                  '${asset.parameters['ratio'] ?? ''} · '
-                  '${asset.parameters['seconds'] ?? ''}${s.t('videoSecondsUnit')}',
-                ),
-                trailing: IconButton(
-                  tooltip: s.t('videoSave'),
-                  onPressed: _saving ? null : () => _save(asset),
-                  icon: const Icon(Icons.download_rounded),
-                ),
-              ),
-          ],
+          ),
         ),
       ),
+    );
+    if (widget.embedded) return body;
+    return Scaffold(
+      appBar: AppBar(title: Text(s.t('video'))),
+      body: body,
     );
   }
 
   Widget _label(String text) => Padding(
-    padding: const EdgeInsets.only(bottom: 6),
-    child: Text(text, style: Theme.of(context).textTheme.labelLarge),
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(
+      text,
+      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+        fontWeight: FontWeight.w600,
+      ),
+    ),
   );
 
   Widget _choices({
