@@ -41,7 +41,7 @@
 | 视频生成（`videos` 提交 → `videos/{id}` 轮询 → `url` 或 `videos/{id}/content` 下载） | 已实现，默认 multipart 提交；任务解析兼容 `id`/`task_id`、`status`/`task_status`、`url`/`video_url`/`data[0]`（尚未连真实网关实测） |
 | Agent 多步工具循环（`generate_image`、`generate_video`、`create_deck`、`add_slide`、`add_table`、`ask_user` 等） | 已实现，单轮最多 32 步；工具失败作为结果回给模型继续 |
 | 演示文稿导出（`.pptx`，文本框 / 图片 / 表格） | 已实现原生 OOXML；可用 PowerPoint / WPS 继续编辑（真机打开尚未实测） |
-| WebFetch / `fetch_url` | 已实现；默认把页面转成 Markdown，DeepSeek 端点改由服务端抓取、失败回退本地；只抓公开 http(s) 页面，回环、私网与链路本地地址一律拒绝 |
+| WebFetch / `fetch_url` | 已实现；默认把页面转成 Markdown，本地抓取返回 403 或 429 时，DeepSeek 的 Markdown 请求可回退到服务端抓取；只抓公开 http(s) 页面，回环、私网与链路本地地址一律拒绝 |
 | OpenAI Images SSE 流式结果 | 已实现，可在图片接口兼容选项中开启 |
 | OpenAI Responses 内置 `image_generation` 工具 | 未实现；Agent 使用应用的 `generate_image` 调用独立 Images 接口 |
 | 蒙版编辑、批量任务、云同步、本地推理 | 未实现，属后续扩展 |
@@ -49,6 +49,8 @@
 模型列表本身不能证明生图能力，连接检查也不等于生图测试。付费的生成测试需要在画廊主动触发。细节见 [docs/capabilities.md](docs/capabilities.md)。
 
 ## 构建
+
+Linux、Windows 和 Android 的实测构建流程见 [三端构建指南](docs/build.md)。
 
 需要 Flutter（Dart SDK ≥ 3.12）。
 

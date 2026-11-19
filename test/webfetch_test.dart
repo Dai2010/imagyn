@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -38,6 +39,20 @@ void main() {
         reason: url,
       );
     }
+  });
+
+  test('an HTTPS URL never accepts a plaintext HTTP response', () async {
+    handler = (request) async {
+      request.response.headers.contentType = ContentType.text;
+      request.response.write('ordinary HTTP page');
+      await request.response.close();
+    };
+    await expectLater(
+      fetchUrl('https://127.0.0.1:${server.port}/', policy: allowAll),
+      throwsA(isA<FormatException>().having(
+        (error) => error.message, 'message', 'fetchTls',
+      )),
+    );
   });
 
   test('checks the address on every redirect hop', () async {
@@ -106,6 +121,71 @@ void main() {
     expect(result.bytes, maxFetchBytes);
     expect(result.truncated, isTrue);
     expect(result.asToolResult(), contains('truncated'));
+  });
+
+  test('accepts the alternate markdown type advertised to servers', () async {
+    handler = (request) async {
+      request.response.headers.contentType = ContentType('text', 'x-markdown');
+      request.response.write('# Hello');
+      await request.response.close();
+    };
+    final result = await fetchUrl(
+      'http://127.0.0.1:${server.port}/readme',
+      policy: allowAll,
+    );
+    expect(result.text, '# Hello');
+  });
+
+  test('DNS lookup shares the overall deadline', () async {
+    final pending = Completer<InternetAddress>();
+    await expectLater(
+      fetchUrl('https://example.com/', policy: (_) => pending.future),
+      throwsA(isA<FormatException>().having(
+        (error) => error.message, 'message', 'fetchTimeout',
+      )),
+    );
+  });
+
+  test('reports an error status without waiting for its body', () async {
+    final release = Completer<void>();
+    handler = (request) async {
+      request.response.statusCode = HttpStatus.notFound;
+      request.response.bufferOutput = false;
+      request.response.write('Missing');
+      await request.response.flush();
+      await release.future;
+      await request.response.close();
+    };
+    try {
+      await expectLater(
+        fetchUrl('http://127.0.0.1:${server.port}/', policy: allowAll)
+            .timeout(const Duration(seconds: 3)),
+        throwsA(isA<FormatException>().having(
+          (error) => error.message, 'message', 'fetchStatus 404',
+        )),
+      );
+    } finally {
+      release.complete();
+    }
+  });
+
+  test('reads Windows-1252 punctuation from the declared charset', () async {
+    handler = (request) async {
+      request.response.headers.contentType =
+          ContentType('text', 'plain', charset: 'windows-1252');
+      request.response.add([0x93, 0x80, 0x94]);
+      await request.response.close();
+    };
+    final result = await fetchUrl(
+      'http://127.0.0.1:${server.port}/price', policy: allowAll,
+    );
+    expect(result.text, '“€”');
+  });
+
+  test('a link labelled with its URL survives HTML conversion', () {
+    final page = Uri.parse('https://example.com/');
+    expect(htmlToMarkdown('<a href="/docs">${page}docs</a>', page),
+        contains('${page}docs'));
   });
 
   test('refuses a body that is not readable text', () async {

@@ -34,97 +34,105 @@ class _GalleryViewState extends State<GalleryView> {
     super.dispose();
   }
 
-  bool _matches(String prompt, String model) {
-    final query = search.text.trim().toLowerCase();
-    return '$prompt $model'.toLowerCase().contains(query);
+  List<Asset> _visibleAssets(String query) {
+    if (filter != 'all' && filter != 'complete') return const [];
+    if (query.isEmpty && !favoritesOnly) return studio.gallery;
+    return studio.gallery.where((asset) {
+      if (favoritesOnly && !studio.favorites.contains(asset.id)) return false;
+      if (query.isEmpty) return true;
+      final model = asset.parameters['model'] ?? '';
+      return '${asset.prompt} $model'.toLowerCase().contains(query);
+    }).toList();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final assets = studio.gallery
-        .where(
-          (a) =>
-              (filter == 'all' || filter == 'complete') &&
-              (!favoritesOnly || studio.favorites.contains(a.id)) &&
-              _matches(a.prompt, '${a.parameters['model'] ?? ''}'),
-        )
-        .toList();
-    final jobs = favoritesOnly
-        ? <ImageJob>[]
-        : studio.jobs
-              .where(
-                (j) =>
-                    (filter == 'all' || filter == j.state) &&
-                    _matches(j.prompt, '${j.record['model'] ?? ''}'),
-              )
-              .toList();
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 14),
-          child: Row(
+  List<ImageJob> _visibleJobs(String query) {
+    if (favoritesOnly) return const [];
+    if (query.isEmpty && filter == 'all') return studio.jobs;
+    return studio.jobs.where((job) {
+      if (filter != 'all' && filter != job.state) return false;
+      if (query.isEmpty) return true;
+      final model = job.record['model'] ?? '';
+      return '${job.prompt} $model'.toLowerCase().contains(query);
+    }).toList();
+  }
+
+  Widget _toolbar(int count) {
+    final scheme = Theme.of(context).colorScheme;
+    final state = filter == 'unknown' ? 'interrupted' : filter;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: search,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              hintText: s.t('searchGallery'),
+              prefixIcon: const Icon(Icons.search_rounded),
+              isDense: true,
+              suffixIcon: search.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: s.t('close'),
+                      onPressed: () => setState(search.clear),
+                      icon: const Icon(Icons.close, size: 18),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              IconButton.filledTonal(
-                tooltip: s.t('favorites'),
-                isSelected: favoritesOnly,
-                onPressed: () => setState(() => favoritesOnly = !favoritesOnly),
-                icon: Icon(
-                  favoritesOnly
-                      ? Icons.star_rounded
-                      : Icons.star_outline_rounded,
-                ),
-              ),
-              const SizedBox(width: 8),
               PopupMenuButton<String>(
                 tooltip: s.t('filter'),
                 initialValue: filter,
                 onSelected: (v) => setState(() => filter = v),
-                itemBuilder: (_) =>
-                    ['all', 'complete', 'submitting', 'failed', 'unknown']
-                        .map(
-                          (v) => PopupMenuItem(
-                            value: v,
-                            child: Text(
-                              s.t(v == 'unknown' ? 'interrupted' : v),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    children: [
-                      Text(s.t(filter == 'unknown' ? 'interrupted' : filter)),
-                      const Icon(Icons.expand_more, size: 18),
-                    ],
-                  ),
+                itemBuilder: (_) => [
+                  for (final v in [
+                    'all',
+                    'complete',
+                    'submitting',
+                    'failed',
+                    'unknown',
+                  ])
+                    PopupMenuItem(
+                      value: v,
+                      child: Text(s.t(v == 'unknown' ? 'interrupted' : v)),
+                    ),
+                ],
+                child: Chip(
+                  avatar: const Icon(Icons.tune_rounded, size: 18),
+                  label: Text('${s.t(state)} · $count'),
+                  backgroundColor: scheme.secondaryContainer,
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: search,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    hintText: s.t('searchGallery'),
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    isDense: true,
-                    suffixIcon: search.text.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: s.t('close'),
-                            onPressed: () => setState(search.clear),
-                            icon: const Icon(Icons.close, size: 18),
-                          ),
-                  ),
+              FilterChip(
+                selected: favoritesOnly,
+                showCheckmark: false,
+                avatar: Icon(
+                  favoritesOnly ? Icons.star_rounded : Icons.star_outline,
+                  size: 18,
                 ),
+                label: Text(s.t('favorites')),
+                onSelected: (value) => setState(() => favoritesOnly = value),
               ),
             ],
           ),
-        ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = search.text.trim().toLowerCase();
+    final assets = _visibleAssets(query);
+    final jobs = _visibleJobs(query);
+    return Column(
+      children: [
+        _toolbar(assets.length + jobs.length),
         Expanded(
           child: assets.isEmpty && jobs.isEmpty
               ? Center(
@@ -133,10 +141,27 @@ class _GalleryViewState extends State<GalleryView> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.photo_library_outlined,
-                          size: 48,
-                          color: Theme.of(context).colorScheme.outlineVariant,
+                        Container(
+                          width: 56,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outlineVariant,
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.photo_library_outlined,
+                            size: 26,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
                         ),
                         const SizedBox(height: 16),
                         Text(
@@ -146,6 +171,12 @@ class _GalleryViewState extends State<GalleryView> {
                                 : 'noMatches',
                           ),
                           textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                         ),
                       ],
                     ),
@@ -182,12 +213,11 @@ class _GalleryViewState extends State<GalleryView> {
     margin: EdgeInsets.zero,
     clipBehavior: Clip.antiAlias,
     elevation: 0,
+    color: Theme.of(context).colorScheme.surfaceContainerLow,
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(16),
       side: BorderSide(
-        color: Theme.of(
-          context,
-        ).colorScheme.outlineVariant.withValues(alpha: .55),
+        color: Theme.of(context).colorScheme.outlineVariant,
       ),
     ),
     child: InkWell(
@@ -311,16 +341,26 @@ class _GalleryViewState extends State<GalleryView> {
 
   Widget _job(ImageJob job) {
     final running = job.state == 'submitting';
+    final scheme = Theme.of(context).colorScheme;
+    final (background, foreground) = switch (job.state) {
+      'submitting' => (scheme.primaryContainer, scheme.onPrimaryContainer),
+      'unknown' => (scheme.tertiaryContainer, scheme.onTertiaryContainer),
+      _ => (scheme.errorContainer, scheme.onErrorContainer),
+    };
     return _frame(
-      Center(
-        child: running
-            ? const CircularProgressIndicator()
-            : Icon(
-                job.state == 'unknown'
-                    ? Icons.help_outline_rounded
-                    : Icons.error_outline_rounded,
-                size: 40,
-              ),
+      ColoredBox(
+        color: background,
+        child: Center(
+          child: running
+              ? CircularProgressIndicator(color: foreground)
+              : Icon(
+                  job.state == 'unknown'
+                      ? Icons.help_outline_rounded
+                      : Icons.error_outline_rounded,
+                  size: 40,
+                  color: foreground,
+                ),
+        ),
       ),
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -9,7 +9,6 @@ import '../core/styles.dart';
 import '../l10n/strings.dart';
 import 'settings.dart';
 import 'gallery.dart';
-import 'home.dart';
 import 'image_options.dart';
 import 'agent_options.dart';
 import 'ask_card.dart';
@@ -29,21 +28,16 @@ class StudioShell extends StatefulWidget {
 
 class _StudioShellState extends State<StudioShell> {
   int _page = 0;
-
-  /// Which way the last page change went, so the two pages slide apart in the
-  /// direction the user moved instead of cross-fading in place.
-  bool _forward = true;
   final _galleryPrompt = TextEditingController();
   final _agentPrompt = TextEditingController();
 
   Studio get studio => widget.studio;
   Strings get s => Strings.of(context);
 
-  /// Every animation in this screen collapses to nothing when the user asked
-  /// for less motion in Settings.
+  /// Fast, smooth transitions matching Material 3 standard motion specifications.
   Duration get _motion => MediaQuery.of(context).disableAnimations
       ? Duration.zero
-      : const Duration(milliseconds: 220);
+      : const Duration(milliseconds: 160);
 
   @override
   void dispose() {
@@ -65,26 +59,21 @@ class _StudioShellState extends State<StudioShell> {
   void _settings() => Navigator.of(
     context,
   ).push(MaterialPageRoute<void>(builder: (_) => SettingsPage(studio: studio)));
-  void _video() => Navigator.of(context).push(
-    MaterialPageRoute<void>(builder: (_) => VideoPage(studio: studio)),
-  );
   void _switch(int page) => setState(() {
-    _forward = page > _page;
     _page = page;
   });
 
+  /// Material 3 Fade Through transition: avoids lateral translation matrix
+  /// reallocations on desktop GLES / Impeller shaders, preventing stutter.
   Widget _pageTransition(Widget child, Animation<double> animation) {
-    final incoming = child.key == ValueKey(_page);
-    final slide = (_forward ? 1.0 : -1.0) * (incoming ? 1 : -1) * .04;
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
     return FadeTransition(
-      opacity: animation,
-      child: SlideTransition(
-        position: Tween(
-          begin: Offset(slide, 0),
-          end: Offset.zero,
-        ).animate(animation),
-        child: child,
-      ),
+      opacity: curved,
+      child: child,
     );
   }
 
@@ -110,10 +99,12 @@ class _StudioShellState extends State<StudioShell> {
   @override
   Widget build(BuildContext context) {
     if (studio.onboarding) return _welcome();
+    final wide = MediaQuery.sizeOf(context).width >= 840;
+    final scheme = Theme.of(context).colorScheme;
     final title = switch (_page) {
-      0 => 'Imagyn',
-      1 => s.t('create'),
-      2 => s.t('agent'),
+      0 => s.t('create'),
+      1 => s.t('agent'),
+      2 => s.t('video'),
       _ => s.t('gallery'),
     };
     final content = Column(
@@ -124,17 +115,14 @@ class _StudioShellState extends State<StudioShell> {
             transitionBuilder: _pageTransition,
             child: KeyedSubtree(
               key: ValueKey(_page),
-              child: switch (_page) {
-                0 => StudioHome(
-                  onCreate: () => _switch(1),
-                  onAgent: () => _switch(2),
-                  onVideo: _video,
-                  onLibrary: () => _switch(3),
-                ),
-                1 => _create(),
-                2 => _conversation(),
-                _ => _gallery(),
-              },
+              child: RepaintBoundary(
+                child: switch (_page) {
+                  0 => _create(),
+                  1 => _conversation(),
+                  2 => VideoPage(studio: studio, embedded: true),
+                  _ => _gallery(),
+                },
+              ),
             ),
           ),
         ),
@@ -145,21 +133,43 @@ class _StudioShellState extends State<StudioShell> {
               ? const SizedBox.shrink()
               : Padding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        s.t(studio.error!),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 840),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: scheme.errorContainer.withValues(alpha: .35),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: scheme.error.withValues(alpha: .4),
                         ),
                       ),
-                      if (studio.errorDetail != null)
-                        SelectableText(
-                          studio.errorDetail!,
-                          style: Theme.of(context).textTheme.bodySmall,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
                         ),
-                    ],
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              s.t(studio.error!),
+                              style: TextStyle(
+                                color: scheme.error,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            if (studio.errorDetail != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: SelectableText(
+                                  studio.errorDetail!,
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
         ),
@@ -172,26 +182,96 @@ class _StudioShellState extends State<StudioShell> {
                     horizontal: 20,
                     vertical: 4,
                   ),
-                  child: Row(
-                    children: [
-                      const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(child: Text(s.t(studio.stage))),
-                      TextButton(
-                        onPressed: studio.cancel,
-                        child: Text(s.t('cancel')),
-                      ),
-                    ],
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 840),
+                    child: Row(
+                      children: [
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(child: Text(s.t(studio.stage))),
+                        TextButton(
+                          onPressed: studio.cancel,
+                          child: Text(s.t('cancel')),
+                        ),
+                      ],
+                    ),
                   ),
                 )
               : const SizedBox.shrink(),
         ),
-        if (_page == 1 || _page == 2) _composer(),
+        if (_page == 0 || _page == 1) _composer(),
       ],
+    );
+    final header = Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: .65),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          if (!wide) ...[
+            IconButton(
+              tooltip: s.t('home'),
+              onPressed: () => _switch(0),
+              icon: Icon(
+                Icons.auto_awesome_rounded,
+                size: 20,
+                color: scheme.primary,
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const Spacer(),
+          if (_page == 1 && studio.decks.isNotEmpty)
+            IconButton(
+              key: const ValueKey('deckList'),
+              tooltip: s.t('decks'),
+              onPressed: _decks,
+              icon: const Icon(Icons.slideshow_rounded, size: 20),
+            ),
+          if (_page == 0)
+            IconButton(
+              key: const ValueKey('videoPage'),
+              tooltip: s.t('video'),
+              onPressed: () => _switch(2),
+              icon: const Icon(Icons.movie_outlined, size: 20),
+            ),
+          if (_page == 1) ...[
+            IconButton(
+              tooltip: s.t('history'),
+              onPressed: studio.busy ? null : _history,
+              icon: const Icon(Icons.history_rounded, size: 20),
+            ),
+            IconButton(
+              tooltip: s.t('newChat'),
+              onPressed: studio.busy
+                  ? null
+                  : () => _guard(studio.newConversation),
+              icon: const Icon(Icons.add_comment_outlined, size: 20),
+            ),
+          ],
+          IconButton(
+            tooltip: s.t('settings'),
+            onPressed: studio.busy ? null : _settings,
+            icon: const Icon(Icons.settings_outlined, size: 20),
+          ),
+        ],
+      ),
     );
     return PopScope(
       canPop: _page == 0,
@@ -199,57 +279,186 @@ class _StudioShellState extends State<StudioShell> {
         if (!didPop) _switch(0);
       },
       child: Scaffold(
-        appBar: AppBar(
-          leading: _page == 0
-              ? null
-              : IconButton(
-                  tooltip: s.t('home'),
-                  onPressed: () => _switch(0),
-                  icon: const Icon(Icons.arrow_back_rounded),
+        body: SafeArea(
+          child: wide
+              ? Row(
+                  children: [
+                    _sidebar(),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          header,
+                          Expanded(child: content),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  children: [
+                    header,
+                    Expanded(child: content),
+                  ],
                 ),
-          title: Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          actions: [
-            if (_page == 2 && studio.decks.isNotEmpty)
-              IconButton(
-                key: const ValueKey('deckList'),
-                tooltip: s.t('decks'),
-                onPressed: () => _decks(),
-                icon: const Icon(Icons.slideshow_rounded),
+        ),
+        bottomNavigationBar: wide ? null : _bottomNav(),
+      ),
+    );
+  }
+
+  Widget _sidebar() {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLow,
+      child: SizedBox(
+        width: 228,
+        height: double.infinity,
+        child: ListView(
+          padding: const EdgeInsets.symmetric(vertical: 18),
+          children: [
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 22),
+              onTap: () => _switch(0),
+              leading: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(Icons.auto_awesome, color: scheme.onPrimaryContainer),
               ),
-            if (_page == 1)
-              IconButton(
-                key: const ValueKey('videoPage'),
-                tooltip: s.t('video'),
-                onPressed: _video,
-                icon: const Icon(Icons.movie_outlined),
+              title: Text(
+                'Imagyn',
+                style: TextStyle(
+                  color: scheme.onSurface,
+                  fontSize: 23,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -.8,
+                ),
               ),
-            if (_page == 2) ...[
-              IconButton(
-                tooltip: s.t('history'),
-                onPressed: studio.busy ? null : _history,
-                icon: const Icon(Icons.history_rounded),
+              subtitle: Text(
+                'AI Studio',
+                style: TextStyle(
+                  color: scheme.onSurfaceVariant,
+                  letterSpacing: 1.1,
+                ),
               ),
-              IconButton(
-                tooltip: s.t('newChat'),
-                onPressed: studio.busy
-                    ? null
-                    : () => _guard(studio.newConversation),
-                icon: const Icon(Icons.add_comment_outlined),
-              ),
-            ],
-            IconButton(
-              tooltip: s.t('settings'),
-              onPressed: studio.busy ? null : _settings,
-              icon: const Icon(Icons.settings_outlined),
             ),
-            const SizedBox(width: 8),
+            Divider(
+              height: 42,
+              indent: 20,
+              endIndent: 20,
+              color: scheme.outlineVariant,
+            ),
+            _sidebarItem(
+              key: const ValueKey('homeCreate'),
+              index: 0,
+              icon: Icons.auto_awesome_outlined,
+              activeIcon: Icons.auto_awesome_rounded,
+              label: s.t('create'),
+            ),
+            _sidebarItem(
+              key: const ValueKey('homeAgent'),
+              index: 1,
+              icon: Icons.forum_outlined,
+              activeIcon: Icons.forum_rounded,
+              label: s.t('agent'),
+            ),
+            _sidebarItem(
+              key: const ValueKey('homeVideo'),
+              index: 2,
+              icon: Icons.movie_outlined,
+              activeIcon: Icons.movie_rounded,
+              label: s.t('video'),
+            ),
+            _sidebarItem(
+              key: const ValueKey('homeLibrary'),
+              index: 3,
+              icon: Icons.grid_view_outlined,
+              activeIcon: Icons.grid_view_rounded,
+              label: s.t('gallery'),
+            ),
           ],
         ),
-        body: SafeArea(top: false, child: content),
       ),
+    );
+  }
+
+  Widget _sidebarItem({
+    required Key key,
+    required int index,
+    required IconData icon,
+    required IconData activeIcon,
+    required String label,
+  }) {
+    final selected = _page == index;
+    final scheme = Theme.of(context).colorScheme;
+    final ink = selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+      child: ListTile(
+        key: key,
+        selected: selected,
+        onTap: () => _switch(index),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        selectedTileColor: scheme.primaryContainer,
+        leading: Icon(selected ? activeIcon : icon, size: 21, color: ink),
+        title: Text(
+          label,
+          style: TextStyle(
+            color: ink,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+        trailing: selected ? Icon(Icons.circle, size: 6, color: scheme.primary) : null,
+      ),
+    );
+  }
+
+  Widget _bottomNav() {
+    final items = [
+      (
+        const ValueKey('homeCreate'),
+        0,
+        Icons.auto_awesome_outlined,
+        Icons.auto_awesome_rounded,
+        s.t('create'),
+      ),
+      (
+        const ValueKey('homeAgent'),
+        1,
+        Icons.forum_outlined,
+        Icons.forum_rounded,
+        s.t('agent'),
+      ),
+      (
+        const ValueKey('homeVideo'),
+        2,
+        Icons.movie_outlined,
+        Icons.movie_rounded,
+        s.t('video'),
+      ),
+      (
+        const ValueKey('homeLibrary'),
+        3,
+        Icons.grid_view_outlined,
+        Icons.grid_view_rounded,
+        s.t('gallery'),
+      ),
+    ];
+    return NavigationBar(
+      selectedIndex: _page,
+      onDestinationSelected: _switch,
+      destinations: [
+        for (final item in items)
+          NavigationDestination(
+            key: item.$1,
+            icon: Icon(item.$3),
+            selectedIcon: Icon(item.$4),
+            label: item.$5,
+          ),
+      ],
     );
   }
 
@@ -297,42 +506,78 @@ class _StudioShellState extends State<StudioShell> {
   /// lives in the library page, so neither screen carries the other's
   /// controls.
   Widget _create() {
-    final asset = studio.gallery.isEmpty ? null : studio.gallery.first;
-    if (asset == null) {
-      return Center(
-        key: const ValueKey('create'),
-        child: _empty(Icons.auto_awesome_outlined, 'emptyGallery'),
-      );
-    }
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 780),
-        child: ListView(
-          key: const ValueKey('create'),
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          children: [
-            GestureDetector(
-              onTap: () => _preview(asset),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
-                child: SizedBox(
-                  height: 360,
-                  width: double.infinity,
-                  child: _image(asset, fit: BoxFit.cover),
+        final asset = studio.gallery.isEmpty ? null : studio.gallery.first;
+        if (asset == null) {
+                return Center(
+                        key: const ValueKey('create'),
+                        child: _empty(Icons.auto_awesome_outlined, 'emptyGallery'),
+                );
+        }
+        final scheme = Theme.of(context).colorScheme;
+        return Center(
+                child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 780),
+                        child: ListView(
+                                key: const ValueKey('create'),
+                                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                                children: [
+                                        GestureDetector(
+                                                onTap: () => _preview(asset),
+                                                child: RepaintBoundary(
+                                                        child: ClipRRect(
+                                                                borderRadius: BorderRadius.circular(28),
+                                                                child: Stack(
+                                                                        children: [
+                                                                                SizedBox(
+                                                                                        height: 380,
+                                                                                        width: double.infinity,
+                                                                                        child: _image(asset, fit: BoxFit.cover),
+                                                                                ),
+                                                                                Positioned(
+                                                                                        right: 14,
+                                                                                        bottom: 14,
+                                                                                        child: DecoratedBox(
+                                                                                                decoration: BoxDecoration(
+                                                                                                        color: Colors.black.withValues(alpha: .45),
+                                                                                                        borderRadius: BorderRadius.circular(999),
+                                                                                                ),
+                                                                                                child: const Padding(
+                                                                                                        padding: EdgeInsets.all(9),
+                                                                                                        child: Icon(Icons.open_in_full_rounded, size: 18, color: Colors.white),
+                                                                                                ),
+                                                                                        ),
+                                                                                ),
+                                                                        ],
+                                                                ),
+                                                        ),
+                                                ),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        DecoratedBox(
+                                                decoration: StudioVisuals.glass(context, radius: 18),
+                                                child: Padding(
+                                                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                                                        child: Row(
+                                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                                children: [
+                                                                        Icon(Icons.format_quote_rounded, size: 20, color: scheme.primary),
+                                                                        const SizedBox(width: 10),
+                                                                        Expanded(
+                                                                                child: Text(
+                                                                                        asset.prompt,
+                                                                                        maxLines: 3,
+                                                                                        overflow: TextOverflow.ellipsis,
+                                                                                        style: Theme.of(context).textTheme.bodyMedium,
+                                                                                ),
+                                                                        ),
+                                                                ],
+                                                        ),
+                                                ),
+                                        ),
+                                ],
+                        ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              asset.prompt,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ],
-        ),
-      ),
-    );
+        );
   }
 
   Widget _gallery() => GalleryView(
@@ -349,33 +594,140 @@ class _StudioShellState extends State<StudioShell> {
     },
   );
 
-  Widget _empty(IconData icon, String label) => Padding(
-    padding: const EdgeInsets.all(24),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: 54,
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
-        const SizedBox(height: 18),
-        Text(
-          s.t(label),
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        if (studio.activeConfig.imageModel.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 14),
-            child: TextButton(
-              onPressed: _settings,
-              child: Text(s.t('configure')),
-            ),
+  Widget _empty(IconData icon, String label) {
+    final agent = _page == 1;
+    final lang = s.language;
+    final items = agent ? _agentSuggestions : _createSuggestions;
+    final controller = agent ? _agentPrompt : _galleryPrompt;
+    final heading = agent
+        ? (lang == 'zh' ? '开启智能对话' : s.t('agent'))
+        : (lang == 'zh' ? '开启灵感创作' : s.t('create'));
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _heroPanel(icon, heading, s.t(label)),
+              if (studio.activeConfig.imageModel.isEmpty)
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton.icon(
+                    onPressed: _settings,
+                    icon: const Icon(Icons.settings_outlined),
+                    label: Text(s.t('configure')),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              LayoutBuilder(
+                builder: (context, space) {
+                  final width = space.maxWidth;
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      for (final (index, item) in items.indexed)
+                        SizedBox(
+                          width: width >= 540 ? (width - 12) / 2 : width,
+                          child: _ideaTile(item, index, () {
+                            _writePrompt(controller, item.prompt(lang));
+                          }),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
           ),
-      ],
-    ),
-  );
+        ),
+      ),
+    );
+  }
+
+  Widget _heroPanel(IconData icon, String title, String hint) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: ColoredBox(
+        color: const Color(0xff22213e),
+        child: Stack(
+          alignment: AlignmentDirectional.centerStart,
+          children: [
+            Positioned.fill(
+              child: Transform.flip(
+                flipX: Directionality.of(context) == TextDirection.rtl,
+                child: const CustomPaint(painter: _HorizonPainter()),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 22),
+              child: FractionallySizedBox(
+                widthFactor: .68,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(icon, size: 22, color: const Color(0xffffd2ad)),
+                    const SizedBox(height: 14),
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.headlineMedium
+                          ?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      hint,
+                      style: const TextStyle(color: Color(0xffe2dbeb)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _ideaTile(_InspirationCardData item, int index, VoidCallback onTap) {
+    const colors = [
+      (Color(0xffefe4ff), Color(0xff61369b)),
+      (Color(0xffffe6df), Color(0xff954537)),
+      (Color(0xffd8eef3), Color(0xff236976)),
+      (Color(0xfff0e6cb), Color(0xff795e2c)),
+    ];
+    final (paper, ink) = colors[index];
+    final scheme = Theme.of(context).colorScheme;
+    return StudioSurface(
+      radius: 15,
+      child: ListTile(
+        onTap: onTap,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+        leading: Container(
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            color: paper,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(item.icon, color: ink),
+        ),
+        title: Text(
+          item.title(s.language),
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(
+          item.desc(s.language),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Icon(Icons.arrow_outward, size: 16, color: scheme.outline),
+      ),
+    );
+  }
 
   /// The conversation, plus the reply being written while a turn is arriving.
   ///
@@ -832,70 +1184,74 @@ class _StudioShellState extends State<StudioShell> {
   );
 
   Widget _composer() {
-    final agent = _page == 2;
+    final agent = _page == 1;
     final refs = agent ? studio.agentRefs : studio.galleryRefs;
     final controller = agent ? _agentPrompt : _galleryPrompt;
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 980),
+        constraints: const BoxConstraints(maxWidth: 840),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
-          child: DecoratedBox(
-            decoration: StudioVisuals.glass(context, radius: 26),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          child: StudioSurface(
+            radius: 18,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   AnimatedSize(
                     duration: _motion,
                     alignment: AlignmentDirectional.topStart,
                     child: refs.isEmpty
                         ? const SizedBox.shrink()
-                        : SizedBox(
-                            height: 80,
-                            child: ListView.separated(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: refs.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(width: 8),
-                              itemBuilder: (context, i) => _appear(
-                                'ref-${refs[i].id}',
-                                Stack(
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: SizedBox(
-                                        width: 76,
-                                        height: 76,
-                                        child: _image(
-                                          refs[i],
-                                          fit: BoxFit.cover,
+                        : Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: SizedBox(
+                              height: 76,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: refs.length,
+                                separatorBuilder: (_, _) =>
+                                    const SizedBox(width: 8),
+                                itemBuilder: (context, i) => _appear(
+                                  'ref-${refs[i].id}',
+                                  Stack(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: SizedBox(
+                                          width: 72,
+                                          height: 72,
+                                          child: _image(
+                                            refs[i],
+                                            fit: BoxFit.cover,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    PositionedDirectional(
-                                      start: 4,
-                                      bottom: 4,
-                                      child: Badge(label: Text('${i + 1}')),
-                                    ),
-                                    PositionedDirectional(
-                                      end: 0,
-                                      top: 0,
-                                      child: IconButton.filledTonal(
-                                        tooltip: s.t('close'),
-                                        visualDensity: VisualDensity.compact,
-                                        iconSize: 16,
-                                        onPressed: studio.busy
-                                            ? null
-                                            : () => studio.removeReference(
-                                                agent,
-                                                i,
-                                              ),
-                                        icon: const Icon(Icons.close),
+                                      PositionedDirectional(
+                                        start: 4,
+                                        bottom: 4,
+                                        child: Badge(label: Text('${i + 1}')),
                                       ),
-                                    ),
-                                  ],
+                                      PositionedDirectional(
+                                        end: 0,
+                                        top: 0,
+                                        child: IconButton.filledTonal(
+                                          tooltip: s.t('close'),
+                                          visualDensity: VisualDensity.compact,
+                                          iconSize: 15,
+                                          onPressed: studio.busy
+                                              ? null
+                                              : () => studio.removeReference(
+                                                  agent,
+                                                  i,
+                                                ),
+                                          icon: const Icon(Icons.close),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -950,21 +1306,21 @@ class _StudioShellState extends State<StudioShell> {
                               ),
                             ),
                     ),
-                  // One horizontally scrollable line: long relay model ids
-                  // stay readable instead of being ellipsized to a stub.
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4),
+                  // Left-aligned horizontally scrollable model selector pills.
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
                     child: SizedBox(
-                      height: 36,
+                      height: 32,
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             if (agent) ...[
                               _modelButton(true),
-                              const SizedBox(width: 4),
+                              const SizedBox(width: 6),
                               _videoModelButton(),
-                              const SizedBox(width: 4),
+                              const SizedBox(width: 6),
                             ],
                             _modelButton(false),
                           ],
@@ -972,6 +1328,7 @@ class _StudioShellState extends State<StudioShell> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 4),
                   ValueListenableBuilder<TextEditingValue>(
                     valueListenable: controller,
                     builder: (context, value, _) {
@@ -1377,16 +1734,23 @@ class _StudioShellState extends State<StudioShell> {
   /// answers and, on the Agent page, one for the image model, so a generated
   /// picture can be retargeted without leaving the conversation.
   Widget _modelButton(bool agent) {
+    final scheme = Theme.of(context).colorScheme;
     final model = agent
         ? studio.activeConfig.agentModel
         : studio.activeConfig.imageModel;
     return TextButton(
       key: ValueKey(agent ? 'switchAgentModel' : 'switchImageModel'),
       style: TextButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        minimumSize: const Size(0, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        minimumSize: const Size(0, 30),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         visualDensity: VisualDensity.compact,
+        backgroundColor: scheme.surfaceContainer,
+        foregroundColor: scheme.onSurfaceVariant,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
       ),
       onPressed: studio.busy
           ? null
@@ -1403,14 +1767,26 @@ class _StudioShellState extends State<StudioShell> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(agent ? Icons.forum_outlined : Icons.image_outlined, size: 16),
-          const SizedBox(width: 6),
+          Icon(
+            agent ? Icons.forum_outlined : Icons.image_outlined,
+            size: 14,
+            color: scheme.primary,
+          ),
+          const SizedBox(width: 5),
           Text(
             model.isEmpty
                 ? s.t(agent ? 'agentModel' : 'imageModel')
                 : model,
             maxLines: 1,
           ),
+          if (MediaQuery.sizeOf(context).width >= 840) ...[
+            const SizedBox(width: 4),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 15,
+              color: scheme.outline,
+            ),
+          ],
         ],
       ),
     );
@@ -1420,14 +1796,21 @@ class _StudioShellState extends State<StudioShell> {
   /// is a tool like any other, so the model that renders clips must be visible
   /// without leaving the conversation.
   Widget _videoModelButton() {
+    final scheme = Theme.of(context).colorScheme;
     final model = studio.videoModel;
     return TextButton(
       key: const ValueKey('switchVideoModel'),
       style: TextButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        minimumSize: const Size(0, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        minimumSize: const Size(0, 30),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         visualDensity: VisualDensity.compact,
+        backgroundColor: scheme.surfaceContainer,
+        foregroundColor: scheme.onSurfaceVariant,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
       ),
       onPressed: studio.busy
           ? null
@@ -1444,9 +1827,21 @@ class _StudioShellState extends State<StudioShell> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.movie_creation_outlined, size: 16),
-          const SizedBox(width: 6),
+          Icon(
+            Icons.movie_creation_outlined,
+            size: 14,
+            color: scheme.primary,
+          ),
+          const SizedBox(width: 5),
           Text(model.isEmpty ? s.t('videoModel') : model, maxLines: 1),
+          if (MediaQuery.sizeOf(context).width >= 840) ...[
+            const SizedBox(width: 4),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 15,
+              color: scheme.outline,
+            ),
+          ],
         ],
       ),
     );
@@ -1672,3 +2067,178 @@ class _StudioShellState extends State<StudioShell> {
     );
   }
 }
+
+/// 以固定画布绘制暮色山脊，缩放时保留海报的分层构图。
+class _HorizonPainter extends CustomPainter {
+  const _HorizonPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bounds = Offset.zero & size;
+    canvas.drawRect(
+      bounds,
+      Paint()
+        ..shader = const LinearGradient(
+          colors: [Color(0xff22213e), Color(0xff514477), Color(0xffc9879a)],
+          stops: [0, .55, 1],
+        ).createShader(bounds),
+    );
+    // 按高度等比缩放，让窄屏上的落日保持圆形。
+    canvas.save();
+    canvas.translate(size.width, 0);
+    canvas.scale(size.height / 180);
+    final paint = Paint()..color = const Color(0xffffd7a3);
+    canvas.drawCircle(const Offset(-78, 64), 34, paint);
+    paint
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = .8
+      ..color = const Color(0x77ffdfb7);
+    canvas.drawCircle(const Offset(-78, 64), 42, paint);
+    paint.style = PaintingStyle.fill;
+    for (final (offset, color) in const [
+      (0.0, Color(0xffaa87a7)),
+      (25.0, Color(0xff836d98)),
+      (52.0, Color(0xff554d77)),
+      (77.0, Color(0xff373754)),
+    ]) {
+      final ridge = Path()
+        ..moveTo(-420 + offset, 183)
+        ..cubicTo(-300, 153, -272, 102 + offset, -220, 117 + offset)
+        ..cubicTo(-150, 145 + offset, -122, 50 + offset, -70, 85 + offset)
+        ..quadraticBezierTo(-38, 109 + offset, 0, 68 + offset)
+        ..lineTo(0, 183)
+        ..close();
+      canvas.drawPath(ridge, paint..color = color);
+    }
+    canvas.restore();
+    canvas.drawRect(
+      bounds,
+      Paint()
+        ..shader = const LinearGradient(
+          colors: [Color(0xff22213e), Color(0xee22213e), Color(0x0022213e)],
+          stops: [0, .38, .79],
+        ).createShader(bounds),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_HorizonPainter oldDelegate) => false;
+}
+
+class _InspirationCardData {
+  const _InspirationCardData({
+    required this.icon,
+    required this.titleZh,
+    required this.titleEn,
+    required this.descZh,
+    required this.descEn,
+    required this.promptZh,
+    required this.promptEn,
+  });
+
+  final IconData icon;
+  final String titleZh;
+  final String titleEn;
+  final String descZh;
+  final String descEn;
+  final String promptZh;
+  final String promptEn;
+
+  String title(String lang) => lang == 'zh' ? titleZh : titleEn;
+  String desc(String lang) => lang == 'zh' ? descZh : descEn;
+  String prompt(String lang) => lang == 'zh' ? promptZh : promptEn;
+}
+
+const _createSuggestions = [
+  _InspirationCardData(
+    icon: Icons.nightlife_rounded,
+    titleZh: '赛博朋克雨夜',
+    titleEn: 'Cyberpunk Neon',
+    descZh: '雨夜街道、全息霓虹与光影倒影',
+    descEn: 'Rainy streets, neon reflections & holograms',
+    promptZh:
+        '雨夜中的赛博朋克未来城市街道，湿漉漉的地面映照着斑斓的霓虹灯光与巨大全息广告牌，高耸入云的摩天大楼，电影感宽银幕构图，8K极致细节',
+    promptEn:
+        'Futuristic cyberpunk city street at rainy night, wet asphalt with vibrant neon reflections, massive holograms, towering megastructures, cinematic atmosphere, 8k',
+  ),
+  _InspirationCardData(
+    icon: Icons.palette_outlined,
+    titleZh: '唯美水彩插画',
+    titleEn: 'Dreamy Watercolor',
+    descZh: '日系清透水彩、樱花飞舞与微风',
+    descEn: 'Ethereal anime watercolor with cherry blossoms',
+    promptZh:
+        '温暖阳光下的日系治愈水彩画，微风吹拂的樱花树下的小电车站，清澈明亮的天空与白云，通透细腻的笔触，新海诚唯美光影',
+    promptEn:
+        'Healing Japanese watercolor illustration, train station under blooming cherry blossoms, gentle breeze, clear blue sky and fluffy clouds, Makoto Shinkai lighting style',
+  ),
+  _InspirationCardData(
+    icon: Icons.rocket_launch_outlined,
+    titleZh: '深空星际漫游',
+    titleEn: 'Deep Space Odyssey',
+    descZh: '穿梭土星环的宏伟探险飞船',
+    descEn: 'Exploration starship cruising through planetary rings',
+    promptZh:
+        '史诗级深空科幻场景，穿行在土星巨大冰环带之上的探险星际飞船，远方瑰丽的星云与恒星光晕，硬核机械细节，克里斯托弗·诺兰电影质感',
+    promptEn:
+        'Epic deep space sci-fi scene, massive interstellar exploration vessel flying through Saturn rings, distant colorful nebula, hard sci-fi realism, cinematic lighting',
+  ),
+  _InspirationCardData(
+    icon: Icons.apartment_rounded,
+    titleZh: '极简几何建筑',
+    titleEn: 'Modern Architecture',
+    descZh: '清水混凝土、自然天光与温润橡木',
+    descEn: 'Concrete, oak & dramatic natural light',
+    promptZh:
+        '现代极简主义建筑内部空间，清水混凝土墙面与温润原木材质，午后阳光斜射穿过落地玻璃窗留下的几何光影，安藤忠雄极简宁静禅意风格',
+    promptEn:
+        'Minimalist architectural interior, fair-faced concrete and warm oak wood, dramatic geometric afternoon sunlight through floor-to-ceiling windows, serene Tadao Ando aesthetic',
+  ),
+];
+
+const _agentSuggestions = [
+  _InspirationCardData(
+    icon: Icons.lightbulb_outlined,
+    titleZh: '创意构思企划',
+    titleEn: 'Concept Brainstorm',
+    descZh: '构思赛博朋克科幻世界观与主角设定',
+    descEn: 'Sci-fi worldbuilding & character lore',
+    promptZh:
+        '帮我构思一个近未来赛博朋克侦探故事的世界观背景与主角设定，包括核心冲突和代表性视觉元素。',
+    promptEn:
+        'Brainstorm a gritty near-future cyberpunk detective story setting, main character lore, and key visual aesthetics.',
+  ),
+  _InspirationCardData(
+    icon: Icons.auto_awesome_mosaic_outlined,
+    titleZh: '视觉图像方案',
+    titleEn: 'Image Concept Set',
+    descZh: '深海探索科技公司品牌视觉方案',
+    descEn: 'Visual prompts for deep-sea tech brand',
+    promptZh:
+        '为一家专注于深海探索的科技公司设计 3 组具有未来感和科技感的品牌视觉图像构思与提示词。',
+    promptEn:
+        'Design 3 futuristic brand visual concepts and generation prompts for a deep-sea exploration technology company.',
+  ),
+  _InspirationCardData(
+    icon: Icons.terminal_rounded,
+    titleZh: '技术架构设计',
+    titleEn: 'Architecture & Code',
+    descZh: '设计高并发缓存与消息队列容灾策略',
+    descEn: 'Resilient caching & message queue strategies',
+    promptZh:
+        '请帮我梳理一套高性能分布式系统的缓存与消息队列设计方案，并分析关键容灾策略。',
+    promptEn:
+        'Help me design a resilient caching and message queue strategy for high-throughput distributed architectures.',
+  ),
+  _InspirationCardData(
+    icon: Icons.slideshow_rounded,
+    titleZh: '演示文稿策划',
+    titleEn: 'Presentation Deck',
+    descZh: '制作 AI 创作工具产品发布会 10 页演讲大纲',
+    descEn: '10-slide keynote outline for product launch',
+    promptZh:
+        '为一款全新 AI 创作工具的产品发布会制作一份 10 页 PPT 演讲大纲，结构清晰并突出核心亮点。',
+    promptEn:
+        'Create a structured 10-slide keynote presentation deck outline for an innovative AI creator studio launch.',
+  ),
+];

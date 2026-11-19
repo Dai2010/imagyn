@@ -1,0 +1,148 @@
+# 从预览标签构建三端二进制，并在所有产物齐备后发布。
+name: 三端预览发布
+
+on:
+  push:
+    branches: ['codex/preview6-release']
+    tags: ['v*-preview*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.47.9'
+  RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.3.0-preview6' }}
+
+jobs:
+  build:
+    if: >-
+      (github.ref_type == 'tag' && contains(github.ref_name, '-preview')) ||
+      github.ref == 'refs/heads/codex/preview6-release'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-24.04
+          - platform: windows
+            runner: windows-2022
+          - platform: android
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev libsecret-1-dev
+
+      - if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - if: matrix.platform == 'android'
+        uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: 'false'
+      - if: matrix.platform == 'android'
+        run: |
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' \
+            'ndk;28.2.13676358' 'cmake;3.22.1'
+          python3 scripts/scaffold_platforms.py android --preview
+      - if: matrix.platform != 'android'
+        shell: bash
+        run: python scripts/scaffold_platforms.py "${{ matrix.platform }}"
+      - run: flutter pub get --enforce-lockfile
+
+      - if: matrix.platform == 'linux'
+        run: |
+          flutter build linux --release --no-pub
+          mkdir dist
+          tar -czf "dist/Imagyn-${RELEASE_TAG}-linux-x86_64.tar.gz" \
+            -C build/linux/x64/release/bundle .
+
+      - if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          flutter build windows --release --no-pub
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory dist | Out-Null
+          Compress-Archive -Path build/windows/x64/runner/Release/* `
+            -DestinationPath "dist/Imagyn-$env:RELEASE_TAG-windows-x64.zip"
+
+      - if: matrix.platform == 'android'
+        run: |
+          flutter build apk --release --split-per-abi --no-pub
+          mkdir dist
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            cp "build/app/outputs/flutter-apk/app-$abi-release.apk" \
+              "dist/Imagyn-${RELEASE_TAG}-android-$abi.apk"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: 生成校验值和发布说明
+        run: |
+          (cd dist && sha256sum -- * > SHA256SUMS)
+          {
+            if [[ "$RELEASE_TAG" == v0.3.0-preview6 ]]; then
+              cat <<'NOTES'
+          ## 本次更新
+
+          - Linux 和 Windows 增加石墨交通灯标题栏，支持拖动、缩放、
+            最小化、最大化和关闭。
+          - 生成页更新灵感卡片，侧栏跟随浅色／深色主题；画廊按需读取条目。
+          - Android 窄屏设置页将保存按钮移到顶部，补齐 HTTPS 浏览器声明。
+          - Agent 网页抓取修复 HTTPS 握手、总超时和多种文本格式处理。
+          NOTES
+            fi
+            cat <<'NOTES'
+
+          ## 下载与运行
+
+          - **Linux x86_64** 解压整个 tar.gz，运行 `./imagyn`。
+          - **Windows x64** 解压整个 ZIP，双击 `imagyn.exe`。
+          - **Android 7.0+** 按设备选择 ARM64、ARMv7 或 x86_64 APK。
+
+          Android 使用独立预览包名 `app.imagyn.preview` 和构建环境的
+          调试签名。覆盖安装需与已安装包的签名一致。桌面包为未签名便携包。
+          下载后可用 `SHA256SUMS` 校验文件。
+          NOTES
+            printf '\n构建提交：`%s`。\n' "$(git rev-parse HEAD)"
+          } > NOTES.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Imagyn ${{ env.RELEASE_TAG }}（Linux / Windows / Android）
+          prerelease: true
+          make_latest: false
+          body_path: NOTES.md
+          fail_on_unmatched_files: true
+          files: dist/*

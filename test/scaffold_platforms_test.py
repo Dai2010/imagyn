@@ -9,6 +9,46 @@ from unittest.mock import patch
 from scripts import scaffold_platforms
 
 
+class AndroidScaffoldTest(unittest.TestCase):
+    def test_https_query_coexists_with_flutter_text_query(self):
+        template = (
+            '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+            '<queries><intent><action android:name="android.intent.action.PROCESS_TEXT"/>'
+            '</intent></queries></manifest>'
+        )
+        output = scaffold_platforms.add_browser_query(template)
+        self.assertIn('android.intent.action.PROCESS_TEXT', output)
+        self.assertIn('android.intent.action.VIEW', output)
+        self.assertEqual(output.count('<queries>'), 1)
+        self.assertEqual(scaffold_platforms.add_browser_query(output), output)
+
+
+class LinuxScaffoldTest(unittest.TestCase):
+    def test_linux_uses_application_frame_after_regeneration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            generated = root / "template"
+            runner = generated / "linux" / "runner" / "my_application.cc"
+            runner.parent.mkdir(parents=True)
+            runner.write_text(
+                "  // Use a header bar when running in GNOME\n"
+                "  gtk_window_set_titlebar(window, header);\n"
+                "  gtk_window_set_default_size(window, 1280, 720);\n"
+            )
+            with (
+                patch.object(scaffold_platforms, "ROOT", root),
+                patch.object(scaffold_platforms, "generate",
+                             return_value=generated),
+                patch("sys.argv", ["scaffold_platforms.py", "linux"]),
+            ):
+                scaffold_platforms.main()
+            output = root / "linux" / "runner" / runner.name
+            patched = output.read_text()
+            self.assertIn("gtk_window_set_decorated(window, FALSE);", patched)
+            scaffold_platforms.patch_linux(root / "linux")
+            self.assertEqual(output.read_text(), patched)
+
+
 class MacosScaffoldTest(unittest.TestCase):
     def test_scaffold_grants_file_and_keychain_access_in_both_configurations(self):
         with tempfile.TemporaryDirectory() as temporary:

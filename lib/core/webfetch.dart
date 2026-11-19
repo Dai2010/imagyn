@@ -54,7 +54,7 @@ class FetchResult {
   /// What the model receives. The header states the source and the size so a
   /// truncated page is never mistaken for the whole document.
   String asToolResult({int maxChars = maxFetchChars}) {
-    final runes = text.runes.toList();
+    final runes = text.runes.take(maxChars + 1).toList();
     final clipped = runes.length > maxChars;
     final body = clipped
         ? '${String.fromCharCodes(runes.take(maxChars))}\n\n[truncated]'
@@ -63,7 +63,7 @@ class FetchResult {
     if (title.isNotEmpty) buffer.writeln('TITLE: $title');
     buffer
       ..writeln(
-        'HTTP: $status · $bytes bytes · '
+        '${server ? 'Local HTTP' : 'HTTP'}: $status · $bytes bytes · '
         '${format == FetchFormat.markdown ? 'markdown' : 'text'}'
         '${server ? ' · fetched by the service' : ''}'
         '${truncated || clipped ? ' (truncated)' : ''}',
@@ -98,26 +98,32 @@ Future<FetchResult> fetchUrl(
   // that changed in between can point the request at a private address.
   final pinned = <String, InternetAddress>{};
   if (owned) {
-    http.connectionFactory = (url, proxyHost, proxyPort) {
+    http.connectionFactory = (url, proxyHost, proxyPort) async {
       if (proxyHost != null) throw const FormatException('fetchProxy');
       final address = pinned[url.host];
       if (address == null) throw const FormatException('fetchPrivate');
-      return Socket.startConnect(address, url.port);
+      final tcp = await Socket.startConnect(address, url.port);
+      if (url.scheme == 'http') return tcp;
+      // 连接已验证的 IP，使用原始域名发送 SNI 并验证证书。
+      final secure = tcp.socket.then(
+        (socket) => SecureSocket.secure(socket, host: url.host),
+      );
+      return ConnectionTask.fromSocket(secure, tcp.cancel);
     };
   }
   // One deadline for the whole operation: `Stream.timeout` only fires when the
   // gap between chunks is too long, so a server dripping one byte every few
   // seconds could otherwise keep the fetch alive forever.
-  final deadline = DateTime.now().add(fetchTimeout);
+  final watch = Stopwatch()..start();
   Duration remaining() {
-    final left = deadline.difference(DateTime.now());
+    final left = fetchTimeout - watch.elapsed;
     if (left <= Duration.zero) throw const FormatException('fetchTimeout');
     return left;
   }
 
   try {
     for (var hop = 0; hop <= maxFetchRedirects; hop++) {
-      pinned[uri.host] = await policy(uri);
+      pinned[uri.host] = await policy(uri).timeout(remaining());
       final request = await http.getUrl(uri).timeout(remaining());
       request
         ..followRedirects = false
@@ -160,15 +166,20 @@ Future<FetchResult> fetchUrl(
       }
       final bytes = <int>[];
       var truncated = false;
-      await for (final chunk in response.timeout(remaining())) {
-        remaining();
-        final room = maxFetchBytes - bytes.length;
-        if (chunk.length > room) {
-          bytes.addAll(chunk.take(room));
-          truncated = true;
-          break;
+      final stream = StreamIterator(response);
+      try {
+        while (await stream.moveNext().timeout(remaining())) {
+          final chunk = stream.current;
+          final room = maxFetchBytes - bytes.length;
+          if (chunk.length > room) {
+            bytes.addAll(chunk.take(room));
+            truncated = true;
+            break;
+          }
+          bytes.addAll(chunk);
         }
-        bytes.addAll(chunk);
+      } finally {
+        await stream.cancel();
       }
       final charset = response.headers.contentType?.charset ?? 'utf-8';
       var text = _decode(bytes, charset);
@@ -215,23 +226,24 @@ String _socketCode(SocketException error) {
   final code = error.osError?.errorCode;
   final text =
       '${error.message} ${error.osError?.message ?? ''}'.toLowerCase();
-  if (text.contains('refused') || code == 111 || code == 61) {
+  if (text.contains('refused') || code == 111 || code == 61 || code == 10061) {
     return 'fetchRefused';
   }
   if (text.contains('host lookup') ||
       text.contains('name or service not known') ||
       text.contains('nodename nor servname') ||
       code == 7 ||
-      code == 8) {
+      code == 8 || code == 11001) {
     return 'fetchDns';
   }
-  if (text.contains('reset') || code == 104 || code == 54) {
+  if (text.contains('reset') || code == 104 || code == 54 || code == 10054) {
     return 'fetchReset';
   }
-  if (text.contains('timed out') || code == 110) {
+  if (text.contains('timed out') || code == 110 || code == 10060) {
     return 'fetchTimeout';
   }
-  if (text.contains('unreachable') || code == 101 || code == 113) {
+  if (text.contains('unreachable') || code == 101 || code == 113 ||
+      code == 10051 || code == 10065) {
     return 'fetchUnreachable';
   }
   return code == null ? 'fetchSocket' : 'fetchSocket $code';
@@ -246,17 +258,9 @@ String _socketCode(SocketException error) {
 bool fetchWantsService(String code) =>
     code == 'fetchStatus 403' || code == 'fetchStatus 429';
 
-/// Reads at most a small amount before letting the connection go. A redirect or
-/// an error page can be arbitrarily large, and draining it fully is how a
-/// rejected response turns into a hang.
-Future<void> _discard(HttpClientResponse response) async {
-  try {
-    await response.take(64 * 1024).drain<void>();
-  } on Object {
-    // The connection is closed either way.
-    return;
-  }
-}
+/// 直接取消不需要的响应，错误页和重定向无需等待正文。
+Future<void> _discard(HttpClientResponse response) =>
+    response.listen(null).cancel();
 
 Uri _parse(String raw) {
   final uri = Uri.tryParse(raw.trim());
@@ -274,6 +278,7 @@ bool _readable(String mime) =>
     mime == 'text/plain' ||
     mime == 'application/json' ||
     mime == 'text/markdown' ||
+    mime == 'text/x-markdown' ||
     mime == 'text/xml' ||
     mime == 'application/xml';
 
@@ -328,7 +333,16 @@ bool _isPrivate(InternetAddress address) {
 
 String _decode(List<int> bytes, String charset) {
   final name = charset.toLowerCase();
-  if (name == 'iso-8859-1' || name == 'latin1' || name == 'windows-1252') {
+  if (name == 'windows-1252' || name == 'cp1252') {
+    // Windows-1252 在 0x80 至 0x9f 区间另有标点和货币符号。
+    const punctuation = '€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008dŽ\u008f'
+        '\u0090‘’“”•–—˜™š›œ\u009džŸ';
+    return String.fromCharCodes(bytes.map((byte) =>
+        byte >= 0x80 && byte <= 0x9f
+            ? punctuation.codeUnitAt(byte - 0x80)
+            : byte));
+  }
+  if (name == 'iso-8859-1' || name == 'latin1') {
     return latin1.decode(bytes, allowInvalid: true);
   }
   return utf8.decode(bytes, allowMalformed: true);
@@ -376,7 +390,7 @@ String htmlToMarkdown(String html, Uri base) {
     return '\u0000${blocks.length - 1}\u0000';
   }
 
-  var text = html
+  var text = html.replaceAll('\u0000', '\uFFFD')
       .replaceAll(
         RegExp(
           r'<(script|style|noscript|template|svg|head)[^>]*>[\s\S]*?</\1>',
@@ -454,7 +468,7 @@ String htmlToMarkdown(String html, Uri base) {
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
       if (href.isEmpty || label.isEmpty) return label;
-      if (label == href) return '<$href>';
+      if (label == href) return href;
       return '[$label]($href)';
     },
   );

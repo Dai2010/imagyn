@@ -34,6 +34,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FLUTTER_VERSION: '3.47.9'
+
 concurrency:
   # Keyed on the event as well as the ref, so a manual run does not queue behind
   # — or cancel — the build that a push to main just started.
@@ -49,11 +52,11 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - run: python3 scripts/scaffold_platforms.py android --preview
@@ -127,7 +130,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - id: version
@@ -152,7 +155,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Install the packaging tools
@@ -193,7 +196,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - id: version

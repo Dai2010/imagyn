@@ -1,41 +1,34 @@
 import 'package:flutter/material.dart';
 
-/// The shape of the app: one purple accent, glass surfaces and a spacing scale
-/// wide enough that a screen does not read as a control panel.
-///
-/// The blur is simulated with a translucent fill and a light border. A real
-/// `BackdropFilter` over a scrolling list costs frames on the Android phones
-/// this app targets, and the difference is hard to see at this opacity.
+/// Google Material 3 tokens: balanced tonal surfaces, subtle elevation
+/// shadows, and authentic Google adaptive palettes for light and dark modes.
 class StudioVisuals {
   const StudioVisuals._();
 
-  static const seed = Color(0xff7c5ce0);
-  static const accent = Color(0xff9b7bff);
+  static const seed = Color(0xff0b57d0);
+  static const accent = Color(0xffa8c7fa);
 
   static const pagePadding = 20.0;
   static const gap = 16.0;
   static const gapLarge = 24.0;
 
-  static const cardRadius = 24.0;
+  static const cardRadius = 20.0;
   static const fieldRadius = 16.0;
 
   static LinearGradient background(Brightness brightness) =>
       brightness == Brightness.dark
       ? const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xff191324), Color(0xff120f18), Color(0xff0d0b12)],
-          stops: [0, .55, 1],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xff131314), Color(0xff181a1b)],
         )
       : const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xfff6f1ff), Color(0xfffbfaff), Color(0xfff1ebff)],
-          stops: [0, .55, 1],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xfff8f9fa), Color(0xffffffff)],
         );
 
-  /// A card fill that lets the page gradient show through, with a border just
-  /// bright enough to separate it from the background.
+  /// Material 3 card container with clean tonal fill and soft elevation.
   static BoxDecoration glass(
     BuildContext context, {
     double radius = cardRadius,
@@ -43,30 +36,54 @@ class StudioVisuals {
     final scheme = Theme.of(context).colorScheme;
     final dark = scheme.brightness == Brightness.dark;
     return BoxDecoration(
-      color: scheme.surface.withValues(alpha: dark ? .72 : .84),
+      color: dark ? scheme.surfaceContainerHigh : Colors.white,
       borderRadius: BorderRadius.circular(radius),
       border: Border.all(
-        color: scheme.primary.withValues(alpha: dark ? .26 : .14),
+        color: scheme.outlineVariant.withValues(alpha: dark ? .65 : .8),
       ),
       boxShadow: [
         BoxShadow(
-          color: Colors.black.withValues(alpha: dark ? .32 : .06),
-          blurRadius: 28,
-          offset: const Offset(0, 14),
-        ),
-        BoxShadow(
-          color: scheme.primary.withValues(alpha: dark ? .10 : .06),
-          blurRadius: 48,
-          spreadRadius: -8,
+          color: dark
+              ? const Color(0x33000000)
+              : const Color(0x0a000000),
+          blurRadius: 16,
+          offset: const Offset(0, 4),
         ),
       ],
     );
   }
 }
 
-/// Paints the two soft colour fields behind every main screen. They are cheap
-/// gradients, not images, and they sit under the content rather than blurring
-/// it.
+/// A card whose shadow sits outside the layer that repaints during interaction.
+/// The ink splash of a tap, or a text field's caret, repaints only the material
+/// inside the boundary. Without it, each splash frame re-rasterises the blurred
+/// shadow along with everything in the same layer, which reads as a stutter
+/// after the tap.
+class StudioSurface extends StatelessWidget {
+        const StudioSurface({
+                super.key,
+                required this.child,
+                this.radius = StudioVisuals.cardRadius,
+        });
+        final Widget child;
+        final double radius;
+
+        @override
+        Widget build(BuildContext context) => DecoratedBox(
+                decoration: StudioVisuals.glass(context, radius: radius),
+                child: RepaintBoundary(
+                        child: Material(
+                                color: Colors.transparent,
+                                borderRadius: BorderRadius.circular(radius),
+                                clipBehavior: Clip.antiAlias,
+                                child: child,
+                        ),
+                ),
+        );
+}
+
+/// Provides the base neutral canvas behind every screen without distracting
+/// corner spotlights or heavy gradients.
 class StudioPageBackground extends StatelessWidget {
   const StudioPageBackground({super.key, required this.child});
   final Widget child;
@@ -74,55 +91,11 @@ class StudioPageBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final scheme = Theme.of(context).colorScheme;
-    final dark = brightness == Brightness.dark;
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: StudioVisuals.background(brightness),
-            ),
-          ),
-        ),
-        Positioned(
-          top: -140,
-          right: -120,
-          child: _Glow(
-            color: scheme.primary.withValues(alpha: dark ? .28 : .16),
-            size: 360,
-          ),
-        ),
-        Positioned(
-          bottom: -180,
-          left: -140,
-          child: _Glow(
-            color: StudioVisuals.accent.withValues(alpha: dark ? .16 : .10),
-            size: 380,
-          ),
-        ),
-        Positioned.fill(child: child),
-      ],
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: StudioVisuals.background(brightness),
+      ),
+      child: child,
     );
   }
-}
-
-class _Glow extends StatelessWidget {
-  const _Glow({required this.color, required this.size});
-  final Color color;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) => IgnorePointer(
-    child: Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          colors: [color, color.withValues(alpha: 0)],
-        ),
-      ),
-    ),
-  );
 }
